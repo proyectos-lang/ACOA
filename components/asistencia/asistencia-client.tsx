@@ -2,7 +2,7 @@
 
 import React, { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, AlertTriangle, RefreshCw, Download, Search } from "lucide-react"
+import { CheckCircle2, AlertTriangle, RefreshCw, Download, Search, ClipboardPen } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { AsistenciaDiaRow } from "@/lib/db/asistencia-dia"
 import type { HistorialRow } from "@/lib/types"
@@ -12,7 +12,14 @@ import {
   actualizarUmbralAction,
   actualizarHorasExtraAction,
   filtrarHistorialAction,
+  marcarManualAction,
 } from "@/app/(dashboard)/asistencia/actions"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 type RegistroConPersona = AsistenciaDiaRow & {
   persona: { nombre: string; documento: string; tipo_pago: string } | null
@@ -57,14 +64,102 @@ function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
   )
 }
 
+// ── Dialog marcar manual ──────────────────────────────────────────────────────
+
+function MarcarManualDialog({
+  open,
+  onClose,
+  onSuccess,
+  personas,
+  fechaDefault,
+}: {
+  open: boolean
+  onClose: () => void
+  onSuccess: () => void
+  personas: PersonaRow[]
+  fechaDefault: string
+}) {
+  const [isPending, startTransition] = useTransition()
+  const [err, setErr] = React.useState<string | null>(null)
+  const formRef = React.useRef<HTMLFormElement>(null)
+
+  React.useEffect(() => { if (open) setErr(null) }, [open])
+
+  const fieldCls =
+    "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966] bg-white"
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget)
+    startTransition(async () => {
+      const res = await marcarManualAction(fd)
+      if (res.error) { setErr(res.error) }
+      else { onClose(); onSuccess(); formRef.current?.reset() }
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-sm rounded-2xl">
+        <DialogHeader>
+          <DialogTitle>Marcar asistencia manual</DialogTitle>
+        </DialogHeader>
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-stone-700">Persona</label>
+            <select name="persona_id" required className={fieldCls}>
+              <option value="">Selecciona una persona…</option>
+              {personas.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nombre} — {p.documento}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-stone-700">Fecha</label>
+            <input type="date" name="fecha" defaultValue={fechaDefault} required className={fieldCls} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-stone-700">Hora entrada</label>
+              <input type="time" name="hora_entrada" required className={fieldCls} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium text-stone-700">Hora salida</label>
+              <input type="time" name="hora_salida" required className={fieldCls} />
+            </div>
+          </div>
+          {err && (
+            <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {err}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={isPending}
+            className="w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-colors"
+            style={{ backgroundColor: "#344966" }}
+          >
+            {isPending ? "Guardando…" : "Registrar asistencia"}
+          </button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ── Tab "Asistencia del día" ──────────────────────────────────────────────────
 
 function DiaTab({
   fechaInicial,
   registrosInicial,
+  personas,
 }: {
   fechaInicial: string
   registrosInicial: RegistroConPersona[]
+  personas: PersonaRow[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -73,6 +168,7 @@ function DiaTab({
   const [toast, setToast] = useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [umbralEdit, setUmbralEdit] = useState<Record<number, string>>({})
   const [extraEdit, setExtraEdit] = useState<Record<number, string>>({})
+  const [manualOpen, setManualOpen] = useState(false)
 
   React.useEffect(() => { setRegistros(registrosInicial) }, [registrosInicial])
 
@@ -142,10 +238,25 @@ function DiaTab({
           <RefreshCw className={`h-4 w-4 ${isPending ? "animate-spin" : ""}`} />
           Consolidar día
         </button>
+        <button
+          onClick={() => setManualOpen(true)}
+          className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 transition-colors"
+        >
+          <ClipboardPen className="h-4 w-4" />
+          Marcar manual
+        </button>
         <span className="text-sm text-stone-400 ml-auto">
           {registros.length} persona(s) consolidada(s)
         </span>
       </div>
+
+      <MarcarManualDialog
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        onSuccess={() => { showToast("ok", "Asistencia registrada"); router.refresh() }}
+        personas={personas}
+        fechaDefault={fecha}
+      />
 
       {toast && <Toast tipo={toast.tipo} msg={toast.msg} />}
 
@@ -592,7 +703,7 @@ export function AsistenciaClient({ fecha, registros, personas }: Props) {
         <TabsTrigger value="historial">Historial</TabsTrigger>
       </TabsList>
       <TabsContent value="dia">
-        <DiaTab fechaInicial={fecha} registrosInicial={registros} />
+        <DiaTab fechaInicial={fecha} registrosInicial={registros} personas={personas} />
       </TabsContent>
       <TabsContent value="historial">
         <HistorialTab personas={personas} />

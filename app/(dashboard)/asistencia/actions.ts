@@ -240,6 +240,68 @@ export async function actualizarHorasExtraAction(
   }
 }
 
+export async function marcarManualAction(formData: FormData): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  const personaId = parseInt((formData.get("persona_id") as string) ?? "")
+  const fecha = (formData.get("fecha") as string | null) ?? ""
+  const horaEntrada = (formData.get("hora_entrada") as string | null) ?? ""
+  const horaSalida = (formData.get("hora_salida") as string | null) ?? ""
+
+  if (!personaId || !fecha || !horaEntrada || !horaSalida) {
+    return { error: "Todos los campos son requeridos" }
+  }
+
+  try {
+    const [config, festivosSet] = await Promise.all([
+      getConfigVigente(fecha),
+      getFestivosSet(fecha, fecha),
+    ])
+    if (!config) return { error: "Sin configuración de nómina vigente para esta fecha" }
+
+    const entradaMin = parseMinutes(horaEntrada)
+    let salidaMin = parseMinutes(horaSalida)
+    if (salidaMin <= entradaMin) salidaMin += 1440 // turno nocturno cruzado
+
+    const horasTrabajadas = Math.round(((salidaMin - entradaMin) / 60) * 100) / 100
+
+    const nocIni = parseMinutes(config.hora_inicio_nocturno)
+    const nocFin = parseMinutes(config.hora_fin_nocturno)
+    const minNoc = calcularMinNocturnas(entradaMin, Math.min(salidaMin, 1440), nocIni, nocFin)
+    const horasNocturnas = Math.round((minNoc / 60) * 100) / 100
+
+    const umbral = config.umbral_horas_extra_diario
+    const extra = Math.max(0, Math.round((horasTrabajadas - umbral) * 100) / 100)
+    const ordinarias = Math.round((horasTrabajadas - extra) * 100) / 100
+
+    const esFestivo = festivosSet.has(fecha)
+    const esDomingo = new Date(fecha + "T12:00:00Z").getUTCDay() === 0
+
+    await upsertAsistenciaDia({
+      persona_id: personaId,
+      fecha,
+      hora_entrada: horaEntrada,
+      hora_salida: horaSalida,
+      umbral_horas_extra: umbral,
+      horas_trabajadas: horasTrabajadas,
+      horas_ordinarias: ordinarias,
+      horas_extra: extra,
+      horas_nocturnas: horasNocturnas,
+      trabajado: horasTrabajadas > 0,
+      es_festivo: esFestivo,
+      es_domingo: esDomingo,
+      observacion: null,
+      creado_por: session.userId,
+    })
+
+    revalidatePath("/asistencia")
+    return { success: true }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Error registrando asistencia manual" }
+  }
+}
+
 export async function filtrarHistorialAction(params: {
   fechaDesde: string
   fechaHasta: string
