@@ -86,7 +86,7 @@ export interface VSeguimientoLote {
   referencia: string
   op_descripcion: string | null
   estado_op: string
-  capas: number
+  total_capas: number
   nombre_estampador: string | null
   fecha_retorno_estampacion: string | null
   nombre_confeccionista: string | null

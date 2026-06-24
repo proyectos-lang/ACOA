@@ -7,6 +7,7 @@ import { updateHojaCostos } from "@/lib/db/hoja-costos"
 import { sumValorPorPrenda } from "@/lib/db/op-material"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getOrdenById } from "@/lib/db/orden-produccion"
+import { getOpTelas } from "@/lib/db/op-tela"
 
 export interface CostosActionResult {
   error?: string
@@ -56,14 +57,16 @@ export async function guardarHojaCostosAction(
     const pvRaw = parseFloat((formData.get("precio_venta") as string | null) ?? "")
     const precio_venta = isNaN(pvRaw) || pvRaw === 0 ? null : pvRaw
 
-    const [costo_m_raw, curva, orden] = await Promise.all([
+    const [costo_m_raw, curva, orden, opTelas] = await Promise.all([
       sumValorPorPrenda(ordenId),
       getCurvaTallas(ordenId),
       getOrdenById(ordenId),
+      getOpTelas(ordenId),
     ])
     const costo_materiales = Math.round(costo_m_raw * 10000) / 10000
     const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
-    const total_unidades = (orden?.capas ?? 1) * curva.length
+    const totalCapas = opTelas.reduce((s, t) => s + t.capas, 0) || (orden?.capas ?? 1)
+    const total_unidades = totalCapas * curva.length
 
     await updateHojaCostos(ordenId, {
       ...valoresFijos,

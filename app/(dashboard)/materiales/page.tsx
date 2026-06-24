@@ -2,7 +2,7 @@ import { requirePermiso } from "@/lib/auth/require-permiso"
 import { listMateriales, getDistinctTipos, getDistinctUnidades } from "@/lib/db/material"
 import { MaterialesClient } from "@/components/materiales/materiales-client"
 import Link from "next/link"
-import { BarChart2 } from "lucide-react"
+import { BarChart2, Palette } from "lucide-react"
 
 export default async function MaterialesPage({
   searchParams,
@@ -30,13 +30,22 @@ export default async function MaterialesPage({
           </h1>
           <p className="text-sm text-stone-500 mt-1">Maestro de materiales e insumos</p>
         </div>
-        <Link
-          href="/materiales/inventario"
-          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm hover:bg-stone-50 transition-colors"
-        >
-          <BarChart2 className="h-4 w-4 text-stone-500" />
-          Inventario
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/materiales/colores"
+            className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm hover:bg-stone-50 transition-colors"
+          >
+            <Palette className="h-4 w-4 text-stone-500" />
+            Colores
+          </Link>
+          <Link
+            href="/materiales/inventario"
+            className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm hover:bg-stone-50 transition-colors"
+          >
+            <BarChart2 className="h-4 w-4 text-stone-500" />
+            Inventario
+          </Link>
+        </div>
       </div>
       <MaterialesClient
         materiales={materiales}

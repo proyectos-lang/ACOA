@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth/session"
 import { updateOrden, uploadMolde, cambiarEstado } from "@/lib/db/orden-produccion"
 import { addOpMaterial, updateOpMaterial, deleteOpMaterial } from "@/lib/db/op-material"
 import { batchReplaceCurvaTallas } from "@/lib/db/curva-talla"
-import { upsertOpTela } from "@/lib/db/op-tela"
+import { upsertOpTela, deleteOpTelaColor } from "@/lib/db/op-tela"
 import { createLoteDesdeOP } from "@/lib/db/lote"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
@@ -167,16 +167,35 @@ export async function guardarOpTelaAction(
   ordenId: number,
   slot: 1 | 2 | 3,
   tipoTela: string | null,
-  color: string | null
+  color: string,
+  capas: number
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
+  if (!color.trim()) return { error: "El color es requerido" }
+  if (!capas || capas < 1) return { error: "Capas debe ser al menos 1" }
   try {
-    await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color: color || null, creado_por: session.userId })
+    await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color, capas, creado_por: session.userId })
     revalidatePath(`/produccion/${ordenId}`)
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error guardando material de tela" }
+  }
+}
+
+export async function eliminarOpTelaColorAction(
+  ordenId: number,
+  slot: 1 | 2 | 3,
+  color: string
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+  try {
+    await deleteOpTelaColor(ordenId, slot, color)
+    revalidatePath(`/produccion/${ordenId}`)
+    return { success: true }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Error eliminando color de tela" }
   }
 }
 

@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { Plus, Eye, AlertTriangle, CheckCircle2, FileText } from "lucide-react"
+import { Plus, Eye, AlertTriangle, CheckCircle2, FileText, Trash2 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import { ESTADO_OP_LABEL, ESTADO_OP_COLOR } from "@/lib/db/orden-produccion"
 import { crearOrdenAction } from "@/app/(dashboard)/produccion/actions"
@@ -28,10 +28,13 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
   const [error, setError] = React.useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const formRef = React.useRef<HTMLFormElement>(null)
+  const [lotes, setLotes] = React.useState<string[]>([])
+  const [nuevoLote, setNuevoLote] = React.useState("")
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
+    lotes.forEach((l) => fd.append("lote_nombre", l))
     startTransition(async () => {
       const res = await crearOrdenAction(fd)
       if (res.error) {
@@ -40,6 +43,17 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
         onSuccess(res.id)
       }
     })
+  }
+
+  function addLote() {
+    const l = nuevoLote.trim()
+    if (!l) return
+    setLotes((p) => [...p, l])
+    setNuevoLote("")
+  }
+
+  function removeLote(i: number) {
+    setLotes((p) => p.filter((_, idx) => idx !== i))
   }
 
   const fieldCls =
@@ -91,6 +105,48 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
           accept=".pdf,.dxf,.ai,.png,.jpg,.jpeg"
           className="w-full text-sm text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:px-3 file:py-1.5 file:text-xs file:font-medium file:bg-stone-100 file:text-stone-600 hover:file:bg-stone-200"
         />
+      </div>
+
+      {/* Lotes iniciales */}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-stone-700">Lotes iniciales</label>
+        {lotes.length > 0 && (
+          <div className="space-y-1">
+            {lotes.map((l, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="flex-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-700">
+                  {l}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeLote(i)}
+                  className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={nuevoLote}
+            onChange={(e) => setNuevoLote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLote() } }}
+            placeholder="Nombre / código del lote"
+            className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+          />
+          <button
+            type="button"
+            onClick={addLote}
+            className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Agregar
+          </button>
+        </div>
+        <p className="text-xs text-stone-400">Opcional. Puedes agregar los lotes después desde la ficha de la OP.</p>
       </div>
 
       {error && (

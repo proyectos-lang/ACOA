@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { getSession } from "@/lib/auth/session"
 import { createOrden, updateOrden, uploadMolde } from "@/lib/db/orden-produccion"
+import { createLoteDesdeOP } from "@/lib/db/lote"
 
 export interface OrdenActionResult {
   error?: string
@@ -39,6 +40,14 @@ export async function crearOrdenAction(formData: FormData): Promise<OrdenActionR
     if (moldeFile && moldeFile.size > 0) {
       const url = await uploadMolde(moldeFile, id)
       await updateOrden(id, { url_molde: url })
+    }
+
+    const loteNombres = formData.getAll("lote_nombre") as string[]
+    for (const nombre of loteNombres) {
+      const n = nombre.trim()
+      if (n) {
+        await createLoteDesdeOP({ orden_id: id, descripcion: n, cantidad_programada: 0 }, session.userId)
+      }
     }
 
     revalidatePath("/produccion")

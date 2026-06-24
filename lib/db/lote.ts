@@ -82,7 +82,7 @@ export async function createLote(input: {
 }
 
 export async function createLoteDesdeOP(
-  input: { orden_id: number; cantidad_programada: number; descripcion?: string },
+  input: { orden_id: number; cantidad_programada?: number; descripcion?: string },
   creadoPor: number
 ): Promise<number> {
   return createLote({
@@ -90,7 +90,7 @@ export async function createLoteDesdeOP(
     orden_id: input.orden_id,
     descripcion: input.descripcion ?? null,
     color: null,
-    cantidad_programada: input.cantidad_programada,
+    cantidad_programada: input.cantidad_programada ?? 0,
     estado: "cortado",
     creado_por: creadoPor,
   })
