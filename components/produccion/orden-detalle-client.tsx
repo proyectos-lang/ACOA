@@ -378,9 +378,17 @@ function CurvaTallasSection({
   const router = useRouter()
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
-  const [capas, setCapas] = React.useState(String(capasInicial))
-  const [isPendingTallas, startTallas] = useTransition()
-  const [isPendingCapas, startCapas] = useTransition()
+  const [capas, setCapas] = React.useState(String(capasInicial || 1))
+  const [isPending, startSave] = useTransition()
+
+  // Sincroniza desde el servidor cuando los props cambian (después de router.refresh)
+  React.useEffect(() => {
+    setTallas(inicial.map((r) => r.talla))
+  }, [inicial])
+
+  React.useEffect(() => {
+    setCapas(String(capasInicial || 1))
+  }, [capasInicial])
 
   function addTalla(talla: string) {
     const t = talla.trim().toUpperCase()
@@ -393,21 +401,22 @@ function CurvaTallasSection({
     setTallas((p) => p.filter((_, i) => i !== idx))
   }
 
-  function guardarTallas() {
-    startTallas(async () => {
-      const res = await guardarCurvaAction(ordenId, tallas)
-      if (res.error) onSaved(`Error: ${res.error}`)
-      else { onSaved("Tallas guardadas"); router.refresh() }
-    })
-  }
-
-  function guardarCapas() {
+  // Un solo botón guarda TANTO las tallas como las capas
+  function guardarCurva() {
     const n = parseInt(capas, 10)
-    if (!n || n < 1) return
-    startCapas(async () => {
-      const res = await guardarCapasAction(ordenId, n)
-      if (res.error) onSaved(`Error: ${res.error}`)
-      else { onSaved("Capas guardadas"); router.refresh() }
+    if (!n || n < 1) {
+      onSaved("Error: Las capas deben ser al menos 1")
+      return
+    }
+    startSave(async () => {
+      const [resTallas, resCapas] = await Promise.all([
+        guardarCurvaAction(ordenId, tallas),
+        guardarCapasAction(ordenId, n),
+      ])
+      if (resTallas.error) { onSaved(`Error al guardar tallas: ${resTallas.error}`); return }
+      if (resCapas.error) { onSaved(`Error al guardar capas: ${resCapas.error}`); return }
+      onSaved("Curva guardada")
+      router.refresh()
     })
   }
 
@@ -458,15 +467,6 @@ function CurvaTallasSection({
             onChange={(e) => setCapas(e.target.value)}
             className="rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-24 text-center"
           />
-          <button
-            onClick={guardarCapas}
-            disabled={isPendingCapas}
-            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
-            style={{ backgroundColor: "#344966" }}
-          >
-            <Save className="h-3 w-3" />
-            {isPendingCapas ? "Guardando…" : "Guardar"}
-          </button>
           <span className="text-xs text-stone-400">Número de capas de tela a cortar</span>
         </div>
       </div>
@@ -528,23 +528,29 @@ function CurvaTallasSection({
           >
             <Plus className="h-3 w-3" /> Agregar
           </button>
-          <button
-            onClick={guardarTallas}
-            disabled={isPendingTallas}
-            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
-            style={{ backgroundColor: "#344966" }}
-          >
-            <Save className="h-3 w-3" />
-            {isPendingTallas ? "Guardando…" : "Guardar tallas"}
-          </button>
         </div>
       </div>
 
       {/* Resumen total */}
-      <div className="rounded-xl bg-[#344966] px-4 py-3 flex items-center gap-3 text-sm">
-        <span className="text-white/70">{tallas.length} tallas × {capasNum} capas</span>
-        <span className="text-white/40">=</span>
-        <span className="font-bold text-white text-base">{totalUnidades.toLocaleString("es-CO")} unidades totales</span>
+      <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-3 flex items-center justify-between gap-3">
+        <span className="text-sm text-stone-600">
+          <span className="font-semibold text-stone-800">{tallas.length}</span> tallas
+          {" × "}
+          <span className="font-semibold text-stone-800">{capasNum}</span> capas
+          {" = "}
+          <span className="text-lg font-bold" style={{ color: "#344966" }}>
+            {totalUnidades.toLocaleString("es-CO")} unidades
+          </span>
+        </span>
+        <button
+          onClick={guardarCurva}
+          disabled={isPending}
+          className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 shrink-0"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-4 w-4" />
+          {isPending ? "Guardando…" : "Guardar curva"}
+        </button>
       </div>
     </div>
   )
@@ -1374,6 +1380,7 @@ export function OrdenDetalleClient({
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
   const [isPendingEnvio, startEnvio] = useTransition()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
+  const [activeTab, setActiveTab] = React.useState("info")
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -1444,8 +1451,8 @@ export function OrdenDetalleClient({
         )}
       </div>
 
-      {/* Tabs */}
-      <Tabs defaultValue="info">
+      {/* Tabs controlado: el tab activo no se resetea al hacer router.refresh() */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className={`grid w-full ${tieneVerCostos ? "grid-cols-6" : "grid-cols-5"}`}>
           <TabsTrigger value="info">General</TabsTrigger>
           <TabsTrigger value="curva">Curva</TabsTrigger>
