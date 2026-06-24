@@ -17,13 +17,13 @@ import type { HojaCostosRow } from "@/lib/db/hoja-costos"
 import { VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import type { OpTelaRow } from "@/lib/db/op-tela"
 import type { LoteRow } from "@/lib/db/lote"
-import type { ColorRow } from "@/lib/db/color"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   guardarInfoGeneralAction,
   guardarInstruccionesAction,
   guardarCurvaAction,
   guardarOpTelaAction,
+  guardarCapasAction,
   eliminarOpTelaColorAction,
   crearLoteAction,
   eliminarLoteAction,
@@ -59,7 +59,6 @@ interface Props {
   hojaCostos: HojaCostosRow | null
   opTelas: OpTelaRow[]
   lotes: LoteRow[]
-  colores: ColorRow[]
 }
 
 function padOP(n: number) {
@@ -221,13 +220,11 @@ function OpTelaSlotCard({
   ordenId,
   slot,
   iniciales,
-  colores,
   onMsg,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
   iniciales: OpTelaRow[]
-  colores: ColorRow[]
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
@@ -314,16 +311,13 @@ function OpTelaSlotCard({
         <div className="space-y-1.5">
           {filas.map((fila) => (
             <div key={fila.key} className="flex items-center gap-1.5">
-              <select
+              <input
+                type="text"
                 value={fila.color}
                 onChange={(e) => setFilaField(fila.key, "color", e.target.value)}
+                placeholder="Color"
                 className={`flex-1 ${inputCls}`}
-              >
-                <option value="">— Color —</option>
-                {colores.map((c) => (
-                  <option key={c.id} value={c.nombre}>{c.nombre}</option>
-                ))}
-              </select>
+              />
               <input
                 type="number"
                 min="1"
@@ -366,45 +360,59 @@ function OpTelaSlotCard({
   )
 }
 
+const TALLAS_PREDEFINIDAS = ["4", "6", "8", "10", "12", "14", "16", "S", "M", "L", "XL", "XXL"]
+
 function CurvaTallasSection({
   ordenId,
+  capasInicial,
   inicial,
   opTelas,
-  colores,
   onSaved,
 }: {
   ordenId: number
+  capasInicial: number
   inicial: CurvaTallaRow[]
   opTelas: OpTelaRow[]
-  colores: ColorRow[]
   onSaved: (msg: string) => void
 }) {
   const router = useRouter()
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
+  const [capas, setCapas] = React.useState(String(capasInicial))
   const [isPendingTallas, startTallas] = useTransition()
+  const [isPendingCapas, startCapas] = useTransition()
 
-  function addTalla() {
-    const t = nuevaTalla.trim().toUpperCase()
-    if (!t || tallas.includes(t)) return
+  function addTalla(talla: string) {
+    const t = talla.trim().toUpperCase()
+    if (!t) return
     setTallas((p) => [...p, t])
     setNuevaTalla("")
   }
 
-  function removeTalla(t: string) {
-    setTallas((p) => p.filter((x) => x !== t))
+  function removeTallaAt(idx: number) {
+    setTallas((p) => p.filter((_, i) => i !== idx))
   }
 
   function guardarTallas() {
     startTallas(async () => {
       const res = await guardarCurvaAction(ordenId, tallas)
       if (res.error) onSaved(`Error: ${res.error}`)
-      else { onSaved("Curva guardada"); router.refresh() }
+      else { onSaved("Tallas guardadas"); router.refresh() }
     })
   }
 
-  const totalCapas = opTelas.reduce((s, t) => s + t.capas, 0)
-  const totalUnidades = totalCapas * tallas.length
+  function guardarCapas() {
+    const n = parseInt(capas, 10)
+    if (!n || n < 1) return
+    startCapas(async () => {
+      const res = await guardarCapasAction(ordenId, n)
+      if (res.error) onSaved(`Error: ${res.error}`)
+      else { onSaved("Capas guardadas"); router.refresh() }
+    })
+  }
+
+  const capasNum = parseInt(capas, 10) || capasInicial || 1
+  const totalUnidades = capasNum * tallas.length
 
   const slotMap = new Map<number, OpTelaRow[]>()
   for (const t of opTelas) {
@@ -429,10 +437,37 @@ function CurvaTallasSection({
               ordenId={ordenId}
               slot={slot}
               iniciales={slotMap.get(slot) ?? []}
-              colores={colores}
               onMsg={onSaved}
             />
           ))}
+        </div>
+      </div>
+
+      {/* Sección: Capas */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <hr className="flex-1 border-stone-200" />
+          <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">Capas</span>
+          <hr className="flex-1 border-stone-200" />
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            min="1"
+            value={capas}
+            onChange={(e) => setCapas(e.target.value)}
+            className="rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-24 text-center"
+          />
+          <button
+            onClick={guardarCapas}
+            disabled={isPendingCapas}
+            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
+            style={{ backgroundColor: "#344966" }}
+          >
+            <Save className="h-3 w-3" />
+            {isPendingCapas ? "Guardando…" : "Guardar"}
+          </button>
+          <span className="text-xs text-stone-400">Número de capas de tela a cortar</span>
         </div>
       </div>
 
@@ -444,35 +479,51 @@ function CurvaTallasSection({
           <hr className="flex-1 border-stone-200" />
         </div>
 
+        {/* Botones rápidos */}
+        <div className="flex flex-wrap gap-1.5">
+          {TALLAS_PREDEFINIDAS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => addTalla(t)}
+              className="rounded-lg border border-stone-200 bg-white px-3 py-1 text-xs font-semibold text-stone-600 hover:bg-[#344966] hover:text-white hover:border-[#344966] transition-colors"
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Tallas seleccionadas */}
         {tallas.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {tallas.map((t) => (
-              <span key={t} className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">
+            {tallas.map((t, idx) => (
+              <span key={idx} className="inline-flex items-center gap-1 rounded-full bg-[#344966] px-3 py-1 text-xs font-semibold text-white">
                 {t}
                 <button
                   type="button"
-                  onClick={() => removeTalla(t)}
-                  className="ml-0.5 rounded-full hover:bg-stone-200 p-0.5 transition-colors"
+                  onClick={() => removeTallaAt(idx)}
+                  className="ml-0.5 rounded-full hover:bg-white/20 p-0.5 transition-colors"
                 >
-                  <Trash2 className="h-3 w-3 text-stone-500" />
+                  <Trash2 className="h-3 w-3" />
                 </button>
               </span>
             ))}
           </div>
         )}
 
+        {/* Input personalizado */}
         <div className="flex gap-2">
           <input
             type="text"
             value={nuevaTalla}
             onChange={(e) => setNuevaTalla(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTalla() } }}
-            className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-28"
-            placeholder="XS, S, M…"
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTalla(nuevaTalla) } }}
+            className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-36"
+            placeholder="Talla personalizada…"
           />
           <button
             type="button"
-            onClick={addTalla}
+            onClick={() => addTalla(nuevaTalla)}
             className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600"
           >
             <Plus className="h-3 w-3" /> Agregar
@@ -490,10 +541,10 @@ function CurvaTallasSection({
       </div>
 
       {/* Resumen total */}
-      <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-2.5 flex items-center gap-3 text-sm">
-        <span className="text-stone-500">{tallas.length} tallas × {totalCapas} capas totales</span>
-        <span className="text-stone-300">·</span>
-        <span className="font-bold text-stone-800">{totalUnidades.toLocaleString("es-CO")} unidades totales</span>
+      <div className="rounded-xl bg-[#344966] px-4 py-3 flex items-center gap-3 text-sm">
+        <span className="text-white/70">{tallas.length} tallas × {capasNum} capas</span>
+        <span className="text-white/40">=</span>
+        <span className="font-bold text-white text-base">{totalUnidades.toLocaleString("es-CO")} unidades totales</span>
       </div>
     </div>
   )
@@ -513,14 +564,12 @@ function LotesSection({
   orden,
   inicial,
   tallas,
-  opTelas,
   onMsg,
 }: {
   ordenId: number
   orden: OrdenProduccionRow
   inicial: LoteRow[]
   tallas: number
-  opTelas: OpTelaRow[]
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
@@ -531,8 +580,7 @@ function LotesSection({
   const [descripcion, setDescripcion] = React.useState("")
   const [isPending, startTransition] = useTransition()
 
-  const totalCapas = opTelas.reduce((s, t) => s + t.capas, 0) || orden.capas
-  const totalUnidades = totalCapas * tallas
+  const totalUnidades = orden.capas * tallas
   const totalLotificado = lotes.reduce((s, l) => s + l.cantidad_programada, 0)
   const pct = totalUnidades > 0 ? Math.min(100, Math.round((totalLotificado / totalUnidades) * 100)) : 0
 
@@ -1321,7 +1369,6 @@ export function OrdenDetalleClient({
   hojaCostos,
   opTelas,
   lotes,
-  colores,
 }: Props) {
   const router = useRouter()
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
@@ -1415,9 +1462,9 @@ export function OrdenDetalleClient({
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <CurvaTallasSection
             ordenId={orden.id}
+            capasInicial={orden.capas}
             inicial={curvaTallas}
             opTelas={opTelas}
-            colores={colores}
             onSaved={handleMsg}
           />
         </TabsContent>
@@ -1428,7 +1475,6 @@ export function OrdenDetalleClient({
             orden={orden}
             inicial={lotes}
             tallas={curvaTallas.length}
-            opTelas={opTelas}
             onMsg={handleMsg}
           />
         </TabsContent>
