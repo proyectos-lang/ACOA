@@ -245,6 +245,7 @@ function OpTelaSlotCard({
   inicialesLotes,
   tallasCount,
   onMsg,
+  onCapasChange,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
@@ -252,6 +253,7 @@ function OpTelaSlotCard({
   inicialesLotes: OpTelaLoteRow[]
   tallasCount: number
   onMsg: (m: string) => void
+  onCapasChange: (slot: 1 | 2 | 3, total: number) => void
 }) {
   const router = useRouter()
   const [isPending, startSave] = useTransition()
@@ -274,6 +276,14 @@ function OpTelaSlotCard({
     setLotes(s.lotes)
     setCapas(s.capas)
   }, [iniciales, inicialesLotes, slot])
+
+  // Reporta el total local de capas al padre cada vez que cambia la grilla
+  React.useEffect(() => {
+    const total = colores.reduce(
+      (s, c) => s + lotes.reduce((ls, l) => ls + (capas[c.key]?.[l.key] ?? 0), 0), 0
+    )
+    onCapasChange(slot, total)
+  }, [colores, lotes, capas, slot, onCapasChange])
 
   function addColor() {
     const key = crypto.randomUUID()
@@ -487,10 +497,19 @@ function CurvaTallasSection({
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
   const [isPending, startSave] = useTransition()
+  const [slotCapas, setSlotCapas] = React.useState<Record<number, number>>(() => ({
+    1: opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0),
+    2: opTelaLotes.filter((r) => r.slot === 2).reduce((s, r) => s + r.capas, 0),
+    3: opTelaLotes.filter((r) => r.slot === 3).reduce((s, r) => s + r.capas, 0),
+  }))
 
   React.useEffect(() => {
     setTallas(inicial.map((r) => r.talla))
   }, [inicial])
+
+  const handleCapasChange = React.useCallback((slot: 1 | 2 | 3, total: number) => {
+    setSlotCapas((p) => ({ ...p, [slot]: total }))
+  }, [])
 
   function addTalla(talla: string) {
     const t = talla.trim().toUpperCase()
@@ -512,7 +531,7 @@ function CurvaTallasSection({
     })
   }
 
-  const totalCapas = opTelaLotes.reduce((s, r) => s + r.capas, 0)
+  const totalCapas = Object.values(slotCapas).reduce((s, v) => s + v, 0)
   const totalUnidades = totalCapas * tallas.length
 
   return (
@@ -534,6 +553,7 @@ function CurvaTallasSection({
               inicialesLotes={opTelaLotes}
               tallasCount={tallas.length}
               onMsg={onSaved}
+              onCapasChange={handleCapasChange}
             />
           ))}
         </div>
