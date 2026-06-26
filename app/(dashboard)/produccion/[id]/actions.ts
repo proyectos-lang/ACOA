@@ -6,8 +6,9 @@ import { getSession } from "@/lib/auth/session"
 import { updateOrden, uploadMolde, cambiarEstado } from "@/lib/db/orden-produccion"
 import { addOpMaterial, updateOpMaterial, deleteOpMaterial } from "@/lib/db/op-material"
 import { batchReplaceCurvaTallas } from "@/lib/db/curva-talla"
-import { upsertOpTela, deleteOpTelaColor } from "@/lib/db/op-tela"
-import { createLoteDesdeOP } from "@/lib/db/lote"
+import { upsertOpTela, deleteOpTela } from "@/lib/db/op-tela"
+import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
+import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
 export interface ActionResult {
@@ -163,57 +164,61 @@ export async function deleteOpMaterialAction(
 
 // ── Materiales de tela por OP (slots 1-3) ────────────────────────────────────
 
-export async function guardarOpTelaAction(
+export async function guardarSlotAction(
   ordenId: number,
   slot: 1 | 2 | 3,
   tipoTela: string | null,
-  color: string,
-  capas: number
+  colores: string[],
+  grid: { lote_nombre: string; capas_por_color: number[] }[],
+  tallasCount: number
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
-  if (!color.trim()) return { error: "El color es requerido" }
-  if (!capas || capas < 1) return { error: "Capas debe ser al menos 1" }
+
+  const coloresFiltrados = colores.filter((c) => c.trim())
+  if (coloresFiltrados.length === 0 && grid.length === 0) {
+    // Slot vacío: limpiar
+    try {
+      await deleteOpTela(ordenId, slot)
+      await batchSaveSlotLotes(ordenId, slot, [], session.userId)
+      revalidatePath(`/produccion/${ordenId}`)
+      return { success: true }
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : "Error limpiando slot" }
+    }
+  }
+
   try {
-    await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color, capas, creado_por: session.userId })
+    // 1. Reemplazar colores del slot
+    await deleteOpTela(ordenId, slot)
+    for (const color of coloresFiltrados) {
+      await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color, creado_por: session.userId })
+    }
+
+    // 2. Construir y guardar filas op_tela_lote
+    const filas: { color: string; lote_nombre: string; capas: number }[] = []
+    for (const loteEntry of grid) {
+      if (!loteEntry.lote_nombre.trim()) continue
+      coloresFiltrados.forEach((color, ci) => {
+        const capas = loteEntry.capas_por_color[ci] ?? 0
+        if (capas > 0) filas.push({ color, lote_nombre: loteEntry.lote_nombre, capas })
+      })
+    }
+    await batchSaveSlotLotes(ordenId, slot, filas, session.userId)
+
+    // 3. Actualizar lote records: recalcular capas totales de cada lote sumando todos los slots
+    const todosLotes = await getOpTelaLotes(ordenId)
+    const loteNombres = new Set(grid.map((g) => g.lote_nombre).filter((n) => n.trim()))
+    for (const nombre of loteNombres) {
+      const totalCapas = todosLotes.filter((r) => r.lote_nombre === nombre).reduce((s, r) => s + r.capas, 0)
+      const cantidadProgramada = totalCapas * tallasCount
+      await upsertLoteDesdeGrid(ordenId, nombre, cantidadProgramada, session.userId)
+    }
+
     revalidatePath(`/produccion/${ordenId}`)
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error guardando material de tela" }
-  }
-}
-
-export async function eliminarOpTelaColorAction(
-  ordenId: number,
-  slot: 1 | 2 | 3,
-  color: string
-): Promise<ActionResult> {
-  const session = await getSession()
-  if (!session) return { error: "No autorizado" }
-  try {
-    await deleteOpTelaColor(ordenId, slot, color)
-    revalidatePath(`/produccion/${ordenId}`)
-    return { success: true }
-  } catch (err: unknown) {
-    return { error: err instanceof Error ? err.message : "Error eliminando color de tela" }
-  }
-}
-
-// ── Capas de la OP ────────────────────────────────────────────────────────────
-
-export async function guardarCapasAction(
-  ordenId: number,
-  capas: number
-): Promise<ActionResult> {
-  const session = await getSession()
-  if (!session) return { error: "No autorizado" }
-  if (!capas || capas < 1) return { error: "Capas debe ser al menos 1" }
-  try {
-    await updateOrden(ordenId, { capas })
-    revalidatePath(`/produccion/${ordenId}`)
-    return { success: true }
-  } catch (err: unknown) {
-    return { error: err instanceof Error ? err.message : "Error guardando capas" }
   }
 }
 

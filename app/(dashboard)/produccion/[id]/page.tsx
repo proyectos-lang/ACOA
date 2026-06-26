@@ -7,6 +7,7 @@ import { getSession } from "@/lib/auth/session"
 import { getPermiso } from "@/lib/db/permiso"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
 import { getOpTelas } from "@/lib/db/op-tela"
+import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { getLotesByOrden } from "@/lib/db/lote"
 import { OrdenDetalleClient } from "@/components/produccion/orden-detalle-client"
 import { notFound } from "next/navigation"
@@ -29,13 +30,14 @@ export default async function OrdenDetallePage({
   const ordenId = Number(id)
   if (isNaN(ordenId)) notFound()
 
-  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, lotes] = await Promise.all([
+  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes] = await Promise.all([
     getOrdenById(ordenId),
     getOpMateriales(ordenId),
     getCurvaTallas(ordenId),
     listMateriales({ activo: true }),
     getSession(),
     getOpTelas(ordenId),
+    getOpTelaLotes(ordenId),
     getLotesByOrden(ordenId),
   ])
 
@@ -84,6 +86,7 @@ export default async function OrdenDetallePage({
         tieneVerCostos={tieneVerCostos}
         hojaCostos={hojaCostos}
         opTelas={opTelas}
+        opTelaLotes={opTelaLotes}
         lotes={lotes}
       />
     </div>

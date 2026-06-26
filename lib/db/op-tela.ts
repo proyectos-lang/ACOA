@@ -6,7 +6,6 @@ export interface OpTelaRow {
   slot: 1 | 2 | 3
   tipo_tela: string | null
   color: string | null
-  capas: number
   creado_por: number | null
   creado_en: string
   actualizado_en: string
@@ -29,7 +28,6 @@ export async function upsertOpTela(input: {
   slot: 1 | 2 | 3
   tipo_tela: string | null
   color: string
-  capas: number
   creado_por: number
 }): Promise<void> {
   const db = createVanessaClient()
@@ -41,7 +39,6 @@ export async function upsertOpTela(input: {
         slot: input.slot,
         tipo_tela: input.tipo_tela || null,
         color: input.color,
-        capas: input.capas,
         creado_por: input.creado_por,
       },
       { onConflict: "orden_id,slot,color" }

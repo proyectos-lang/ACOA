@@ -96,6 +96,37 @@ export async function createLoteDesdeOP(
   })
 }
 
+export async function upsertLoteDesdeGrid(
+  ordenId: number,
+  loteNombre: string,
+  cantidadProgramada: number,
+  creadoPor: number
+): Promise<void> {
+  const db = createVanessaClient()
+  const { data: existing } = await db
+    .from("lote")
+    .select("id, estado")
+    .eq("orden_id", ordenId)
+    .eq("descripcion", loteNombre)
+    .maybeSingle()
+
+  if (existing) {
+    if ((existing as { id: number; estado: string }).estado === "cortado") {
+      const { error } = await db
+        .from("lote")
+        .update({ cantidad_programada: cantidadProgramada })
+        .eq("id", (existing as { id: number; estado: string }).id)
+      if (error) throw new Error(error.message)
+    }
+    // Si ya está en producción (estado != cortado), no modificar
+  } else {
+    await createLoteDesdeOP(
+      { orden_id: ordenId, descripcion: loteNombre, cantidad_programada: cantidadProgramada },
+      creadoPor
+    )
+  }
+}
+
 export async function updateLoteEstado(id: number, estado: string): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db.from("lote").update({ estado }).eq("id", id)

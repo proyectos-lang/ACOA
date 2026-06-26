@@ -16,15 +16,14 @@ import type { MaterialRow } from "@/lib/db/material"
 import type { HojaCostosRow } from "@/lib/db/hoja-costos"
 import { VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import type { OpTelaRow } from "@/lib/db/op-tela"
+import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
 import type { LoteRow } from "@/lib/db/lote"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   guardarInfoGeneralAction,
   guardarInstruccionesAction,
   guardarCurvaAction,
-  guardarOpTelaAction,
-  guardarCapasAction,
-  eliminarOpTelaColorAction,
+  guardarSlotAction,
   crearLoteAction,
   eliminarLoteAction,
   addOpMaterialAction,
@@ -58,6 +57,7 @@ interface Props {
   tieneVerCostos: boolean
   hojaCostos: HojaCostosRow | null
   opTelas: OpTelaRow[]
+  opTelaLotes: OpTelaLoteRow[]
   lotes: LoteRow[]
 }
 
@@ -208,154 +208,262 @@ function InfoGeneralSection({
 
 // ─── Tab 2: Curva (Op Telas + Tallas) ───────────────────────────────────────
 
-type ColorFila = {
-  key: string
-  color: string
-  capas: number
-  isSaved: boolean
-  isPending: boolean
+type EntradaColor = { key: string; nombre: string }
+type EntradaLote  = { key: string; nombre: string }
+type CapasGrid    = Record<string, Record<string, number>>  // capas[colorKey][loteKey]
+
+function buildGridFromServer(
+  opTelas: OpTelaRow[],
+  opTelaLotes: OpTelaLoteRow[],
+  slot: 1 | 2 | 3
+): { tipoTela: string; colores: EntradaColor[]; lotes: EntradaLote[]; capas: CapasGrid } {
+  const telasSlot = opTelas.filter((t) => t.slot === slot)
+  const lotesSlot = opTelaLotes.filter((r) => r.slot === slot)
+
+  const coloresUnicos = [...new Set(telasSlot.map((t) => t.color ?? "").filter(Boolean))]
+  const lotesUnicos   = [...new Set(lotesSlot.map((r) => r.lote_nombre))]
+
+  const colores: EntradaColor[] = coloresUnicos.map((n) => ({ key: n, nombre: n }))
+  const lotes:   EntradaLote[]  = lotesUnicos.map((n)   => ({ key: n, nombre: n }))
+
+  const capas: CapasGrid = {}
+  for (const c of colores) {
+    capas[c.key] = {}
+    for (const l of lotes) {
+      const fila = lotesSlot.find((r) => r.color === c.nombre && r.lote_nombre === l.nombre)
+      capas[c.key][l.key] = fila?.capas ?? 0
+    }
+  }
+
+  return { tipoTela: telasSlot[0]?.tipo_tela ?? "", colores, lotes, capas }
 }
 
 function OpTelaSlotCard({
   ordenId,
   slot,
   iniciales,
+  inicialesLotes,
+  tallasCount,
   onMsg,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
   iniciales: OpTelaRow[]
+  inicialesLotes: OpTelaLoteRow[]
+  tallasCount: number
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
-  const [tipoTela, setTipoTela] = React.useState(iniciales[0]?.tipo_tela ?? "")
-  const [filas, setFilas] = React.useState<ColorFila[]>(() =>
-    iniciales.map((r) => ({
-      key: r.color ?? crypto.randomUUID(),
-      color: r.color ?? "",
-      capas: r.capas,
-      isSaved: true,
-      isPending: false,
-    }))
+  const [isPending, startSave] = useTransition()
+
+  const inicial = React.useMemo(
+    () => buildGridFromServer(iniciales, inicialesLotes, slot),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   )
 
+  const [tipoTela, setTipoTela] = React.useState(inicial.tipoTela)
+  const [colores,  setColores]  = React.useState<EntradaColor[]>(inicial.colores)
+  const [lotes,    setLotes]    = React.useState<EntradaLote[]>(inicial.lotes)
+  const [capas,    setCapas]    = React.useState<CapasGrid>(inicial.capas)
+
   React.useEffect(() => {
-    setTipoTela(iniciales[0]?.tipo_tela ?? "")
-    setFilas(
-      iniciales.map((r) => ({
-        key: r.color ?? crypto.randomUUID(),
-        color: r.color ?? "",
-        capas: r.capas,
-        isSaved: true,
-        isPending: false,
-      }))
-    )
-  }, [iniciales])
+    const s = buildGridFromServer(iniciales, inicialesLotes, slot)
+    setTipoTela(s.tipoTela)
+    setColores(s.colores)
+    setLotes(s.lotes)
+    setCapas(s.capas)
+  }, [iniciales, inicialesLotes, slot])
 
-  function addFila() {
-    setFilas((p) => [...p, { key: crypto.randomUUID(), color: "", capas: 1, isSaved: false, isPending: false }])
+  function addColor() {
+    const key = crypto.randomUUID()
+    setColores((p) => [...p, { key, nombre: "" }])
+    setCapas((p) => {
+      const celda: Record<string, number> = {}
+      for (const l of lotes) celda[l.key] = 0
+      return { ...p, [key]: celda }
+    })
   }
 
-  function setFilaField(key: string, campo: "color" | "capas", valor: string | number) {
-    setFilas((p) => p.map((f) => f.key === key ? { ...f, [campo]: valor } : f))
+  function removeColor(ck: string) {
+    setColores((p) => p.filter((c) => c.key !== ck))
+    setCapas((p) => { const next = { ...p }; delete next[ck]; return next })
   }
 
-  function setFilaPending(key: string, val: boolean) {
-    setFilas((p) => p.map((f) => f.key === key ? { ...f, isPending: val } : f))
+  function setColorNombre(ck: string, nombre: string) {
+    setColores((p) => p.map((c) => c.key === ck ? { ...c, nombre } : c))
   }
 
-  function guardarFila(fila: ColorFila) {
-    if (!fila.color.trim()) { onMsg("Error: Selecciona un color"); return }
-    if (!fila.capas || fila.capas < 1) { onMsg("Error: Capas debe ser al menos 1"); return }
-    setFilaPending(fila.key, true)
-    guardarOpTelaAction(ordenId, slot, tipoTela || null, fila.color, fila.capas)
-      .then((res) => {
-        if (res.error) onMsg(`Error: ${res.error}`)
-        else {
-          setFilas((p) => p.map((f) => f.key === fila.key ? { ...f, isSaved: true, isPending: false } : f))
-          onMsg(`Material ${slot} guardado`)
-          router.refresh()
-        }
-      })
-      .catch(() => setFilaPending(fila.key, false))
+  function addLote() {
+    const key = crypto.randomUUID()
+    const num = lotes.length + 1
+    setLotes((p) => [...p, { key, nombre: `Lote ${num}` }])
+    setCapas((p) => {
+      const next = { ...p }
+      for (const c of colores) next[c.key] = { ...next[c.key], [key]: 0 }
+      return next
+    })
   }
 
-  function eliminarFila(fila: ColorFila) {
-    if (!fila.isSaved) {
-      setFilas((p) => p.filter((f) => f.key !== fila.key))
-      return
-    }
-    setFilaPending(fila.key, true)
-    eliminarOpTelaColorAction(ordenId, slot, fila.color)
-      .then((res) => {
-        if (res.error) { onMsg(`Error: ${res.error}`); setFilaPending(fila.key, false) }
-        else { setFilas((p) => p.filter((f) => f.key !== fila.key)); onMsg("Color eliminado"); router.refresh() }
-      })
-      .catch(() => setFilaPending(fila.key, false))
+  function removeLote(lk: string) {
+    setLotes((p) => p.filter((l) => l.key !== lk))
+    setCapas((p) => {
+      const next = { ...p }
+      for (const ck of Object.keys(next)) { delete next[ck][lk] }
+      return next
+    })
+  }
+
+  function setLoteNombre(lk: string, nombre: string) {
+    setLotes((p) => p.map((l) => l.key === lk ? { ...l, nombre } : l))
+  }
+
+  function setCelda(ck: string, lk: string, val: number) {
+    setCapas((p) => ({ ...p, [ck]: { ...p[ck], [lk]: val } }))
+  }
+
+  function guardar() {
+    const coloresFiltrados = colores.filter((c) => c.nombre.trim())
+    const lotesFiltrados   = lotes.filter((l) => l.nombre.trim())
+
+    const grid = lotesFiltrados.map((l) => ({
+      lote_nombre: l.nombre,
+      capas_por_color: coloresFiltrados.map((c) => capas[c.key]?.[l.key] ?? 0),
+    }))
+
+    startSave(async () => {
+      const res = await guardarSlotAction(
+        ordenId, slot,
+        tipoTela || null,
+        coloresFiltrados.map((c) => c.nombre),
+        grid,
+        tallasCount
+      )
+      if (res.error) onMsg(`Error: ${res.error}`)
+      else { onMsg(`Material ${slot} guardado`); router.refresh() }
+    })
   }
 
   const inputCls = "rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
 
+  const totalCapasSlot = colores.reduce((s, c) =>
+    s + lotes.reduce((ls, l) => ls + (capas[c.key]?.[l.key] ?? 0), 0), 0
+  )
+
   return (
-    <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-2">
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-3">
       <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Material {slot}</p>
       <input
         type="text"
         value={tipoTela}
         onChange={(e) => setTipoTela(e.target.value)}
-        placeholder="Tipo de tela"
+        placeholder="Tipo de tela (ej: Algodón)"
         className={`w-full ${inputCls}`}
       />
 
-      {filas.length > 0 && (
-        <div className="space-y-1.5">
-          {filas.map((fila) => (
-            <div key={fila.key} className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={fila.color}
-                onChange={(e) => setFilaField(fila.key, "color", e.target.value)}
-                placeholder="Color"
-                className={`flex-1 ${inputCls}`}
-              />
-              <input
-                type="number"
-                min="1"
-                value={fila.capas}
-                onChange={(e) => setFilaField(fila.key, "capas", parseInt(e.target.value, 10) || 1)}
-                className={`w-16 text-center ${inputCls}`}
-                title="Capas"
-              />
-              <button
-                onClick={() => guardarFila(fila)}
-                disabled={fila.isPending}
-                className="flex items-center gap-0.5 rounded-lg px-2 py-1.5 text-xs font-medium text-white disabled:opacity-60"
-                style={{ backgroundColor: "#344966" }}
-                title="Guardar"
-              >
-                <Save className="h-3 w-3" />
-              </button>
-              <button
-                onClick={() => eliminarFila(fila)}
-                disabled={fila.isPending}
-                className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 disabled:opacity-40 transition-colors"
-                title="Eliminar color"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+      {/* Grilla colores × lotes */}
+      {(colores.length > 0 || lotes.length > 0) && (
+        <div className="overflow-x-auto">
+          <table className="text-xs w-full">
+            <thead>
+              <tr>
+                <th className="text-left px-1 py-1 text-stone-400 font-normal w-28">Color</th>
+                {lotes.map((l) => (
+                  <th key={l.key} className="px-1 py-1 min-w-[80px]">
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="text"
+                        value={l.nombre}
+                        onChange={(e) => setLoteNombre(l.key, e.target.value)}
+                        className={`w-20 text-center font-semibold text-stone-700 ${inputCls}`}
+                        placeholder="Lote"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLote(l.key)}
+                        className="p-0.5 rounded hover:bg-red-50 text-stone-300 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </th>
+                ))}
+                <th className="px-1 py-1">
+                  <button
+                    type="button"
+                    onClick={addLote}
+                    className="flex items-center gap-0.5 rounded-lg px-2 py-1 text-xs font-medium border border-dashed border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors whitespace-nowrap"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Lote
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {colores.map((c) => (
+                <tr key={c.key} className="border-t border-stone-100">
+                  <td className="px-1 py-1">
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="text"
+                        value={c.nombre}
+                        onChange={(e) => setColorNombre(c.key, e.target.value)}
+                        placeholder="Color"
+                        className={`w-24 ${inputCls}`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeColor(c.key)}
+                        className="p-0.5 rounded hover:bg-red-50 text-stone-300 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </td>
+                  {lotes.map((l) => (
+                    <td key={l.key} className="px-1 py-1 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        value={capas[c.key]?.[l.key] ?? 0}
+                        onChange={(e) => setCelda(c.key, l.key, parseInt(e.target.value, 10) || 0)}
+                        className={`w-16 text-center ${inputCls}`}
+                      />
+                    </td>
+                  ))}
+                  <td />
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={addFila}
-        className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium border border-dashed border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors w-full justify-center"
-      >
-        <Plus className="h-3 w-3" />
-        Agregar color
-      </button>
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onClick={addColor}
+          className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium border border-dashed border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+          Color
+        </button>
+        <div className="flex items-center gap-2">
+          {totalCapasSlot > 0 && (
+            <span className="text-xs text-stone-400">{totalCapasSlot} capas</span>
+          )}
+          <button
+            onClick={guardar}
+            disabled={isPending}
+            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: "#344966" }}
+          >
+            <Save className="h-3 w-3" />
+            {isPending ? "Guardando…" : `Guardar M${slot}`}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -364,31 +472,25 @@ const TALLAS_PREDEFINIDAS = ["4", "6", "8", "10", "12", "14", "16", "S", "M", "L
 
 function CurvaTallasSection({
   ordenId,
-  capasInicial,
   inicial,
   opTelas,
+  opTelaLotes,
   onSaved,
 }: {
   ordenId: number
-  capasInicial: number
   inicial: CurvaTallaRow[]
   opTelas: OpTelaRow[]
+  opTelaLotes: OpTelaLoteRow[]
   onSaved: (msg: string) => void
 }) {
   const router = useRouter()
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
-  const [capas, setCapas] = React.useState(String(capasInicial || 1))
   const [isPending, startSave] = useTransition()
 
-  // Sincroniza desde el servidor cuando los props cambian (después de router.refresh)
   React.useEffect(() => {
     setTallas(inicial.map((r) => r.talla))
   }, [inicial])
-
-  React.useEffect(() => {
-    setCapas(String(capasInicial || 1))
-  }, [capasInicial])
 
   function addTalla(talla: string) {
     const t = talla.trim().toUpperCase()
@@ -401,34 +503,17 @@ function CurvaTallasSection({
     setTallas((p) => p.filter((_, i) => i !== idx))
   }
 
-  // Un solo botón guarda TANTO las tallas como las capas
   function guardarCurva() {
-    const n = parseInt(capas, 10)
-    if (!n || n < 1) {
-      onSaved("Error: Las capas deben ser al menos 1")
-      return
-    }
     startSave(async () => {
-      const [resTallas, resCapas] = await Promise.all([
-        guardarCurvaAction(ordenId, tallas),
-        guardarCapasAction(ordenId, n),
-      ])
-      if (resTallas.error) { onSaved(`Error al guardar tallas: ${resTallas.error}`); return }
-      if (resCapas.error) { onSaved(`Error al guardar capas: ${resCapas.error}`); return }
-      onSaved("Curva guardada")
+      const res = await guardarCurvaAction(ordenId, tallas)
+      if (res.error) { onSaved(`Error al guardar tallas: ${res.error}`); return }
+      onSaved("Tallas guardadas")
       router.refresh()
     })
   }
 
-  const capasNum = parseInt(capas, 10) || capasInicial || 1
-  const totalUnidades = capasNum * tallas.length
-
-  const slotMap = new Map<number, OpTelaRow[]>()
-  for (const t of opTelas) {
-    const arr = slotMap.get(t.slot) ?? []
-    arr.push(t)
-    slotMap.set(t.slot, arr)
-  }
+  const totalCapas = opTelaLotes.reduce((s, r) => s + r.capas, 0)
+  const totalUnidades = totalCapas * tallas.length
 
   return (
     <div className="space-y-5">
@@ -445,29 +530,12 @@ function CurvaTallasSection({
               key={slot}
               ordenId={ordenId}
               slot={slot}
-              iniciales={slotMap.get(slot) ?? []}
+              iniciales={opTelas}
+              inicialesLotes={opTelaLotes}
+              tallasCount={tallas.length}
               onMsg={onSaved}
             />
           ))}
-        </div>
-      </div>
-
-      {/* Sección: Capas */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <hr className="flex-1 border-stone-200" />
-          <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">Capas</span>
-          <hr className="flex-1 border-stone-200" />
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="number"
-            min="1"
-            value={capas}
-            onChange={(e) => setCapas(e.target.value)}
-            className="rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-24 text-center"
-          />
-          <span className="text-xs text-stone-400">Número de capas de tela a cortar</span>
         </div>
       </div>
 
@@ -533,15 +601,20 @@ function CurvaTallasSection({
 
       {/* Resumen total */}
       <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-3 flex items-center justify-between gap-3">
-        <span className="text-sm text-stone-600">
-          <span className="font-semibold text-stone-800">{tallas.length}</span> tallas
-          {" × "}
-          <span className="font-semibold text-stone-800">{capasNum}</span> capas
-          {" = "}
-          <span className="text-lg font-bold" style={{ color: "#344966" }}>
-            {totalUnidades.toLocaleString("es-CO")} unidades
+        <div className="space-y-0.5">
+          <span className="text-sm text-stone-600">
+            <span className="font-semibold text-stone-800">{tallas.length}</span> tallas
+            {" × "}
+            <span className="font-semibold text-stone-800">{totalCapas}</span> capas
+            {" = "}
+            <span className="text-lg font-bold" style={{ color: "#344966" }}>
+              {totalUnidades.toLocaleString("es-CO")} unidades
+            </span>
           </span>
-        </span>
+          {totalCapas === 0 && (
+            <p className="text-xs text-amber-600">Agrega materiales de tela con sus capas para calcular el total.</p>
+          )}
+        </div>
         <button
           onClick={guardarCurva}
           disabled={isPending}
@@ -549,7 +622,7 @@ function CurvaTallasSection({
           style={{ backgroundColor: "#344966" }}
         >
           <Save className="h-4 w-4" />
-          {isPending ? "Guardando…" : "Guardar curva"}
+          {isPending ? "Guardando…" : "Guardar tallas"}
         </button>
       </div>
     </div>
@@ -570,12 +643,14 @@ function LotesSection({
   orden,
   inicial,
   tallas,
+  opTelaLotes,
   onMsg,
 }: {
   ordenId: number
   orden: OrdenProduccionRow
   inicial: LoteRow[]
   tallas: number
+  opTelaLotes: OpTelaLoteRow[]
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
@@ -586,7 +661,8 @@ function LotesSection({
   const [descripcion, setDescripcion] = React.useState("")
   const [isPending, startTransition] = useTransition()
 
-  const totalUnidades = orden.capas * tallas
+  const totalCapas = opTelaLotes.reduce((s, r) => s + r.capas, 0) || orden.capas
+  const totalUnidades = totalCapas * tallas
   const totalLotificado = lotes.reduce((s, l) => s + l.cantidad_programada, 0)
   const pct = totalUnidades > 0 ? Math.min(100, Math.round((totalLotificado / totalUnidades) * 100)) : 0
 
@@ -1374,6 +1450,7 @@ export function OrdenDetalleClient({
   tieneVerCostos,
   hojaCostos,
   opTelas,
+  opTelaLotes,
   lotes,
 }: Props) {
   const router = useRouter()
@@ -1469,9 +1546,9 @@ export function OrdenDetalleClient({
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <CurvaTallasSection
             ordenId={orden.id}
-            capasInicial={orden.capas}
             inicial={curvaTallas}
             opTelas={opTelas}
+            opTelaLotes={opTelaLotes}
             onSaved={handleMsg}
           />
         </TabsContent>
@@ -1482,6 +1559,7 @@ export function OrdenDetalleClient({
             orden={orden}
             inicial={lotes}
             tallas={curvaTallas.length}
+            opTelaLotes={opTelaLotes}
             onMsg={handleMsg}
           />
         </TabsContent>
