@@ -878,6 +878,10 @@ function CurvaTallasSection({
       {/* Resumen total */}
       <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-3 flex items-center justify-between gap-3">
         <div className="space-y-0.5">
+          <p className="text-xs text-stone-500">
+            Número de lotes totales:{" "}
+            <span className="font-semibold text-stone-800">{slot1Grid.lotes.length}</span>
+          </p>
           <span className="text-sm text-stone-600">
             <span className="font-semibold text-stone-800">{tallas.length}</span> tallas
             {" × "}
