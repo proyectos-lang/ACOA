@@ -330,7 +330,13 @@ function OpTelaSlotCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plantillaKey])
 
+  // Resincroniza desde servidor tras router.refresh() — se salta el montaje inicial
+  // porque en el mount ya se usó `inicial` (useMemo) o la plantilla de M1, y este
+  // efecto correría después de esa, pisando los datos recién copiados con el grid
+  // vacío del servidor (M2/M3 sin guardar aún no tienen filas en iniciales/inicialesLotes)
+  const isFirstSync = React.useRef(true)
   React.useEffect(() => {
+    if (isFirstSync.current) { isFirstSync.current = false; return }
     const s = buildGridFromServer(iniciales, inicialesLotes, slot)
     setTipoTela(s.tipoTela)
     setColores(s.colores)
