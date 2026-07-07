@@ -473,6 +473,34 @@ function OpTelaSlotCard({
                 </tr>
               ))}
             </tbody>
+            {lotes.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-stone-300">
+                  <td className="px-1 py-1.5 text-xs font-semibold text-stone-500 whitespace-nowrap">
+                    Unidades
+                  </td>
+                  {lotes.map((l) => {
+                    const capasLote = colores.reduce(
+                      (s, c) => s + (capas[c.key]?.[l.key] ?? 0), 0
+                    )
+                    const unidades = capasLote * tallasCount
+                    return (
+                      <td key={l.key} className="px-1 py-1.5 text-center">
+                        <div className="text-xs font-bold text-stone-800">
+                          {unidades > 0 ? unidades.toLocaleString("es-CO") : "—"}
+                        </div>
+                        {capasLote > 0 && tallasCount > 0 && (
+                          <div className="text-[10px] text-stone-400 leading-none mt-0.5">
+                            {capasLote}c × {tallasCount}t
+                          </div>
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       )}
