@@ -142,26 +142,14 @@ function InfoGeneralSection({
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-stone-700">Fecha programación</label>
-          <input
-            type="date"
-            name="fecha_programacion"
-            defaultValue={orden.fecha_programacion ?? ""}
-            className={fieldCls}
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-stone-700">Gama / Color</label>
-          <textarea
-            name="gama_color"
-            defaultValue={orden.gama_color ?? ""}
-            rows={2}
-            className={`${fieldCls} resize-none`}
-            placeholder="Ej: Negro, Blanco, Rojo..."
-          />
-        </div>
+      <div className="space-y-1">
+        <label className="text-sm font-medium text-stone-700">Fecha programación</label>
+        <input
+          type="date"
+          name="fecha_programacion"
+          defaultValue={orden.fecha_programacion ?? ""}
+          className={fieldCls}
+        />
       </div>
 
       <div className="space-y-1">
@@ -210,7 +198,7 @@ function InfoGeneralSection({
 
 type EntradaColor = { key: string; nombre: string }
 type EntradaLote  = { key: string; nombre: string }
-type CapasGrid    = Record<string, Record<string, number>>  // capas[colorKey][loteKey]
+type CapasGrid    = Record<string, Record<string, number | null>>  // capas[colorKey][loteKey]
 
 function buildGridFromServer(
   opTelas: OpTelaRow[],
@@ -231,7 +219,7 @@ function buildGridFromServer(
     capas[c.key] = {}
     for (const l of lotes) {
       const fila = lotesSlot.find((r) => r.color === c.nombre && r.lote_nombre === l.nombre)
-      capas[c.key][l.key] = fila?.capas ?? 0
+      capas[c.key][l.key] = fila?.capas ?? null
     }
   }
 
@@ -244,6 +232,7 @@ function OpTelaSlotCard({
   iniciales,
   inicialesLotes,
   tallasCount,
+  numLotesPreset,
   onMsg,
   onCapasChange,
 }: {
@@ -252,6 +241,7 @@ function OpTelaSlotCard({
   iniciales: OpTelaRow[]
   inicialesLotes: OpTelaLoteRow[]
   tallasCount: number
+  numLotesPreset: number
   onMsg: (m: string) => void
   onCapasChange: (slot: 1 | 2 | 3, total: number) => void
 }) {
@@ -268,6 +258,27 @@ function OpTelaSlotCard({
   const [colores,  setColores]  = React.useState<EntradaColor[]>(inicial.colores)
   const [lotes,    setLotes]    = React.useState<EntradaLote[]>(inicial.lotes)
   const [capas,    setCapas]    = React.useState<CapasGrid>(inicial.capas)
+
+  // Pre-carga N lotes cuando el usuario define cantidad de lotes
+  const appliedPreset = React.useRef(inicial.lotes.length)
+  React.useEffect(() => {
+    if (!numLotesPreset || numLotesPreset <= appliedPreset.current) return
+    const toAdd: EntradaLote[] = []
+    for (let i = appliedPreset.current; i < numLotesPreset; i++) {
+      toAdd.push({ key: crypto.randomUUID(), nombre: `Lote ${i + 1}` })
+    }
+    appliedPreset.current = numLotesPreset
+    setLotes((prev) => [...prev, ...toAdd])
+    setCapas((prev) => {
+      const next = { ...prev }
+      for (const ck of Object.keys(next)) {
+        next[ck] = { ...next[ck] }
+        for (const l of toAdd) next[ck][l.key] = null
+      }
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numLotesPreset])
 
   React.useEffect(() => {
     const s = buildGridFromServer(iniciales, inicialesLotes, slot)
@@ -289,8 +300,8 @@ function OpTelaSlotCard({
     const key = crypto.randomUUID()
     setColores((p) => [...p, { key, nombre: "" }])
     setCapas((p) => {
-      const celda: Record<string, number> = {}
-      for (const l of lotes) celda[l.key] = 0
+      const celda: Record<string, number | null> = {}
+      for (const l of lotes) celda[l.key] = null
       return { ...p, [key]: celda }
     })
   }
@@ -310,7 +321,7 @@ function OpTelaSlotCard({
     setLotes((p) => [...p, { key, nombre: `Lote ${num}` }])
     setCapas((p) => {
       const next = { ...p }
-      for (const c of colores) next[c.key] = { ...next[c.key], [key]: 0 }
+      for (const c of colores) next[c.key] = { ...next[c.key], [key]: null }
       return next
     })
   }
@@ -328,8 +339,15 @@ function OpTelaSlotCard({
     setLotes((p) => p.map((l) => l.key === lk ? { ...l, nombre } : l))
   }
 
-  function setCelda(ck: string, lk: string, val: number) {
-    setCapas((p) => ({ ...p, [ck]: { ...p[ck], [lk]: val } }))
+  function setCelda(ck: string, lk: string, val: number | null) {
+    const isFirstLote = lotes.length > 0 && lk === lotes[0].key
+    setCapas((p) => {
+      const colorRow = { ...p[ck], [lk]: val }
+      if (isFirstLote) {
+        for (let i = 1; i < lotes.length; i++) colorRow[lotes[i].key] = val
+      }
+      return { ...p, [ck]: colorRow }
+    })
   }
 
   function guardar() {
@@ -436,8 +454,11 @@ function OpTelaSlotCard({
                       <input
                         type="number"
                         min="0"
-                        value={capas[c.key]?.[l.key] ?? 0}
-                        onChange={(e) => setCelda(c.key, l.key, parseInt(e.target.value, 10) || 0)}
+                        value={capas[c.key]?.[l.key] ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value
+                          setCelda(c.key, l.key, raw === "" ? null : parseInt(raw, 10) || 0)
+                        }}
                         className={`w-16 text-center ${inputCls}`}
                       />
                     </td>
@@ -497,6 +518,7 @@ function CurvaTallasSection({
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
   const [isPending, startSave] = useTransition()
+  const [cantidadLotes, setCantidadLotes] = React.useState(0)
   const [slotCapas, setSlotCapas] = React.useState<Record<number, number>>(() => ({
     1: opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0),
     2: opTelaLotes.filter((r) => r.slot === 2).reduce((s, r) => s + r.capas, 0),
@@ -543,7 +565,26 @@ function CurvaTallasSection({
           <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">Materiales de tela</span>
           <hr className="flex-1 border-stone-200" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+        {/* Cantidad de lotes */}
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-stone-600 whitespace-nowrap">Cantidad de lotes:</label>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            value={cantidadLotes || ""}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10)
+              setCantidadLotes(isNaN(v) || v < 0 ? 0 : v)
+            }}
+            className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966] w-20 text-center"
+            placeholder="Ej: 10"
+          />
+          <span className="text-xs text-stone-400">Pre-carga N lotes en cada material</span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3">
           {([1, 2, 3] as const).map((slot) => (
             <OpTelaSlotCard
               key={slot}
@@ -552,6 +593,7 @@ function CurvaTallasSection({
               iniciales={opTelas}
               inicialesLotes={opTelaLotes}
               tallasCount={tallas.length}
+              numLotesPreset={cantidadLotes}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />

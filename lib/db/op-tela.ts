@@ -18,7 +18,7 @@ export async function getOpTelas(ordenId: number): Promise<OpTelaRow[]> {
     .select("*")
     .eq("orden_id", ordenId)
     .order("slot")
-    .order("color")
+    .order("creado_en")
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as OpTelaRow[]
 }
