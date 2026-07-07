@@ -473,11 +473,11 @@ function OpTelaSlotCard({
                 </tr>
               ))}
             </tbody>
-            {lotes.length > 0 && (
+            {lotes.length > 0 && colores.length > 0 && (
               <tfoot>
-                <tr className="border-t-2 border-stone-300">
+                <tr className="border-t-2 border-stone-300 bg-stone-50">
                   <td className="px-1 py-1.5 text-xs font-semibold text-stone-500 whitespace-nowrap">
-                    Unidades
+                    Total ud.
                   </td>
                   {lotes.map((l) => {
                     const capasLote = colores.reduce(
@@ -486,13 +486,21 @@ function OpTelaSlotCard({
                     const unidades = capasLote * tallasCount
                     return (
                       <td key={l.key} className="px-1 py-1.5 text-center">
-                        <div className="text-xs font-bold text-stone-800">
-                          {unidades > 0 ? unidades.toLocaleString("es-CO") : "—"}
-                        </div>
-                        {capasLote > 0 && tallasCount > 0 && (
-                          <div className="text-[10px] text-stone-400 leading-none mt-0.5">
-                            {capasLote}c × {tallasCount}t
-                          </div>
+                        {capasLote > 0 ? (
+                          <>
+                            <div className="text-xs font-bold" style={{ color: "#344966" }}>
+                              {tallasCount > 0
+                                ? unidades.toLocaleString("es-CO")
+                                : `${capasLote} cap.`}
+                            </div>
+                            <div className="text-[10px] text-stone-400 leading-none mt-0.5">
+                              {tallasCount > 0
+                                ? `${capasLote}c × ${tallasCount}t`
+                                : "sin tallas"}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-stone-300 text-xs">—</span>
                         )}
                       </td>
                     )
