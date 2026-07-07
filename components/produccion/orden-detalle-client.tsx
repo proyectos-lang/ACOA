@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import {
   Send, AlertTriangle, CheckCircle2,
-  Plus, Trash2, Save, ExternalLink, Pencil,
+  Plus, Trash2, Save, ExternalLink, Pencil, Printer,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
@@ -604,16 +604,154 @@ function OpTelaSlotCard({
   )
 }
 
+// ─── Impresión de la OP (formato de corte) ──────────────────────────────────
+
+function generarImpresionOP(
+  orden: OrdenProduccionRow,
+  tallas: string[],
+  opTelas: OpTelaRow[],
+  opTelaLotes: OpTelaLoteRow[]
+) {
+  const esc = (s: string | null | undefined) =>
+    (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+  const slots = ([1, 2, 3] as const).filter((s) =>
+    opTelaLotes.some((r) => r.slot === s)
+  )
+
+  let totalCapasOP = 0
+  let totalUnidadesOP = 0
+
+  const secciones = slots.map((slot) => {
+    const telas = opTelas.filter((t) => t.slot === slot)
+    const filas = opTelaLotes.filter((r) => r.slot === slot)
+    const colores = [...new Set(telas.map((t) => t.color ?? "").filter(Boolean))]
+    // Colores que solo existen en op_tela_lote (por si acaso)
+    for (const f of filas) if (!colores.includes(f.color)) colores.push(f.color)
+    const lotes = [...new Set(filas.map((r) => r.lote_nombre))].sort((a, b) =>
+      a.localeCompare(b, "es", { numeric: true })
+    )
+    const capa = (color: string, lote: string) =>
+      filas.find((r) => r.color === color && r.lote_nombre === lote)?.capas ?? 0
+
+    const capasPorLote = lotes.map((l) => colores.reduce((s, c) => s + capa(c, l), 0))
+    const capasMaterial = capasPorLote.reduce((s, v) => s + v, 0)
+    const unidadesMaterial = capasMaterial * tallas.length
+    totalCapasOP += capasMaterial
+    totalUnidadesOP += unidadesMaterial
+
+    const tipoTela = telas[0]?.tipo_tela ?? ""
+
+    const filasHtml = colores
+      .map((c) => {
+        const totalColor = lotes.reduce((s, l) => s + capa(c, l), 0)
+        const celdas = lotes
+          .map((l) => `<td class="num">${capa(c, l) || ""}</td>`)
+          .join("")
+        return `<tr><td class="color">${esc(c)}</td>${celdas}<td class="num total-col">${totalColor}</td></tr>`
+      })
+      .join("")
+
+    const capasHtml = capasPorLote.map((v) => `<td class="num">${v}</td>`).join("")
+    const unidadesHtml = capasPorLote
+      .map((v) => `<td class="num">${(v * tallas.length).toLocaleString("es-CO")}</td>`)
+      .join("")
+
+    return `
+      <h2>Material ${slot}${tipoTela ? ` — ${esc(tipoTela)}` : ""}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th class="color">Color</th>
+            ${lotes.map((l) => `<th>${esc(l)}</th>`).join("")}
+            <th class="total-col">Total capas</th>
+          </tr>
+        </thead>
+        <tbody>${filasHtml}</tbody>
+        <tfoot>
+          <tr class="capas">
+            <td class="color">Capas</td>${capasHtml}<td class="num total-col">${capasMaterial}</td>
+          </tr>
+          <tr class="unidades">
+            <td class="color">Unidades (× ${tallas.length} tallas)</td>${unidadesHtml}<td class="num total-col">${unidadesMaterial.toLocaleString("es-CO")}</td>
+          </tr>
+        </tfoot>
+      </table>`
+  })
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>${padOP(orden.numero_op)} — ${esc(orden.referencia)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; padding: 24px; }
+  .encabezado { border: 2px solid #111; margin-bottom: 14px; }
+  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 14px; padding: 6px 10px; display: flex; justify-content: space-between; border-bottom: 2px solid #111; }
+  .encabezado table { width: 100%; border-collapse: collapse; }
+  .encabezado td { border: 1px solid #111; padding: 5px 8px; }
+  .encabezado td.label { font-weight: bold; background: #eee; width: 160px; text-transform: uppercase; }
+  .tallas-box { border: 2px solid #111; padding: 6px 10px; margin-bottom: 14px; display: flex; gap: 16px; align-items: center; }
+  .tallas-box .label { font-weight: bold; text-transform: uppercase; }
+  h2 { font-size: 12px; margin: 14px 0 5px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th, td { border: 1px solid #111; padding: 4px 6px; }
+  th { background: #eee; text-transform: uppercase; font-size: 10px; }
+  td.color, th.color { text-align: left; font-weight: bold; width: 140px; }
+  td.num { text-align: center; }
+  .total-col { background: #dcefe4; font-weight: bold; }
+  tr.capas td { background: #dcefe4; font-weight: bold; }
+  tr.unidades td { font-weight: bold; }
+  .gran-total { border: 2px solid #111; margin-top: 14px; padding: 8px 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; background: #dcefe4; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <div class="titulo"><span>ORDEN DE PRODUCCIÓN</span><span>${padOP(orden.numero_op)}</span></div>
+    <table>
+      <tr><td class="label">Referencia</td><td>${esc(orden.referencia)}</td></tr>
+      <tr><td class="label">Fecha programación</td><td>${esc(orden.fecha_programacion) || "—"}</td></tr>
+      <tr><td class="label">Descripción</td><td>${esc(orden.descripcion) || "—"}</td></tr>
+    </table>
+  </div>
+
+  <div class="tallas-box">
+    <span class="label">Tallas</span>
+    <span>${tallas.map(esc).join(" / ") || "—"}</span>
+    <span class="label" style="margin-left:auto">Total: ${tallas.length}</span>
+  </div>
+
+  ${secciones.join("")}
+
+  <div class="gran-total">
+    <span>TOTAL CAPAS: ${totalCapasOP.toLocaleString("es-CO")}</span>
+    <span>TOTAL UNIDADES: ${totalUnidadesOP.toLocaleString("es-CO")}</span>
+  </div>
+</body>
+</html>`
+
+  const w = window.open("", "_blank")
+  if (!w) return
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 300)
+}
+
 const TALLAS_PREDEFINIDAS = ["4", "6", "8", "10", "12", "14", "16", "S", "M", "L", "XL", "XXL"]
 
 function CurvaTallasSection({
   ordenId,
+  orden,
   inicial,
   opTelas,
   opTelaLotes,
   onSaved,
 }: {
   ordenId: number
+  orden: OrdenProduccionRow
   inicial: CurvaTallaRow[]
   opTelas: OpTelaRow[]
   opTelaLotes: OpTelaLoteRow[]
@@ -895,15 +1033,26 @@ function CurvaTallasSection({
             <p className="text-xs text-amber-600">Agrega materiales de tela con sus capas para calcular el total.</p>
           )}
         </div>
-        <button
-          onClick={guardarCurva}
-          disabled={isPending}
-          className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 shrink-0"
-          style={{ backgroundColor: "#344966" }}
-        >
-          <Save className="h-4 w-4" />
-          {isPending ? "Guardando…" : "Guardar tallas"}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => generarImpresionOP(orden, tallas, opTelas, opTelaLotes)}
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border border-[#344966] text-[#344966] hover:bg-[#344966] hover:text-white transition-colors"
+            title="Genera la impresión con los datos guardados. Guarda los materiales antes de imprimir."
+          >
+            <Printer className="h-4 w-4" />
+            Generar PDF
+          </button>
+          <button
+            onClick={guardarCurva}
+            disabled={isPending}
+            className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: "#344966" }}
+          >
+            <Save className="h-4 w-4" />
+            {isPending ? "Guardando…" : "Guardar tallas"}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1826,6 +1975,7 @@ export function OrdenDetalleClient({
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <CurvaTallasSection
             ordenId={orden.id}
+            orden={orden}
             inicial={curvaTallas}
             opTelas={opTelas}
             opTelaLotes={opTelaLotes}
