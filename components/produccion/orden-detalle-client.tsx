@@ -259,21 +259,27 @@ function OpTelaSlotCard({
   const [lotes,    setLotes]    = React.useState<EntradaLote[]>(inicial.lotes)
   const [capas,    setCapas]    = React.useState<CapasGrid>(inicial.capas)
 
-  // Pre-carga N lotes cuando el usuario define cantidad de lotes
-  const appliedPreset = React.useRef(inicial.lotes.length)
+  // Pre-carga N lotes cuando el usuario hace clic en Calcular
+  const lotesRef = React.useRef(lotes)
+  React.useEffect(() => { lotesRef.current = lotes }, [lotes])
+
   React.useEffect(() => {
-    if (!numLotesPreset || numLotesPreset <= appliedPreset.current) return
+    if (!numLotesPreset || numLotesPreset <= 0) return
+    const currentLotes = lotesRef.current
+    if (currentLotes.length >= numLotesPreset) return
+
+    const lote1Key = currentLotes[0]?.key ?? null
     const toAdd: EntradaLote[] = []
-    for (let i = appliedPreset.current; i < numLotesPreset; i++) {
+    for (let i = currentLotes.length; i < numLotesPreset; i++) {
       toAdd.push({ key: crypto.randomUUID(), nombre: `Lote ${i + 1}` })
     }
-    appliedPreset.current = numLotesPreset
     setLotes((prev) => [...prev, ...toAdd])
     setCapas((prev) => {
       const next = { ...prev }
       for (const ck of Object.keys(next)) {
         next[ck] = { ...next[ck] }
-        for (const l of toAdd) next[ck][l.key] = null
+        const lote1Val = lote1Key != null ? (next[ck][lote1Key] ?? null) : null
+        for (const l of toAdd) next[ck][l.key] = lote1Val
       }
       return next
     })
@@ -397,13 +403,13 @@ function OpTelaSlotCard({
               <tr>
                 <th className="text-left px-1 py-1 text-stone-400 font-normal w-28">Color</th>
                 {lotes.map((l) => (
-                  <th key={l.key} className="px-1 py-1 min-w-[80px]">
-                    <div className="flex items-center gap-0.5">
+                  <th key={l.key} className="px-1 py-1 min-w-[90px]">
+                    <div className="flex items-center justify-center gap-0.5">
                       <input
                         type="text"
                         value={l.nombre}
                         onChange={(e) => setLoteNombre(l.key, e.target.value)}
-                        className={`w-20 text-center font-semibold text-stone-700 ${inputCls}`}
+                        className={`w-16 text-center font-semibold text-stone-700 ${inputCls}`}
                         placeholder="Lote"
                       />
                       <button
@@ -518,7 +524,8 @@ function CurvaTallasSection({
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
   const [isPending, startSave] = useTransition()
-  const [cantidadLotes, setCantidadLotes] = React.useState(0)
+  const [cantidadLotesInput, setCantidadLotesInput] = React.useState("")
+  const [presetAplicado, setPresetAplicado] = React.useState(0)
   const [slotCapas, setSlotCapas] = React.useState<Record<number, number>>(() => ({
     1: opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0),
     2: opTelaLotes.filter((r) => r.slot === 2).reduce((s, r) => s + r.capas, 0),
@@ -567,21 +574,34 @@ function CurvaTallasSection({
         </div>
 
         {/* Cantidad de lotes */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-stone-600 whitespace-nowrap">Cantidad de lotes:</label>
           <input
             type="number"
-            min="0"
+            min="1"
             max="50"
-            value={cantidadLotes || ""}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10)
-              setCantidadLotes(isNaN(v) || v < 0 ? 0 : v)
+            value={cantidadLotesInput}
+            onChange={(e) => setCantidadLotesInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const v = parseInt(cantidadLotesInput, 10)
+                if (v > 0) setPresetAplicado(v)
+              }
             }}
-            className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966] w-20 text-center"
-            placeholder="Ej: 10"
+            className="rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966] w-16 text-center"
+            placeholder="N"
           />
-          <span className="text-xs text-stone-400">Pre-carga N lotes en cada material</span>
+          <button
+            type="button"
+            onClick={() => {
+              const v = parseInt(cantidadLotesInput, 10)
+              if (v > 0) setPresetAplicado(v)
+            }}
+            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold border border-[#344966] text-[#344966] hover:bg-[#344966] hover:text-white transition-colors"
+          >
+            Calcular
+          </button>
+          <span className="text-xs text-stone-400">Pre-carga N lotes en cada material replicando Lote 1</span>
         </div>
 
         <div className="grid grid-cols-1 gap-3">
@@ -593,7 +613,7 @@ function CurvaTallasSection({
               iniciales={opTelas}
               inicialesLotes={opTelaLotes}
               tallasCount={tallas.length}
-              numLotesPreset={cantidadLotes}
+              numLotesPreset={presetAplicado}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
