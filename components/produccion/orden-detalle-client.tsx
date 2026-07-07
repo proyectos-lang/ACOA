@@ -304,10 +304,12 @@ function OpTelaSlotCard({
   }, [colores, lotes, capas])
 
   // Aplica plantilla cuando plantillaKey cambia (el usuario habilita M2/M3)
-  const prevPK = React.useRef(plantillaKey ?? 0)
+  // prevPK arranca en -1; plantillaKey=0 significa "ya había datos de servidor → no aplicar"
+  const prevPK = React.useRef(-1)
   React.useEffect(() => {
-    if ((plantillaKey ?? 0) === prevPK.current || !plantilla) return
-    prevPK.current = plantillaKey ?? 0
+    if (!plantillaKey || !plantilla) return   // 0 o undefined → slot ya tenía datos, no tocar
+    if (plantillaKey === prevPK.current) return
+    prevPK.current = plantillaKey
     const newColores = plantilla.colores.map((c) => ({ key: crypto.randomUUID(), nombre: c.nombre }))
     const ckMap = new Map(plantilla.colores.map((c, i) => [c.key, newColores[i].key]))
     const newLotes = plantilla.lotes.map((l) => ({ key: crypto.randomUUID(), nombre: l.nombre }))
