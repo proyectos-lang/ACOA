@@ -199,6 +199,7 @@ function InfoGeneralSection({
 type EntradaColor = { key: string; nombre: string }
 type EntradaLote  = { key: string; nombre: string }
 type CapasGrid    = Record<string, Record<string, number | null>>  // capas[colorKey][loteKey]
+type SlotGrid     = { colores: EntradaColor[]; lotes: EntradaLote[]; capas: CapasGrid }
 
 function buildGridFromServer(
   opTelas: OpTelaRow[],
@@ -235,6 +236,10 @@ function OpTelaSlotCard({
   numLotesPreset,
   onMsg,
   onCapasChange,
+  onGridChange,
+  plantilla,
+  plantillaKey,
+  celda00Ref,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
@@ -244,6 +249,10 @@ function OpTelaSlotCard({
   numLotesPreset: number
   onMsg: (m: string) => void
   onCapasChange: (slot: 1 | 2 | 3, total: number) => void
+  onGridChange?: (grid: SlotGrid) => void
+  plantilla?: SlotGrid | null
+  plantillaKey?: number
+  celda00Ref?: number | null
 }) {
   const router = useRouter()
   const [isPending, startSave] = useTransition()
@@ -285,6 +294,39 @@ function OpTelaSlotCard({
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [numLotesPreset])
+
+  // Reporta el grid completo al padre (para que M1 pueda ser plantilla de M2/M3)
+  const onGridChangeRef = React.useRef(onGridChange)
+  React.useEffect(() => { onGridChangeRef.current = onGridChange })
+  React.useEffect(() => {
+    onGridChangeRef.current?.({ colores, lotes, capas })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colores, lotes, capas])
+
+  // Aplica plantilla cuando plantillaKey cambia (el usuario habilita M2/M3)
+  const prevPK = React.useRef(plantillaKey ?? 0)
+  React.useEffect(() => {
+    if ((plantillaKey ?? 0) === prevPK.current || !plantilla) return
+    prevPK.current = plantillaKey ?? 0
+    const newColores = plantilla.colores.map((c) => ({ key: crypto.randomUUID(), nombre: c.nombre }))
+    const ckMap = new Map(plantilla.colores.map((c, i) => [c.key, newColores[i].key]))
+    const newLotes = plantilla.lotes.map((l) => ({ key: crypto.randomUUID(), nombre: l.nombre }))
+    const lkMap = new Map(plantilla.lotes.map((l, i) => [l.key, newLotes[i].key]))
+    const newCapas: CapasGrid = {}
+    for (const [oldCk, lCaps] of Object.entries(plantilla.capas)) {
+      const newCk = ckMap.get(oldCk)
+      if (!newCk) continue
+      newCapas[newCk] = {}
+      for (const [oldLk, val] of Object.entries(lCaps)) {
+        const newLk = lkMap.get(oldLk)
+        if (newLk !== undefined) newCapas[newCk][newLk] = val
+      }
+    }
+    setColores(newColores)
+    setLotes(newLotes)
+    setCapas(newCapas)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plantillaKey])
 
   React.useEffect(() => {
     const s = buildGridFromServer(iniciales, inicialesLotes, slot)
@@ -359,6 +401,19 @@ function OpTelaSlotCard({
   function guardar() {
     const coloresFiltrados = colores.filter((c) => c.nombre.trim())
     const lotesFiltrados   = lotes.filter((l) => l.nombre.trim())
+
+    // Filtro de seguridad: [Color 1 × Lote 1] debe coincidir con Material 1
+    if (celda00Ref !== undefined && celda00Ref !== null &&
+        coloresFiltrados.length > 0 && lotesFiltrados.length > 0) {
+      const miCelda00 = capas[coloresFiltrados[0].key]?.[lotesFiltrados[0].key] ?? 0
+      if (miCelda00 !== celda00Ref) {
+        onMsg(
+          `Error: [${coloresFiltrados[0].nombre} × ${lotesFiltrados[0].nombre}] ` +
+          `debe tener ${celda00Ref} capas (igual a Material 1)`
+        )
+        return
+      }
+    }
 
     const grid = lotesFiltrados.map((l) => ({
       lote_nombre: l.nombre,
@@ -562,6 +617,27 @@ function CurvaTallasSection({
   const [isPending, startSave] = useTransition()
   const [cantidadLotesInput, setCantidadLotesInput] = React.useState("")
   const [presetAplicado, setPresetAplicado] = React.useState(0)
+
+  // Grid de M1 en tiempo real (para replicar a M2/M3)
+  const [slot1Grid, setSlot1Grid] = React.useState<SlotGrid>(() => {
+    const g = buildGridFromServer(opTelas, opTelaLotes, 1)
+    return { colores: g.colores, lotes: g.lotes, capas: g.capas }
+  })
+  const handleSlot1GridChange = React.useCallback((grid: SlotGrid) => {
+    setSlot1Grid(grid)
+  }, [])
+  const slot1Celda00 = slot1Grid.capas[slot1Grid.colores[0]?.key ?? ""]?.[slot1Grid.lotes[0]?.key ?? ""] ?? null
+
+  // Habilitación de M2/M3
+  const [habilitado2, setHabilitado2] = React.useState(
+    () => opTelas.some((t) => t.slot === 2) || opTelaLotes.some((r) => r.slot === 2)
+  )
+  const [habilitado3, setHabilitado3] = React.useState(
+    () => opTelas.some((t) => t.slot === 3) || opTelaLotes.some((r) => r.slot === 3)
+  )
+  const [plantillaKey2, setPlantillaKey2] = React.useState(0)
+  const [plantillaKey3, setPlantillaKey3] = React.useState(0)
+
   const [slotCapas, setSlotCapas] = React.useState<Record<number, number>>(() => ({
     1: opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0),
     2: opTelaLotes.filter((r) => r.slot === 2).reduce((s, r) => s + r.capas, 0),
@@ -641,19 +717,93 @@ function CurvaTallasSection({
         </div>
 
         <div className="grid grid-cols-1 gap-3">
-          {([1, 2, 3] as const).map((slot) => (
+          {/* Material 1 — siempre activo, reporta su grid al padre */}
+          <OpTelaSlotCard
+            key={1}
+            ordenId={ordenId}
+            slot={1}
+            iniciales={opTelas}
+            inicialesLotes={opTelaLotes}
+            tallasCount={tallas.length}
+            numLotesPreset={presetAplicado}
+            onMsg={onSaved}
+            onCapasChange={handleCapasChange}
+            onGridChange={handleSlot1GridChange}
+          />
+
+          {/* Material 2 */}
+          {habilitado2 ? (
             <OpTelaSlotCard
-              key={slot}
+              key={2}
               ordenId={ordenId}
-              slot={slot}
+              slot={2}
               iniciales={opTelas}
               inicialesLotes={opTelaLotes}
               tallasCount={tallas.length}
               numLotesPreset={presetAplicado}
+              plantilla={slot1Grid}
+              plantillaKey={plantillaKey2}
+              celda00Ref={slot1Celda00}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
-          ))}
+          ) : (
+            <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-3 flex items-center justify-between">
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Material 2</p>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={false}
+                  onChange={(e) => {
+                    if (!e.target.checked) return
+                    setHabilitado2(true)
+                    if (slot1Grid.lotes.length > 0) setPlantillaKey2((k) => k + 1)
+                  }}
+                  className="h-3.5 w-3.5 rounded border-stone-300 accent-[#344966]"
+                />
+                <span className="text-xs text-stone-500">
+                  {slot1Grid.lotes.length > 0 ? "Habilitar y replicar Material 1" : "Habilitar"}
+                </span>
+              </label>
+            </div>
+          )}
+
+          {/* Material 3 */}
+          {habilitado3 ? (
+            <OpTelaSlotCard
+              key={3}
+              ordenId={ordenId}
+              slot={3}
+              iniciales={opTelas}
+              inicialesLotes={opTelaLotes}
+              tallasCount={tallas.length}
+              numLotesPreset={presetAplicado}
+              plantilla={slot1Grid}
+              plantillaKey={plantillaKey3}
+              celda00Ref={slot1Celda00}
+              onMsg={onSaved}
+              onCapasChange={handleCapasChange}
+            />
+          ) : (
+            <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50 p-3 flex items-center justify-between">
+              <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Material 3</p>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={false}
+                  onChange={(e) => {
+                    if (!e.target.checked) return
+                    setHabilitado3(true)
+                    if (slot1Grid.lotes.length > 0) setPlantillaKey3((k) => k + 1)
+                  }}
+                  className="h-3.5 w-3.5 rounded border-stone-300 accent-[#344966]"
+                />
+                <span className="text-xs text-stone-500">
+                  {slot1Grid.lotes.length > 0 ? "Habilitar y replicar Material 1" : "Habilitar"}
+                </span>
+              </label>
+            </div>
+          )}
         </div>
       </div>
 
