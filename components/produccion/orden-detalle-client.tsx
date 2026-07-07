@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import {
   Send, AlertTriangle, CheckCircle2,
-  Plus, Trash2, Save, ExternalLink, Pencil, Printer,
+  Plus, Trash2, Save, ExternalLink, Pencil, Printer, RefreshCw,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
@@ -395,6 +395,31 @@ function OpTelaSlotCard({
     setLotes((p) => p.map((l) => l.key === lk ? { ...l, nombre } : l))
   }
 
+  // Re-sincroniza las columnas de lotes desde Material 1 (solo M2/M3).
+  // Conserva los colores propios; las capas se mantienen si el lote (por nombre)
+  // ya existía, y los lotes nuevos heredan el valor del primer lote de cada fila.
+  function recalcularLotesDesdePlantilla() {
+    if (!plantilla || plantilla.lotes.length === 0) return
+    const newLotes = plantilla.lotes.map((l) => ({ key: crypto.randomUUID(), nombre: l.nombre }))
+    const oldLotes = lotes
+    setCapas((prev) => {
+      const next: CapasGrid = {}
+      const firstOldKey = oldLotes[0]?.key
+      for (const c of colores) {
+        next[c.key] = {}
+        for (const nl of newLotes) {
+          const match = oldLotes.find((ol) => ol.nombre.trim() === nl.nombre.trim())
+          next[c.key][nl.key] = match
+            ? (prev[c.key]?.[match.key] ?? null)
+            : (firstOldKey ? prev[c.key]?.[firstOldKey] ?? null : null)
+        }
+      }
+      return next
+    })
+    setLotes(newLotes)
+    onMsg(`Lotes de Material ${slot} recalculados desde Material 1 (${newLotes.length} lotes)`)
+  }
+
   function setCelda(ck: string, lk: string, val: number | null) {
     const isFirstLote = lotes.length > 0 && lk === lotes[0].key
     setCapas((p) => {
@@ -449,7 +474,20 @@ function OpTelaSlotCard({
 
   return (
     <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-3">
-      <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Material {slot}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Material {slot}</p>
+        {plantilla && plantilla.lotes.length > 0 && (
+          <button
+            type="button"
+            onClick={recalcularLotesDesdePlantilla}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium border border-stone-300 text-stone-500 hover:bg-stone-100 transition-colors"
+            title="Vuelve a tomar los lotes de Material 1 (agregados o eliminados), conservando colores y capas de los lotes existentes"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Recalcular lotes
+          </button>
+        )}
+      </div>
       <input
         type="text"
         value={tipoTela}
