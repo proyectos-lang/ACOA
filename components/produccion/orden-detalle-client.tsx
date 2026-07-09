@@ -77,15 +77,6 @@ function cop(n: number) {
 const fieldCls =
   "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
 
-// Campos que se muestran en la pestaña Materiales (no en Costos)
-const INSUMOS_KEYS = new Set([
-  "valor_cordon",
-  "valor_bandera",
-  "valor_bolsas_flechas_stickers",
-  "valor_etiqueta",
-  "valor_instruccion",
-])
-
 // ─── Tab 1: Info General ─────────────────────────────────────────────────────
 
 function InfoGeneralSection({
@@ -1379,35 +1370,16 @@ function MaterialesOPSection({
     setFilas((p) => ({ ...p, [key]: { ...p[key], [campo]: val } }))
   }
 
-  // ── Otros insumos de valor fijo (solo visible con ver_costos) ──────────────
-  const [insumosValores, setInsumosValores] = React.useState<Record<string, string>>(() => {
+  // ── Costos fijos por prenda: los 15 conceptos de la hoja de costos ─────────
+  // (solo visible/editable con ver_costos)
+  const [fijosValores, setFijosValores] = React.useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
-    for (const f of VALORES_FIJOS.filter((f) => INSUMOS_KEYS.has(f.key as string))) {
+    for (const f of VALORES_FIJOS) {
       const rawVal = hojaCostos?.[f.key]
       init[f.key as string] = rawVal != null ? String(rawVal) : "0"
     }
     return init
   })
-  const [isPendingInsumos, startInsumos] = useTransition()
-
-  function handleSaveInsumos() {
-    const fd = new FormData()
-    // Envía los 15 campos: 5 insumos desde estado local + 10 operacionales desde el último guardado
-    for (const f of VALORES_FIJOS) {
-      const k = f.key as string
-      if (INSUMOS_KEYS.has(k)) {
-        fd.set(k, insumosValores[k] || "0")
-      } else {
-        const savedVal = hojaCostos?.[f.key]
-        fd.set(k, savedVal != null ? String(savedVal) : "0")
-      }
-    }
-    startInsumos(async () => {
-      const res = await guardarHojaCostosAction(ordenId, fd)
-      if (res.error) onMsg(`Error: ${res.error}`)
-      else { onMsg("Insumos guardados"); router.refresh() }
-    })
-  }
 
   async function handleDelete() {
     if (!deleteId) return
@@ -1462,10 +1434,30 @@ function MaterialesOPSection({
     }
     startTransition(async () => {
       const res = await guardarMaterialesOPAction(ordenId, payload)
-      if (res.error) onMsg(`Error: ${res.error}`)
-      else { onMsg("Materiales guardados"); router.refresh() }
+      if (res.error) { onMsg(`Error: ${res.error}`); return }
+
+      // Con permiso de costos, guarda también los 15 conceptos fijos
+      if (tieneVerCostos) {
+        const fd = new FormData()
+        for (const f of VALORES_FIJOS) {
+          fd.set(f.key as string, fijosValores[f.key as string] || "0")
+        }
+        // Preserva el precio de venta ya guardado (se edita en la pestaña Costos)
+        if (hojaCostos?.precio_venta != null) {
+          fd.set("precio_venta", String(hojaCostos.precio_venta))
+        }
+        const res2 = await guardarHojaCostosAction(ordenId, fd)
+        if (res2.error) { onMsg(`Error: ${res2.error}`); return }
+      }
+
+      onMsg(tieneVerCostos ? "Materiales y costos guardados" : "Materiales guardados")
+      router.refresh()
     })
   }
+
+  const sumaFijosPrenda = VALORES_FIJOS.reduce(
+    (s, f) => s + num(fijosValores[f.key as string]), 0
+  )
 
   const inputMatCls =
     "rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-[#344966] text-right font-mono"
@@ -1600,6 +1592,88 @@ function MaterialesOPSection({
         </div>
       )}
 
+      {/* Subsección: costos fijos por prenda (todos los conceptos de la hoja de costos) */}
+      {tieneVerCostos && (
+        <div className="pt-1 space-y-3">
+          <div className="flex items-center gap-3">
+            <hr className="flex-1 border-stone-200" />
+            <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">
+              Insumos y costos fijos por prenda
+            </span>
+            <hr className="flex-1 border-stone-200" />
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-stone-200">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-stone-100 bg-stone-50">
+                  {["Item", "Cantidad", "Costo unitario", "Valor total"].map((h) => (
+                    <th key={h} className="px-3 py-2 text-left font-semibold text-stone-500 whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {VALORES_FIJOS.map((f) => {
+                  const k = f.key as string
+                  const v = num(fijosValores[k])
+                  return (
+                    <tr key={k} className="border-b border-stone-100 last:border-0">
+                      <td className="px-3 py-1.5 font-medium text-stone-800">{f.label}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-stone-600">
+                        {totalUnidades.toLocaleString("es-CO")}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={fijosValores[k]}
+                          onChange={(e) =>
+                            setFijosValores((p) => ({ ...p, [k]: e.target.value }))
+                          }
+                          className={`w-24 ${inputMatCls}`}
+                        />
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono font-semibold text-stone-800">
+                        {v > 0 ? cop(v * totalUnidades) : "—"}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-stone-200 bg-stone-50">
+                  <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-stone-600">
+                    Costo fijo / prenda
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-semibold text-stone-800">
+                    {cop(sumaFijosPrenda)}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono font-bold text-stone-900">
+                    {cop(sumaFijosPrenda * totalUnidades)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Resumen combinado */}
+          <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-3 flex flex-wrap gap-x-8 gap-y-1 text-xs text-stone-600">
+            <span>
+              Costo total / prenda:{" "}
+              <strong className="font-mono text-stone-800">{cop(costoPorPrenda + sumaFijosPrenda)}</strong>
+            </span>
+            <span>
+              Costo total orden:{" "}
+              <strong className="font-mono" style={{ color: "#344966" }}>
+                {cop((costoPorPrenda + sumaFijosPrenda) * totalUnidades)}
+              </strong>
+            </span>
+          </div>
+        </div>
+      )}
+
       <button
         onClick={handleGuardarTodos}
         disabled={isPending}
@@ -1607,47 +1681,10 @@ function MaterialesOPSection({
         style={{ backgroundColor: "#344966" }}
       >
         <Save className="h-3.5 w-3.5" />
-        {isPending ? "Guardando…" : "Guardar materiales"}
+        {isPending
+          ? "Guardando…"
+          : tieneVerCostos ? "Guardar materiales y costos" : "Guardar materiales"}
       </button>
-
-      {/* Subsección: Otros insumos de valor fijo */}
-      {tieneVerCostos && (
-        <div className="pt-1 space-y-3">
-          <div className="flex items-center gap-3">
-            <hr className="flex-1 border-stone-200" />
-            <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">
-              Otros insumos (valor fijo por prenda)
-            </span>
-            <hr className="flex-1 border-stone-200" />
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {VALORES_FIJOS.filter((f) => INSUMOS_KEYS.has(f.key as string)).map((f) => (
-              <div key={f.key as string} className="space-y-1">
-                <label className="text-xs font-medium text-stone-600">{f.label}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={insumosValores[f.key as string]}
-                  onChange={(e) =>
-                    setInsumosValores((p) => ({ ...p, [f.key as string]: e.target.value }))
-                  }
-                  className={fieldCls}
-                />
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={handleSaveInsumos}
-            disabled={isPendingInsumos}
-            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            style={{ backgroundColor: "#344966" }}
-          >
-            <Save className="h-3.5 w-3.5" />
-            {isPendingInsumos ? "Guardando…" : "Guardar insumos"}
-          </button>
-        </div>
-      )}
 
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent className="rounded-2xl">
@@ -1684,17 +1721,6 @@ function HojaCostosSection({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
-  // Solo los 10 campos operacionales/logísticos (los 5 de insumos están en la pestaña Materiales)
-  const operacionalesFijos = VALORES_FIJOS.filter((f) => !INSUMOS_KEYS.has(f.key as string))
-
-  const [valores, setValores] = React.useState<Record<string, string>>(() => {
-    const init: Record<string, string> = {}
-    for (const f of operacionalesFijos) {
-      const rawVal = hojaCostos?.[f.key]
-      init[f.key as string] = rawVal != null ? String(rawVal) : "0"
-    }
-    return init
-  })
   const [precioVenta, setPrecioVenta] = React.useState(
     hojaCostos?.precio_venta != null ? String(hojaCostos.precio_venta) : ""
   )
@@ -1706,25 +1732,17 @@ function HojaCostosSection({
   )
 
   const costoMateriales = hojaCostos?.costo_materiales ?? 0
-  // Suma operacionales (local) + insumos (último guardado desde Materiales)
-  const sumaOperacionales = operacionalesFijos.reduce(
-    (s, f) => s + (parseFloat(valores[f.key as string]) || 0), 0
+  // Los 15 conceptos fijos se editan en la pestaña Materiales; aquí solo se leen
+  const sumaFijos = VALORES_FIJOS.reduce(
+    (s, f) => s + (Number(hojaCostos?.[f.key]) || 0), 0
   )
-  const sumaInsumos = VALORES_FIJOS
-    .filter((f) => INSUMOS_KEYS.has(f.key as string))
-    .reduce((s, f) => s + (Number(hojaCostos?.[f.key]) || 0), 0)
-  const sumaFijos = sumaOperacionales + sumaInsumos
   const costoUnitario = costoMateriales + sumaFijos
   const precioVentaNum = parseFloat(precioVenta) || 0
 
   function handleSave() {
     const fd = new FormData()
-    // 10 operacionales desde estado local
-    for (const f of operacionalesFijos) {
-      fd.set(f.key as string, valores[f.key as string] || "0")
-    }
-    // 5 insumos desde el último guardado en hojaCostos (editados en pestaña Materiales)
-    for (const f of VALORES_FIJOS.filter((f) => INSUMOS_KEYS.has(f.key as string))) {
+    // Los 15 fijos desde el último guardado (se editan en la pestaña Materiales)
+    for (const f of VALORES_FIJOS) {
       const savedVal = hojaCostos?.[f.key]
       fd.set(f.key as string, savedVal != null ? String(savedVal) : "0")
     }
@@ -1749,6 +1767,7 @@ function HojaCostosSection({
   const valorRetencion = precioVentaNum * (porcRetNum / 100)
   const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario : null
   const netoPorPrenda = margenCalc != null ? margenCalc - valorIva - valorRetencion : 0
+  const gananciaTotalOrden = (margenCalc ?? 0) * totalUnidadesHoja
   const netoTotalOrden = netoPorPrenda * totalUnidadesHoja
 
   return (
@@ -1789,22 +1808,11 @@ function HojaCostosSection({
         </p>
       </div>
 
+      <div className="rounded-xl bg-stone-50 border border-stone-200 px-4 py-2.5 text-xs text-stone-500">
+        Los materiales, insumos y costos fijos se editan en la pestaña <strong>Materiales</strong>. Aquí defines el precio de venta, IVA y retención para calcular las ganancias y utilidades netas.
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {operacionalesFijos.map((f) => (
-          <div key={f.key as string} className="space-y-1">
-            <label className="text-xs font-medium text-stone-600">{f.label}</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={valores[f.key as string]}
-              onChange={(e) =>
-                setValores((p) => ({ ...p, [f.key as string]: e.target.value }))
-              }
-              className={fieldCls}
-            />
-          </div>
-        ))}
         <div className="space-y-1">
           <label className="text-xs font-medium text-stone-600">Precio de venta</label>
           <input
@@ -1866,14 +1874,20 @@ function HojaCostosSection({
           </div>
         )}
         {margenCalc !== null && (
-          <div
-            className={`flex justify-between border-t border-stone-200 pt-2 font-semibold ${
-              margenCalc >= 0 ? "text-green-700" : "text-red-700"
-            }`}
-          >
-            <span>Margen (precio − costo)</span>
-            <span className="font-mono">{cop(margenCalc)}</span>
-          </div>
+          <>
+            <div
+              className={`flex justify-between border-t border-stone-200 pt-2 font-semibold ${
+                margenCalc >= 0 ? "text-green-700" : "text-red-700"
+              }`}
+            >
+              <span>Margen (precio − costo)</span>
+              <span className="font-mono">{cop(margenCalc)}</span>
+            </div>
+            <div className="flex justify-between text-stone-600">
+              <span>Ganancia total orden (× {totalUnidadesHoja.toLocaleString("es-CO")})</span>
+              <span className="font-mono">{cop(gananciaTotalOrden)}</span>
+            </div>
+          </>
         )}
         {precioVentaNum > 0 && (
           <>
@@ -1890,7 +1904,7 @@ function HojaCostosSection({
               <span className="font-mono">{cop(netoPorPrenda)}</span>
             </div>
             <div className="flex justify-between font-bold" style={{ color: "#344966" }}>
-              <span>Neto total orden (× {totalUnidadesHoja.toLocaleString("es-CO")})</span>
+              <span>Utilidad neta total (× {totalUnidadesHoja.toLocaleString("es-CO")})</span>
               <span className="font-mono">{cop(netoTotalOrden)}</span>
             </div>
           </>
