@@ -1741,14 +1741,14 @@ function HojaCostosSection({
   const totalUnidadesHoja = hojaCostos?.total_unidades ?? 0
   const costoTotalMateriales = costoMateriales * totalUnidadesHoja
 
-  // IVA y retención (Colombia): neto = precio + IVA − retención, ambos sobre la base
+  // IVA y retención (Colombia) se calculan después del margen y restan:
+  // neto por prenda = margen − IVA − retención
   const porcIvaNum = parseFloat(porcIva) || 0
   const porcRetNum = parseFloat(porcRetencion) || 0
   const valorIva = precioVentaNum * (porcIvaNum / 100)
   const valorRetencion = precioVentaNum * (porcRetNum / 100)
-  // El IVA cobrado se le debe a la DIAN: no es utilidad, por eso resta al margen
-  const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario - valorIva : null
-  const netoPorPrenda = precioVentaNum > 0 ? precioVentaNum + valorIva - valorRetencion : 0
+  const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario : null
+  const netoPorPrenda = margenCalc != null ? margenCalc - valorIva - valorRetencion : 0
   const netoTotalOrden = netoPorPrenda * totalUnidadesHoja
 
   return (
@@ -1871,7 +1871,7 @@ function HojaCostosSection({
               margenCalc >= 0 ? "text-green-700" : "text-red-700"
             }`}
           >
-            <span>Margen (precio − costo − IVA)</span>
+            <span>Margen (precio − costo)</span>
             <span className="font-mono">{cop(margenCalc)}</span>
           </div>
         )}
@@ -1879,14 +1879,14 @@ function HojaCostosSection({
           <>
             <div className="flex justify-between text-stone-600 border-t border-stone-200 pt-2">
               <span>IVA ({porcIvaNum}%)</span>
-              <span className="font-mono text-green-700">+{cop(valorIva)}</span>
+              <span className="font-mono text-red-700">−{cop(valorIva)}</span>
             </div>
             <div className="flex justify-between text-stone-600">
               <span>Retención ({porcRetNum}%)</span>
               <span className="font-mono text-red-700">−{cop(valorRetencion)}</span>
             </div>
             <div className="flex justify-between border-t border-stone-300 pt-2 font-semibold text-stone-800">
-              <span>Neto por prenda</span>
+              <span>Neto por prenda (margen − IVA − retención)</span>
               <span className="font-mono">{cop(netoPorPrenda)}</span>
             </div>
             <div className="flex justify-between font-bold" style={{ color: "#344966" }}>
