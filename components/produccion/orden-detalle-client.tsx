@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import {
   Send, AlertTriangle, CheckCircle2,
-  Plus, Trash2, Save, ExternalLink, Pencil, Printer, RefreshCw,
+  Plus, Trash2, Save, ExternalLink, Printer, RefreshCw,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
@@ -26,11 +26,11 @@ import {
   guardarSlotAction,
   crearLoteAction,
   eliminarLoteAction,
-  addOpMaterialAction,
-  updateOpMaterialAction,
   deleteOpMaterialAction,
+  guardarMaterialesOPAction,
   enviarADisenoAction,
 } from "@/app/(dashboard)/produccion/[id]/actions"
+import type { OpMaterialBatchFila } from "@/lib/db/op-material"
 import { guardarHojaCostosAction } from "@/app/(dashboard)/produccion/[id]/costos/actions"
 import {
   Dialog,
@@ -1319,26 +1319,15 @@ function LotesSection({
 
 // ─── Tab 3: Materiales ────────────────────────────────────────────────────────
 
-type FormMaterial = {
-  tipo: string
-  nombre: string
-  unidad_medida: string
-  valor_unitario: string
-  consumo_estimado: string
-}
+type FilaMaterialState = { consumo: string; valor: string }
 
-const emptyForm: FormMaterial = {
-  tipo: "",
-  nombre: "",
-  unidad_medida: "",
-  valor_unitario: "0",
-  consumo_estimado: "",
-}
+const esUnidad = (u: string) => u.trim().toLowerCase() === "unidad"
 
 function MaterialesOPSection({
   ordenId,
   inicial,
   maestro,
+  totalUnidades,
   tieneVerCostos,
   hojaCostos,
   onMsg,
@@ -1346,17 +1335,49 @@ function MaterialesOPSection({
   ordenId: number
   inicial: OpMaterialRow[]
   maestro: MaterialRow[]
+  totalUnidades: number
   tieneVerCostos: boolean
   hojaCostos: HojaCostosRow | null
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
-  const [addOpen, setAddOpen] = React.useState(false)
-  const [editRow, setEditRow] = React.useState<OpMaterialRow | null>(null)
   const [deleteId, setDeleteId] = React.useState<number | null>(null)
   const [isPending, startTransition] = useTransition()
-  const [selectedMaterial, setSelectedMaterial] = React.useState<MaterialRow | null>(null)
-  const [form, setForm] = React.useState<FormMaterial>(emptyForm)
+
+  // Filas manuales heredadas (sin vínculo al maestro)
+  const manualRows = React.useMemo(
+    () => inicial.filter((r) => r.material_id == null),
+    [inicial]
+  )
+
+  // Estado editable por fila: clave `m{material_id}` (maestro) o `op{id}` (manual)
+  const buildFilas = React.useCallback(() => {
+    const init: Record<string, FilaMaterialState> = {}
+    for (const m of maestro) {
+      const saved = inicial.find((r) => r.material_id === m.id)
+      init[`m${m.id}`] = {
+        consumo:
+          saved?.consumo_estimado != null
+            ? String(saved.consumo_estimado)
+            : esUnidad(m.unidad_medida) ? "1" : "",
+        valor: saved != null ? String(saved.valor_unitario) : String(m.valor_unitario ?? 0),
+      }
+    }
+    for (const r of inicial.filter((r) => r.material_id == null)) {
+      init[`op${r.id}`] = {
+        consumo: r.consumo_estimado != null ? String(r.consumo_estimado) : "",
+        valor: String(r.valor_unitario),
+      }
+    }
+    return init
+  }, [maestro, inicial])
+
+  const [filas, setFilas] = React.useState<Record<string, FilaMaterialState>>(buildFilas)
+  React.useEffect(() => { setFilas(buildFilas()) }, [buildFilas])
+
+  function setFila(key: string, campo: keyof FilaMaterialState, val: string) {
+    setFilas((p) => ({ ...p, [key]: { ...p[key], [campo]: val } }))
+  }
 
   // ── Otros insumos de valor fijo (solo visible con ver_costos) ──────────────
   const [insumosValores, setInsumosValores] = React.useState<Record<string, string>>(() => {
@@ -1388,68 +1409,6 @@ function MaterialesOPSection({
     })
   }
 
-  function openAdd() {
-    setSelectedMaterial(null)
-    setForm(emptyForm)
-    setAddOpen(true)
-  }
-
-  function openEdit(row: OpMaterialRow) {
-    setForm({
-      tipo: row.tipo,
-      nombre: row.nombre,
-      unidad_medida: row.unidad_medida,
-      valor_unitario: String(row.valor_unitario),
-      consumo_estimado: row.consumo_estimado != null ? String(row.consumo_estimado) : "",
-    })
-    setEditRow(row)
-  }
-
-  function pickMaterial(id: string) {
-    const m = maestro.find((x) => String(x.id) === id) ?? null
-    setSelectedMaterial(m)
-    if (m) {
-      setForm({
-        tipo: m.tipo,
-        nombre: m.nombre,
-        unidad_medida: m.unidad_medida,
-        valor_unitario: String(m.valor_unitario),
-        consumo_estimado: "",
-      })
-    }
-  }
-
-  function handleAdd() {
-    startTransition(async () => {
-      const res = await addOpMaterialAction({
-        orden_id: ordenId,
-        material_id: selectedMaterial?.id ?? null,
-        tipo: form.tipo,
-        nombre: form.nombre,
-        unidad_medida: form.unidad_medida,
-        valor_unitario: parseFloat(form.valor_unitario) || 0,
-        consumo_estimado: form.consumo_estimado ? parseFloat(form.consumo_estimado) : null,
-      })
-      if (res.error) onMsg(`Error: ${res.error}`)
-      else { setAddOpen(false); onMsg("Material agregado"); router.refresh() }
-    })
-  }
-
-  function handleEdit() {
-    if (!editRow) return
-    startTransition(async () => {
-      const res = await updateOpMaterialAction(editRow.id, ordenId, {
-        tipo: form.tipo,
-        nombre: form.nombre,
-        unidad_medida: form.unidad_medida,
-        valor_unitario: parseFloat(form.valor_unitario) || 0,
-        consumo_estimado: form.consumo_estimado ? parseFloat(form.consumo_estimado) : null,
-      })
-      if (res.error) onMsg(`Error: ${res.error}`)
-      else { setEditRow(null); onMsg("Material actualizado"); router.refresh() }
-    })
-  }
-
   async function handleDelete() {
     if (!deleteId) return
     const res = await deleteOpMaterialAction(deleteId, ordenId)
@@ -1458,99 +1417,123 @@ function MaterialesOPSection({
     else { onMsg("Material eliminado"); router.refresh() }
   }
 
-  const totalVPP = inicial.reduce((s, m) => s + Number(m.valor_por_prenda), 0)
-  const vppPreview =
-    (parseFloat(form.consumo_estimado) || 0) * (parseFloat(form.valor_unitario) || 0)
+  const num = (s: string | undefined) => parseFloat(s ?? "") || 0
 
-  function MaterialForm({ onConfirm, isEdit }: { onConfirm: () => void; isEdit: boolean }) {
+  // Totales en tiempo real
+  const costoPorPrenda =
+    maestro.reduce((s, m) => {
+      const f = filas[`m${m.id}`]
+      return s + num(f?.consumo) * num(f?.valor)
+    }, 0) +
+    manualRows.reduce((s, r) => {
+      const f = filas[`op${r.id}`]
+      return s + num(f?.consumo) * num(f?.valor)
+    }, 0)
+  const valorTotalMateriales = costoPorPrenda * totalUnidades
+
+  function handleGuardarTodos() {
+    const payload: OpMaterialBatchFila[] = []
+    for (const m of maestro) {
+      const f = filas[`m${m.id}`]
+      if (!f) continue
+      const consumo = num(f.consumo)
+      if (consumo <= 0) continue
+      payload.push({
+        material_id: m.id,
+        tipo: m.tipo,
+        nombre: m.nombre,
+        unidad_medida: m.unidad_medida,
+        valor_unitario: num(f.valor),
+        consumo_estimado: consumo,
+      })
+    }
+    for (const r of manualRows) {
+      const f = filas[`op${r.id}`]
+      if (!f) continue
+      payload.push({
+        op_id: r.id,
+        material_id: null,
+        tipo: r.tipo,
+        nombre: r.nombre,
+        unidad_medida: r.unidad_medida,
+        valor_unitario: num(f.valor),
+        consumo_estimado: f.consumo ? num(f.consumo) : null,
+      })
+    }
+    startTransition(async () => {
+      const res = await guardarMaterialesOPAction(ordenId, payload)
+      if (res.error) onMsg(`Error: ${res.error}`)
+      else { onMsg("Materiales guardados"); router.refresh() }
+    })
+  }
+
+  const inputMatCls =
+    "rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-[#344966] text-right font-mono"
+
+  function renderFilaMaterial(
+    key: string,
+    tipo: string,
+    nombre: string,
+    unidad: string,
+    esManual: boolean,
+    opId?: number
+  ) {
+    const f = filas[key] ?? { consumo: "", valor: "" }
+    const consumoN = num(f.consumo)
+    const valorN = num(f.valor)
+    const totalMaterial = consumoN * totalUnidades
+    const valorTotal = totalMaterial * valorN
     return (
-      <div className="space-y-3">
-        {!isEdit && maestro.length > 0 && (
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-stone-700">Desde maestro (opcional)</label>
-            <select
-              className={fieldCls}
-              value={selectedMaterial?.id ?? ""}
-              onChange={(e) => pickMaterial(e.target.value)}
-            >
-              <option value="">— Manual —</option>
-              {maestro.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.nombre} ({m.tipo})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-stone-600">Tipo</label>
-            <input
-              className={fieldCls}
-              value={form.tipo}
-              onChange={(e) => setForm((p) => ({ ...p, tipo: e.target.value }))}
-              placeholder="tela"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-stone-600">Unidad de medida</label>
-            <input
-              className={fieldCls}
-              value={form.unidad_medida}
-              onChange={(e) => setForm((p) => ({ ...p, unidad_medida: e.target.value }))}
-              placeholder="metro"
-            />
-          </div>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-stone-600">Nombre</label>
+      <tr key={key} className="border-b border-stone-100 last:border-0">
+        <td className="px-3 py-1.5">
+          <span className="rounded-full px-2 py-0.5 bg-stone-100 text-stone-600 text-xs">
+            {tipo}{esManual ? " ✎" : ""}
+          </span>
+        </td>
+        <td className="px-3 py-1.5 font-medium text-stone-800">{nombre}</td>
+        <td className="px-3 py-1.5 text-stone-500">{unidad}</td>
+        <td className="px-3 py-1.5">
           <input
-            className={fieldCls}
-            value={form.nombre}
-            onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))}
-            placeholder="Nombre del material"
+            type="number"
+            min="0"
+            step="0.0001"
+            value={f.consumo}
+            onChange={(e) => setFila(key, "consumo", e.target.value)}
+            className={`w-20 ${inputMatCls}`}
+            placeholder="—"
           />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-stone-600">Valor unitario</label>
-            <input
-              type="number"
-              min="0"
-              step="0.0001"
-              className={fieldCls}
-              value={form.valor_unitario}
-              onChange={(e) => setForm((p) => ({ ...p, valor_unitario: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-stone-600">Consumo estimado</label>
-            <input
-              type="number"
-              min="0"
-              step="0.0001"
-              className={fieldCls}
-              value={form.consumo_estimado}
-              onChange={(e) => setForm((p) => ({ ...p, consumo_estimado: e.target.value }))}
-              placeholder="0.0000"
-            />
-          </div>
-        </div>
-        {form.consumo_estimado && form.valor_unitario && vppPreview > 0 && (
-          <div className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-600">
-            Valor por prenda (preview):{" "}
-            <strong className="text-stone-800">{cop(vppPreview)}</strong>
-          </div>
-        )}
-        <button
-          onClick={onConfirm}
-          disabled={isPending || !form.tipo || !form.nombre || !form.unidad_medida}
-          className="w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-          style={{ backgroundColor: "#344966" }}
-        >
-          {isPending ? "Guardando…" : isEdit ? "Guardar cambios" : "Agregar"}
-        </button>
-      </div>
+        </td>
+        <td className="px-3 py-1.5 text-right font-mono text-stone-700">
+          {consumoN > 0 && totalUnidades > 0
+            ? `${totalMaterial.toLocaleString("es-CO", { maximumFractionDigits: 2 })} ${unidad}`
+            : "—"}
+        </td>
+        <td className="px-3 py-1.5">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={f.valor}
+            onChange={(e) => setFila(key, "valor", e.target.value)}
+            className={`w-24 ${inputMatCls}`}
+            placeholder="0"
+          />
+        </td>
+        <td className="px-3 py-1.5 text-right font-mono font-semibold text-stone-800">
+          {valorTotal > 0 ? cop(valorTotal) : "—"}
+        </td>
+        <td className="px-3 py-1.5">
+          {esManual && opId != null && (
+            <button
+              onClick={() => setDeleteId(opId)}
+              className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
+              title="Eliminar material manual"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </td>
+      </tr>
     )
   }
 
@@ -1558,25 +1541,30 @@ function MaterialesOPSection({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-stone-700">Materiales e insumos</h3>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600"
-        >
-          <Plus className="h-3 w-3" />
-          Agregar material
-        </button>
+        <span className="text-xs text-stone-500">
+          Total prendas (curva):{" "}
+          <strong className="text-stone-800">{totalUnidades.toLocaleString("es-CO")}</strong>
+        </span>
       </div>
 
-      {inicial.length === 0 ? (
-        <p className="text-xs text-stone-400 py-6 text-center">Sin materiales asignados.</p>
+      {totalUnidades === 0 && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          La curva no tiene capas/tallas guardadas: el total de material no se puede calcular aún.
+        </div>
+      )}
+
+      {maestro.length === 0 && manualRows.length === 0 ? (
+        <p className="text-xs text-stone-400 py-6 text-center">
+          No hay materiales registrados en el módulo de Materiales.
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-stone-200">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50">
-                {["Tipo", "Nombre", "Unidad", "Consumo est.", "Valor unit.", "V/Prenda", ""].map(
+                {["Tipo", "Material", "Unidad", "Consumo / prenda", "Total material", "Valor unitario", "Valor total", ""].map(
                   (h) => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-stone-500">
+                    <th key={h} className="px-3 py-2 text-left font-semibold text-stone-500 whitespace-nowrap">
                       {h}
                     </th>
                   )
@@ -1584,55 +1572,43 @@ function MaterialesOPSection({
               </tr>
             </thead>
             <tbody>
-              {inicial.map((m) => (
-                <tr key={m.id} className="border-b border-stone-100 last:border-0">
-                  <td className="px-3 py-2">
-                    <span className="rounded-full px-2 py-0.5 bg-stone-100 text-stone-600 text-xs">
-                      {m.tipo}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 font-medium text-stone-800">{m.nombre}</td>
-                  <td className="px-3 py-2 text-stone-500">{m.unidad_medida}</td>
-                  <td className="px-3 py-2 font-mono text-stone-600">
-                    {m.consumo_estimado ?? "—"}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-stone-600">
-                    {cop(Number(m.valor_unitario))}
-                  </td>
-                  <td className="px-3 py-2 font-mono font-semibold text-stone-800">
-                    {cop(Number(m.valor_por_prenda))}
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => openEdit(m)}
-                        className="p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteId(m.id)}
-                        className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {maestro.map((m) =>
+                renderFilaMaterial(`m${m.id}`, m.tipo, m.nombre, m.unidad_medida, false)
+              )}
+              {manualRows.map((r) =>
+                renderFilaMaterial(`op${r.id}`, r.tipo, r.nombre, r.unidad_medida, true, r.id)
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-200 bg-stone-50">
-                <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-stone-600">
-                  Total costo materiales / prenda
+                <td colSpan={4} className="px-3 py-2 text-xs font-semibold text-stone-600">
+                  Costo materiales / prenda
                 </td>
-                <td className="px-3 py-2 font-mono font-bold text-stone-900">{cop(totalVPP)}</td>
+                <td className="px-3 py-2 text-right font-mono font-semibold text-stone-800">
+                  {cop(costoPorPrenda)}
+                </td>
+                <td className="px-3 py-2 text-xs font-semibold text-stone-600 text-right">
+                  Valor total materiales
+                </td>
+                <td className="px-3 py-2 text-right font-mono font-bold text-stone-900">
+                  {cop(valorTotalMateriales)}
+                </td>
                 <td />
               </tr>
             </tfoot>
           </table>
         </div>
       )}
+
+      <button
+        onClick={handleGuardarTodos}
+        disabled={isPending}
+        className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        style={{ backgroundColor: "#344966" }}
+      >
+        <Save className="h-3.5 w-3.5" />
+        {isPending ? "Guardando…" : "Guardar materiales"}
+      </button>
 
       {/* Subsección: Otros insumos de valor fijo */}
       {tieneVerCostos && (
@@ -1672,26 +1648,6 @@ function MaterialesOPSection({
           </button>
         </div>
       )}
-
-      {/* Dialog agregar */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Agregar material</DialogTitle>
-          </DialogHeader>
-          <MaterialForm onConfirm={handleAdd} isEdit={false} />
-        </DialogContent>
-      </Dialog>
-
-      {/* Dialog editar */}
-      <Dialog open={editRow !== null} onOpenChange={(o) => !o && setEditRow(null)}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Editar material</DialogTitle>
-          </DialogHeader>
-          <MaterialForm onConfirm={handleEdit} isEdit={true} />
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent className="rounded-2xl">
@@ -1775,10 +1731,45 @@ function HojaCostosSection({
     })
   }
 
+  const totalUnidadesHoja = hojaCostos?.total_unidades ?? 0
+  const costoTotalMateriales = costoMateriales * totalUnidadesHoja
+
   return (
     <div className="space-y-5">
       <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-2.5 text-xs text-amber-800">
         Esta sección solo es visible para usuarios con permiso <strong>ver_costos</strong>. Los datos no se envían al cliente en sesiones sin ese permiso.
+      </div>
+
+      {/* Sección: Costos de materiales */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <hr className="flex-1 border-stone-200" />
+          <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide shrink-0">
+            Costos de materiales
+          </span>
+          <hr className="flex-1 border-stone-200" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+            <p className="text-xs text-stone-500">Costo materiales / prenda</p>
+            <p className="text-lg font-bold font-mono text-stone-800">{cop(costoMateriales)}</p>
+          </div>
+          <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+            <p className="text-xs text-stone-500">Total prendas</p>
+            <p className="text-lg font-bold font-mono text-stone-800">
+              {totalUnidadesHoja.toLocaleString("es-CO")}
+            </p>
+          </div>
+          <div className="rounded-xl border px-4 py-3" style={{ borderColor: "#344966", backgroundColor: "#F0F4F8" }}>
+            <p className="text-xs text-stone-500">Costo total de materiales</p>
+            <p className="text-lg font-bold font-mono" style={{ color: "#344966" }}>
+              {cop(costoTotalMateriales)}
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-stone-400">
+          Se calcula desde la pestaña Materiales (consumo × valor unitario × total prendas). Guarda los materiales para actualizarlo.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2037,6 +2028,7 @@ export function OrdenDetalleClient({
             ordenId={orden.id}
             inicial={opMateriales}
             maestro={maestroMateriales}
+            totalUnidades={opTelaLotes.reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
             tieneVerCostos={tieneVerCostos}
             hojaCostos={hojaCostos}
             onMsg={handleMsg}

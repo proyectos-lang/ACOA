@@ -98,6 +98,77 @@ export async function updateConsumoRealTelas(
   return ids.length
 }
 
+export interface OpMaterialBatchFila {
+  op_id?: number | null       // fila manual existente (material_id null)
+  material_id: number | null
+  tipo: string
+  nombre: string
+  unidad_medida: string
+  valor_unitario: number
+  consumo_estimado: number | null
+}
+
+// Sincroniza las filas de op_material con el listado editado en la pestaña Materiales.
+// Las filas ligadas al maestro se actualizan/insertan por material_id y se eliminan
+// si el usuario borró el consumo. Las filas manuales (material_id null) solo se
+// actualizan por su op_id — nunca se eliminan aquí para no perder consumo_real.
+export async function batchSaveOpMateriales(
+  ordenId: number,
+  filas: OpMaterialBatchFila[],
+  creadoPor: number
+): Promise<void> {
+  const db = createVanessaClient()
+  const { data: existing, error: exErr } = await db
+    .from("op_material")
+    .select("id, material_id")
+    .eq("orden_id", ordenId)
+  if (exErr) throw new Error(exErr.message)
+  const rows = (existing ?? []) as { id: number; material_id: number | null }[]
+  const byMaterial = new Map(
+    rows.filter((r) => r.material_id != null).map((r) => [r.material_id as number, r.id])
+  )
+
+  const keepMaterialIds = new Set<number>()
+  for (const f of filas) {
+    if (f.material_id != null) {
+      keepMaterialIds.add(f.material_id)
+      const existingId = byMaterial.get(f.material_id)
+      if (existingId) {
+        await updateOpMaterial(existingId, {
+          tipo: f.tipo,
+          nombre: f.nombre,
+          unidad_medida: f.unidad_medida,
+          valor_unitario: f.valor_unitario,
+          consumo_estimado: f.consumo_estimado,
+        })
+      } else {
+        await addOpMaterial({
+          orden_id: ordenId,
+          material_id: f.material_id,
+          tipo: f.tipo,
+          nombre: f.nombre,
+          unidad_medida: f.unidad_medida,
+          valor_unitario: f.valor_unitario,
+          consumo_estimado: f.consumo_estimado,
+          creado_por: creadoPor,
+        })
+      }
+    } else if (f.op_id) {
+      await updateOpMaterial(f.op_id, {
+        valor_unitario: f.valor_unitario,
+        consumo_estimado: f.consumo_estimado,
+      })
+    }
+  }
+
+  // Filas de maestro cuyo consumo fue borrado → eliminar
+  for (const r of rows) {
+    if (r.material_id != null && !keepMaterialIds.has(r.material_id)) {
+      await deleteOpMaterial(r.id)
+    }
+  }
+}
+
 export async function sumValorPorPrenda(ordenId: number): Promise<number> {
   const db = createVanessaClient()
   const { data } = await db

@@ -4,8 +4,13 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { getSession } from "@/lib/auth/session"
 import { updateOrden, uploadMolde, cambiarEstado } from "@/lib/db/orden-produccion"
-import { addOpMaterial, updateOpMaterial, deleteOpMaterial } from "@/lib/db/op-material"
-import { batchReplaceCurvaTallas } from "@/lib/db/curva-talla"
+import {
+  addOpMaterial, updateOpMaterial, deleteOpMaterial,
+  batchSaveOpMateriales, sumValorPorPrenda,
+  type OpMaterialBatchFila,
+} from "@/lib/db/op-material"
+import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
+import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import { upsertOpTela, deleteOpTela } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
@@ -159,6 +164,42 @@ export async function deleteOpMaterialAction(
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error eliminando material" }
+  }
+}
+
+// Guarda el listado completo de materiales de la OP y recalcula la hoja de costos
+export async function guardarMaterialesOPAction(
+  ordenId: number,
+  filas: OpMaterialBatchFila[]
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    await batchSaveOpMateriales(ordenId, filas, session.userId)
+
+    // Recalcular costo de materiales en hoja_costos para la pestaña Costos
+    const [costo_m_raw, curva, telaLotes, hoja] = await Promise.all([
+      sumValorPorPrenda(ordenId),
+      getCurvaTallas(ordenId),
+      getOpTelaLotes(ordenId),
+      getHojaCostos(ordenId),
+    ])
+    const costo_materiales = Math.round(costo_m_raw * 10000) / 10000
+    const sumaFijos = hoja
+      ? VALORES_FIJOS.reduce((s, f) => s + (Number(hoja[f.key]) || 0), 0)
+      : 0
+    const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
+    const totalCapas = telaLotes.reduce((s, r) => s + r.capas, 0)
+    const total_unidades = totalCapas * curva.length
+
+    await updateHojaCostos(ordenId, { costo_materiales, costo_unitario, total_unidades })
+
+    revalidatePath(`/produccion/${ordenId}`)
+    revalidatePath(`/produccion/${ordenId}/costos`)
+    return { success: true }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Error guardando materiales" }
   }
 }
 
