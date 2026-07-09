@@ -1716,7 +1716,6 @@ function HojaCostosSection({
   const sumaFijos = sumaOperacionales + sumaInsumos
   const costoUnitario = costoMateriales + sumaFijos
   const precioVentaNum = parseFloat(precioVenta) || 0
-  const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario : null
 
   function handleSave() {
     const fd = new FormData()
@@ -1747,6 +1746,8 @@ function HojaCostosSection({
   const porcRetNum = parseFloat(porcRetencion) || 0
   const valorIva = precioVentaNum * (porcIvaNum / 100)
   const valorRetencion = precioVentaNum * (porcRetNum / 100)
+  // El IVA cobrado se le debe a la DIAN: no es utilidad, por eso resta al margen
+  const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario - valorIva : null
   const netoPorPrenda = precioVentaNum > 0 ? precioVentaNum + valorIva - valorRetencion : 0
   const netoTotalOrden = netoPorPrenda * totalUnidadesHoja
 
@@ -1870,7 +1871,7 @@ function HojaCostosSection({
               margenCalc >= 0 ? "text-green-700" : "text-red-700"
             }`}
           >
-            <span>Margen (precio − costo)</span>
+            <span>Margen (precio − costo − IVA)</span>
             <span className="font-mono">{cop(margenCalc)}</span>
           </div>
         )}
