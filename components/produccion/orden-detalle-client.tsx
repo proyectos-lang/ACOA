@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import {
   Send, AlertTriangle, CheckCircle2,
-  Plus, Trash2, Save, ExternalLink, Printer, RefreshCw,
+  Plus, Trash2, Save, ExternalLink, Printer, RefreshCw, ChevronRight,
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
@@ -769,6 +769,169 @@ function generarImpresionOP(
   setTimeout(() => w.print(), 300)
 }
 
+// ─── Impresión de la hoja de costeo (Materiales + Costos) ───────────────────
+
+function generarImpresionCosteo(
+  orden: OrdenProduccionRow,
+  opMateriales: OpMaterialRow[],
+  hojaCostos: HojaCostosRow | null,
+  totalUnidades: number
+) {
+  const esc = (s: string | null | undefined) =>
+    (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+  // Materiales guardados
+  const materialesRows = opMateriales
+    .map((m) => {
+      const consumo = Number(m.consumo_estimado ?? 0)
+      const vpp = Number(m.valor_por_prenda)
+      return `<tr>
+        <td>${esc(m.tipo)}</td>
+        <td class="izq">${esc(m.nombre)}</td>
+        <td>${esc(m.unidad_medida)}</td>
+        <td class="num">${consumo}</td>
+        <td class="num">${(consumo * totalUnidades).toLocaleString("es-CO", { maximumFractionDigits: 2 })}</td>
+        <td class="num">${cop(Number(m.valor_unitario))}</td>
+        <td class="num">${cop(vpp * totalUnidades)}</td>
+      </tr>`
+    })
+    .join("")
+  const costoMatPrenda = opMateriales.reduce((s, m) => s + Number(m.valor_por_prenda), 0)
+
+  // Costos fijos (solo los que tienen valor)
+  const fijos = hojaCostos
+    ? VALORES_FIJOS
+        .map((f) => ({ label: f.label, v: Number(hojaCostos[f.key]) || 0 }))
+        .filter((x) => x.v > 0)
+    : []
+  const sumaFijos = fijos.reduce((s, x) => s + x.v, 0)
+  const fijosRows = fijos
+    .map(
+      (x) => `<tr>
+        <td class="izq" colspan="3">${esc(x.label)}</td>
+        <td class="num">${totalUnidades.toLocaleString("es-CO")}</td>
+        <td class="num" colspan="2">${cop(x.v)}</td>
+        <td class="num">${cop(x.v * totalUnidades)}</td>
+      </tr>`
+    )
+    .join("")
+
+  const costoPrenda = costoMatPrenda + sumaFijos
+  const costoTotalOrden = costoPrenda * totalUnidades
+
+  // Venta y utilidades
+  const precio = Number(hojaCostos?.precio_venta ?? 0)
+  const porcIva = Number(hojaCostos?.porc_iva ?? 0)
+  const porcRet = Number(hojaCostos?.porc_retencion ?? 0)
+  const valorIva = precio * (porcIva / 100)
+  const valorRet = precio * (porcRet / 100)
+  const margen = precio > 0 ? precio - costoPrenda : null
+  const neto = margen != null ? margen - valorIva - valorRet : null
+
+  const resumenVentaHtml =
+    margen != null && neto != null
+      ? `
+    <tr><td class="izq">Precio de venta / prenda</td><td class="num">${cop(precio)}</td></tr>
+    <tr><td class="izq">Margen (precio − costo)</td><td class="num">${cop(margen)}</td></tr>
+    <tr><td class="izq">Ganancia total orden (× ${totalUnidades.toLocaleString("es-CO")})</td><td class="num">${cop(margen * totalUnidades)}</td></tr>
+    <tr><td class="izq">IVA (${porcIva}%)</td><td class="num">−${cop(valorIva)}</td></tr>
+    <tr><td class="izq">Retención (${porcRet}%)</td><td class="num">−${cop(valorRet)}</td></tr>
+    <tr class="destacado"><td class="izq">Neto por prenda</td><td class="num">${cop(neto)}</td></tr>
+    <tr class="destacado"><td class="izq">Utilidad neta total (× ${totalUnidades.toLocaleString("es-CO")})</td><td class="num">${cop(neto * totalUnidades)}</td></tr>`
+      : ""
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Costeo ${padOP(orden.numero_op)} — ${esc(orden.referencia)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; padding: 24px; }
+  .encabezado { border: 2px solid #111; margin-bottom: 14px; }
+  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 14px; padding: 6px 10px; display: flex; justify-content: space-between; border-bottom: 2px solid #111; }
+  .encabezado table { width: 100%; border-collapse: collapse; }
+  .encabezado td { border: 1px solid #111; padding: 5px 8px; }
+  .encabezado td.label { font-weight: bold; background: #eee; width: 160px; text-transform: uppercase; }
+  h2 { font-size: 12px; margin: 14px 0 5px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th, td { border: 1px solid #111; padding: 4px 6px; text-align: center; }
+  th { background: #eee; text-transform: uppercase; font-size: 10px; }
+  td.izq { text-align: left; }
+  td.num { text-align: right; font-family: 'Courier New', monospace; }
+  tr.total td { background: #dcefe4; font-weight: bold; }
+  tr.destacado td { background: #dcefe4; font-weight: bold; }
+  .resumen { max-width: 420px; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <div class="titulo"><span>HOJA DE COSTEO</span><span>${padOP(orden.numero_op)}</span></div>
+    <table>
+      <tr><td class="label">Referencia</td><td>${esc(orden.referencia)}</td></tr>
+      <tr><td class="label">Fecha programación</td><td>${esc(orden.fecha_programacion) || "—"}</td></tr>
+      <tr><td class="label">Descripción</td><td>${esc(orden.descripcion) || "—"}</td></tr>
+      <tr><td class="label">Total prendas</td><td>${totalUnidades.toLocaleString("es-CO")}</td></tr>
+    </table>
+  </div>
+
+  <h2>Materiales</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Tipo</th><th>Material</th><th>Unidad</th>
+        <th>Consumo / prenda</th><th>Total material</th>
+        <th>Valor unitario</th><th>Valor total</th>
+      </tr>
+    </thead>
+    <tbody>${materialesRows || `<tr><td colspan="7">Sin materiales guardados</td></tr>`}</tbody>
+    <tfoot>
+      <tr class="total">
+        <td class="izq" colspan="5">Costo materiales / prenda: ${cop(costoMatPrenda)}</td>
+        <td class="izq">Valor total</td>
+        <td class="num">${cop(costoMatPrenda * totalUnidades)}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <h2>Insumos y costos fijos por prenda</h2>
+  <table>
+    <thead>
+      <tr>
+        <th colspan="3">Item</th><th>Cantidad</th>
+        <th colspan="2">Costo unitario</th><th>Valor total</th>
+      </tr>
+    </thead>
+    <tbody>${fijosRows || `<tr><td colspan="7">Sin costos fijos registrados</td></tr>`}</tbody>
+    <tfoot>
+      <tr class="total">
+        <td class="izq" colspan="5">Costo fijo / prenda: ${cop(sumaFijos)}</td>
+        <td class="izq">Valor total</td>
+        <td class="num">${cop(sumaFijos * totalUnidades)}</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <h2>Resumen</h2>
+  <table class="resumen">
+    <tbody>
+      <tr><td class="izq">Costo total / prenda (materiales + fijos)</td><td class="num">${cop(costoPrenda)}</td></tr>
+      <tr class="total"><td class="izq">Costo total orden (× ${totalUnidades.toLocaleString("es-CO")})</td><td class="num">${cop(costoTotalOrden)}</td></tr>
+      ${resumenVentaHtml}
+    </tbody>
+  </table>
+</body>
+</html>`
+
+  const w = window.open("", "_blank")
+  if (!w) return
+  w.document.write(html)
+  w.document.close()
+  w.focus()
+  setTimeout(() => w.print(), 300)
+}
+
 const TALLAS_PREDEFINIDAS = ["4", "6", "8", "10", "12", "14", "16", "S", "M", "L", "XL", "XXL"]
 
 function CurvaTallasSection({
@@ -1316,6 +1479,7 @@ const esUnidad = (u: string) => u.trim().toLowerCase() === "unidad"
 
 function MaterialesOPSection({
   ordenId,
+  orden,
   inicial,
   maestro,
   totalUnidades,
@@ -1324,6 +1488,7 @@ function MaterialesOPSection({
   onMsg,
 }: {
   ordenId: number
+  orden: OrdenProduccionRow
   inicial: OpMaterialRow[]
   maestro: MaterialRow[]
   totalUnidades: number
@@ -1674,17 +1839,30 @@ function MaterialesOPSection({
         </div>
       )}
 
-      <button
-        onClick={handleGuardarTodos}
-        disabled={isPending}
-        className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-        style={{ backgroundColor: "#344966" }}
-      >
-        <Save className="h-3.5 w-3.5" />
-        {isPending
-          ? "Guardando…"
-          : tieneVerCostos ? "Guardar materiales y costos" : "Guardar materiales"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleGuardarTodos}
+          disabled={isPending}
+          className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-3.5 w-3.5" />
+          {isPending
+            ? "Guardando…"
+            : tieneVerCostos ? "Guardar materiales y costos" : "Guardar materiales"}
+        </button>
+        {tieneVerCostos && (
+          <button
+            type="button"
+            onClick={() => generarImpresionCosteo(orden, inicial, hojaCostos, totalUnidades)}
+            className="flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold border border-[#344966] text-[#344966] hover:bg-[#344966] hover:text-white transition-colors"
+            title="Genera el PDF con los datos guardados. Guarda antes de imprimir."
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Generar PDF
+          </button>
+        )}
+      </div>
 
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent className="rounded-2xl">
@@ -1711,15 +1889,21 @@ function MaterialesOPSection({
 
 function HojaCostosSection({
   ordenId,
+  orden,
+  opMateriales,
   hojaCostos,
   onMsg,
 }: {
   ordenId: number
+  orden: OrdenProduccionRow
+  opMateriales: OpMaterialRow[]
   hojaCostos: HojaCostosRow | null
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
+  const [showDetMateriales, setShowDetMateriales] = React.useState(false)
+  const [showDetFijos, setShowDetFijos] = React.useState(false)
 
   const [precioVenta, setPrecioVenta] = React.useState(
     hojaCostos?.precio_venta != null ? String(hojaCostos.precio_venta) : ""
@@ -1855,14 +2039,62 @@ function HojaCostosSection({
 
       {/* Resumen de costos */}
       <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-2 text-sm max-w-sm">
-        <div className="flex justify-between text-stone-600">
-          <span>Costo materiales / prenda</span>
+        <button
+          type="button"
+          onClick={() => setShowDetMateriales((v) => !v)}
+          className="flex justify-between items-center w-full text-stone-600 hover:text-stone-800 transition-colors"
+        >
+          <span className="flex items-center gap-1">
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${showDetMateriales ? "rotate-90" : ""}`}
+            />
+            Costo materiales / prenda
+          </span>
           <span className="font-mono">{cop(costoMateriales)}</span>
-        </div>
-        <div className="flex justify-between text-stone-600">
-          <span>Suma valores fijos</span>
+        </button>
+        {showDetMateriales && (
+          <div className="pl-5 space-y-1 text-xs text-stone-500 border-l border-stone-200 ml-1.5">
+            {opMateriales.length === 0 ? (
+              <p className="text-stone-400">Sin materiales guardados.</p>
+            ) : (
+              opMateriales.map((m) => (
+                <div key={m.id} className="flex justify-between gap-2">
+                  <span className="truncate">{m.nombre}</span>
+                  <span className="font-mono shrink-0">{cop(Number(m.valor_por_prenda))}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowDetFijos((v) => !v)}
+          className="flex justify-between items-center w-full text-stone-600 hover:text-stone-800 transition-colors"
+        >
+          <span className="flex items-center gap-1">
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${showDetFijos ? "rotate-90" : ""}`}
+            />
+            Suma valores fijos
+          </span>
           <span className="font-mono">{cop(sumaFijos)}</span>
-        </div>
+        </button>
+        {showDetFijos && (
+          <div className="pl-5 space-y-1 text-xs text-stone-500 border-l border-stone-200 ml-1.5">
+            {VALORES_FIJOS.filter((f) => (Number(hojaCostos?.[f.key]) || 0) > 0).length === 0 ? (
+              <p className="text-stone-400">Sin costos fijos registrados.</p>
+            ) : (
+              VALORES_FIJOS
+                .filter((f) => (Number(hojaCostos?.[f.key]) || 0) > 0)
+                .map((f) => (
+                  <div key={f.key as string} className="flex justify-between gap-2">
+                    <span className="truncate">{f.label}</span>
+                    <span className="font-mono shrink-0">{cop(Number(hojaCostos?.[f.key]) || 0)}</span>
+                  </div>
+                ))
+            )}
+          </div>
+        )}
         <div className="flex justify-between border-t border-stone-300 pt-2 font-semibold text-stone-800">
           <span>Costo unitario</span>
           <span className="font-mono">{cop(costoUnitario)}</span>
@@ -1911,15 +2143,26 @@ function HojaCostosSection({
         )}
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={isPending}
-        className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-        style={{ backgroundColor: "#344966" }}
-      >
-        <Save className="h-4 w-4" />
-        {isPending ? "Guardando…" : "Guardar costos"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSave}
+          disabled={isPending}
+          className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-4 w-4" />
+          {isPending ? "Guardando…" : "Guardar costos"}
+        </button>
+        <button
+          type="button"
+          onClick={() => generarImpresionCosteo(orden, opMateriales, hojaCostos, totalUnidadesHoja)}
+          className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold border border-[#344966] text-[#344966] hover:bg-[#344966] hover:text-white transition-colors"
+          title="Genera el PDF con los datos guardados. Guarda antes de imprimir."
+        >
+          <Printer className="h-4 w-4" />
+          Generar PDF
+        </button>
+      </div>
     </div>
   )
 }
@@ -2103,6 +2346,7 @@ export function OrdenDetalleClient({
         <TabsContent value="materiales" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <MaterialesOPSection
             ordenId={orden.id}
+            orden={orden}
             inicial={opMateriales}
             maestro={maestroMateriales}
             totalUnidades={opTelaLotes.reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
@@ -2114,7 +2358,13 @@ export function OrdenDetalleClient({
 
         {tieneVerCostos && (
           <TabsContent value="costos" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
-            <HojaCostosSection ordenId={orden.id} hojaCostos={hojaCostos} onMsg={handleMsg} />
+            <HojaCostosSection
+              ordenId={orden.id}
+              orden={orden}
+              opMateriales={opMateriales}
+              hojaCostos={hojaCostos}
+              onMsg={handleMsg}
+            />
           </TabsContent>
         )}
 
