@@ -57,6 +57,17 @@ export async function guardarHojaCostosAction(
     const pvRaw = parseFloat((formData.get("precio_venta") as string | null) ?? "")
     const precio_venta = isNaN(pvRaw) || pvRaw === 0 ? null : pvRaw
 
+    // IVA y retención: solo se actualizan si vienen en el form (la pestaña
+    // Materiales guarda insumos sin estos campos y no debe resetearlos)
+    const parsePorc = (key: string): number | undefined => {
+      const raw = formData.get(key) as string | null
+      if (raw == null) return undefined
+      const v = parseFloat(raw)
+      return isNaN(v) || v < 0 ? 0 : Math.round(v * 100) / 100
+    }
+    const porc_iva = parsePorc("porc_iva")
+    const porc_retencion = parsePorc("porc_retencion")
+
     const [costo_m_raw, curva, orden, telaLotes] = await Promise.all([
       sumValorPorPrenda(ordenId),
       getCurvaTallas(ordenId),
@@ -74,6 +85,8 @@ export async function guardarHojaCostosAction(
       costo_unitario,
       precio_venta,
       total_unidades,
+      ...(porc_iva !== undefined ? { porc_iva } : {}),
+      ...(porc_retencion !== undefined ? { porc_retencion } : {}),
     })
 
     revalidatePath(`/produccion/${ordenId}`)

@@ -24,6 +24,8 @@ export interface HojaCostosRow {
   margen: number
   total_unidades: number
   costo_total: number
+  porc_iva: number
+  porc_retencion: number
 }
 
 export const VALORES_FIJOS: Array<{ key: keyof HojaCostosRow; label: string }> = [
@@ -52,7 +54,7 @@ const SELECT_COLS = [
   "valor_instruccion", "valor_comision", "valor_transporte", "valor_flete",
   "valor_viaticos", "valor_oros",
   "costo_materiales", "costo_unitario", "precio_venta", "margen",
-  "total_unidades", "costo_total",
+  "total_unidades", "costo_total", "porc_iva", "porc_retencion",
 ].join(", ")
 
 export async function getHojaCostos(ordenId: number): Promise<HojaCostosRow | null> {

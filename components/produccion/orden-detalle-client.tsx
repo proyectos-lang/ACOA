@@ -1698,6 +1698,12 @@ function HojaCostosSection({
   const [precioVenta, setPrecioVenta] = React.useState(
     hojaCostos?.precio_venta != null ? String(hojaCostos.precio_venta) : ""
   )
+  const [porcIva, setPorcIva] = React.useState(
+    hojaCostos?.porc_iva != null ? String(hojaCostos.porc_iva) : "19"
+  )
+  const [porcRetencion, setPorcRetencion] = React.useState(
+    hojaCostos?.porc_retencion != null ? String(hojaCostos.porc_retencion) : "2.5"
+  )
 
   const costoMateriales = hojaCostos?.costo_materiales ?? 0
   // Suma operacionales (local) + insumos (último guardado desde Materiales)
@@ -1724,6 +1730,8 @@ function HojaCostosSection({
       fd.set(f.key as string, savedVal != null ? String(savedVal) : "0")
     }
     if (precioVenta) fd.set("precio_venta", precioVenta)
+    fd.set("porc_iva", porcIva || "0")
+    fd.set("porc_retencion", porcRetencion || "0")
     startTransition(async () => {
       const res = await guardarHojaCostosAction(ordenId, fd)
       if (res.error) onMsg(`Error: ${res.error}`)
@@ -1733,6 +1741,14 @@ function HojaCostosSection({
 
   const totalUnidadesHoja = hojaCostos?.total_unidades ?? 0
   const costoTotalMateriales = costoMateriales * totalUnidadesHoja
+
+  // IVA y retención (Colombia): neto = precio + IVA − retención, ambos sobre la base
+  const porcIvaNum = parseFloat(porcIva) || 0
+  const porcRetNum = parseFloat(porcRetencion) || 0
+  const valorIva = precioVentaNum * (porcIvaNum / 100)
+  const valorRetencion = precioVentaNum * (porcRetNum / 100)
+  const netoPorPrenda = precioVentaNum > 0 ? precioVentaNum + valorIva - valorRetencion : 0
+  const netoTotalOrden = netoPorPrenda * totalUnidadesHoja
 
   return (
     <div className="space-y-5">
@@ -1800,6 +1816,32 @@ function HojaCostosSection({
             placeholder="0"
           />
         </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-stone-600">IVA (%)</label>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={porcIva}
+            onChange={(e) => setPorcIva(e.target.value)}
+            className={fieldCls}
+            placeholder="19"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-stone-600">Retención (%)</label>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={porcRetencion}
+            onChange={(e) => setPorcRetencion(e.target.value)}
+            className={fieldCls}
+            placeholder="2.5"
+          />
+        </div>
       </div>
 
       {/* Resumen de costos */}
@@ -1831,6 +1873,26 @@ function HojaCostosSection({
             <span>Margen (precio − costo)</span>
             <span className="font-mono">{cop(margenCalc)}</span>
           </div>
+        )}
+        {precioVentaNum > 0 && (
+          <>
+            <div className="flex justify-between text-stone-600 border-t border-stone-200 pt-2">
+              <span>IVA ({porcIvaNum}%)</span>
+              <span className="font-mono text-green-700">+{cop(valorIva)}</span>
+            </div>
+            <div className="flex justify-between text-stone-600">
+              <span>Retención ({porcRetNum}%)</span>
+              <span className="font-mono text-red-700">−{cop(valorRetencion)}</span>
+            </div>
+            <div className="flex justify-between border-t border-stone-300 pt-2 font-semibold text-stone-800">
+              <span>Neto por prenda</span>
+              <span className="font-mono">{cop(netoPorPrenda)}</span>
+            </div>
+            <div className="flex justify-between font-bold" style={{ color: "#344966" }}>
+              <span>Neto total orden (× {totalUnidadesHoja.toLocaleString("es-CO")})</span>
+              <span className="font-mono">{cop(netoTotalOrden)}</span>
+            </div>
+          </>
         )}
       </div>
 
