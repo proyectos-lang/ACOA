@@ -110,6 +110,7 @@ export async function createOrden(input: {
 export async function updateOrden(
   id: number,
   input: Partial<{
+    numero_op: number
     referencia: string
     descripcion: string | null
     fecha_programacion: string | null

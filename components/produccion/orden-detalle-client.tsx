@@ -102,12 +102,17 @@ function InfoGeneralSection({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 max-w-2xl">
-      {/* Número OP - readonly */}
       <div className="space-y-1">
-        <label className="text-xs font-medium text-stone-500">Número OP</label>
-        <div className="rounded-xl border border-stone-100 bg-stone-50 px-3 py-2 text-sm font-mono font-semibold text-stone-700">
-          {padOP(orden.numero_op)}
-        </div>
+        <label className="text-sm font-medium text-stone-700">Número OP *</label>
+        <input
+          type="number"
+          name="numero_op"
+          defaultValue={orden.numero_op}
+          min="1"
+          required
+          className={`${fieldCls} font-mono font-semibold max-w-[180px]`}
+        />
+        <p className="text-xs text-stone-400">Debe ser único. Se muestra como {padOP(orden.numero_op)}.</p>
       </div>
 
       <div className="space-y-1">

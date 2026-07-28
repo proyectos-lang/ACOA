@@ -24,6 +24,7 @@ export interface ActionResult {
 // ── Info general de la OP ─────────────────────────────────────────────────────
 
 const infoSchema = z.object({
+  numero_op: z.coerce.number().int("Número OP debe ser entero").positive("Número OP debe ser mayor a 0").optional(),
   referencia: z.string().min(1, "Referencia requerida"),
   descripcion: z.string().optional(),
   fecha_programacion: z.string().optional(),
@@ -38,6 +39,7 @@ export async function guardarInfoGeneralAction(
   if (!session) return { error: "No autorizado" }
 
   const parsed = infoSchema.safeParse({
+    numero_op: formData.get("numero_op") || undefined,
     referencia: formData.get("referencia"),
     descripcion: formData.get("descripcion") || undefined,
     fecha_programacion: formData.get("fecha_programacion") || undefined,
@@ -46,7 +48,22 @@ export async function guardarInfoGeneralAction(
   if (!parsed.success) return { error: parsed.error.errors[0].message }
 
   try {
+    // Validar que el número OP no esté en uso por otra orden
+    if (parsed.data.numero_op != null) {
+      const db = createVanessaClient()
+      const { data: existente } = await db
+        .from("orden_produccion")
+        .select("id")
+        .eq("numero_op", parsed.data.numero_op)
+        .neq("id", ordenId)
+        .maybeSingle()
+      if (existente) {
+        return { error: `El número OP ${parsed.data.numero_op} ya está en uso por otra orden` }
+      }
+    }
+
     await updateOrden(ordenId, {
+      ...(parsed.data.numero_op != null ? { numero_op: parsed.data.numero_op } : {}),
       referencia: parsed.data.referencia,
       descripcion: parsed.data.descripcion || null,
       fecha_programacion: parsed.data.fecha_programacion || null,
