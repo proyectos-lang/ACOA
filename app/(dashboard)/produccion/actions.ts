@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { getSession } from "@/lib/auth/session"
 import { createOrden, updateOrden, uploadMolde } from "@/lib/db/orden-produccion"
-import { createLoteDesdeOP } from "@/lib/db/lote"
 
 export interface OrdenActionResult {
   error?: string
@@ -16,8 +15,6 @@ const ordenSchema = z.object({
   referencia: z.string().min(1, "Referencia requerida"),
   descripcion: z.string().optional(),
   fecha_programacion: z.string().optional(),
-  gama_color: z.string().optional(),
-  observaciones: z.string().optional(),
 })
 
 export async function crearOrdenAction(formData: FormData): Promise<OrdenActionResult> {
@@ -28,8 +25,6 @@ export async function crearOrdenAction(formData: FormData): Promise<OrdenActionR
     referencia: formData.get("referencia"),
     descripcion: formData.get("descripcion") || undefined,
     fecha_programacion: formData.get("fecha_programacion") || undefined,
-    gama_color: formData.get("gama_color") || undefined,
-    observaciones: formData.get("observaciones") || undefined,
   })
   if (!parsed.success) return { error: parsed.error.errors[0].message }
 
@@ -40,14 +35,6 @@ export async function crearOrdenAction(formData: FormData): Promise<OrdenActionR
     if (moldeFile && moldeFile.size > 0) {
       const url = await uploadMolde(moldeFile, id)
       await updateOrden(id, { url_molde: url })
-    }
-
-    const loteNombres = formData.getAll("lote_nombre") as string[]
-    for (const nombre of loteNombres) {
-      const n = nombre.trim()
-      if (n) {
-        await createLoteDesdeOP({ orden_id: id, descripcion: n, cantidad_programada: 0 }, session.userId)
-      }
     }
 
     revalidatePath("/produccion")
@@ -68,8 +55,6 @@ export async function editarOrdenAction(formData: FormData): Promise<OrdenAction
     referencia: formData.get("referencia"),
     descripcion: formData.get("descripcion") || undefined,
     fecha_programacion: formData.get("fecha_programacion") || undefined,
-    gama_color: formData.get("gama_color") || undefined,
-    observaciones: formData.get("observaciones") || undefined,
   })
   if (!parsed.success) return { error: parsed.error.errors[0].message }
 
@@ -78,8 +63,6 @@ export async function editarOrdenAction(formData: FormData): Promise<OrdenAction
       referencia: parsed.data.referencia,
       descripcion: parsed.data.descripcion || null,
       fecha_programacion: parsed.data.fecha_programacion || null,
-      gama_color: parsed.data.gama_color || null,
-      observaciones: parsed.data.observaciones || null,
     })
 
     const moldeFile = formData.get("url_molde") as File | null

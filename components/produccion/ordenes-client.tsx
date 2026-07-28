@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { Plus, Eye, AlertTriangle, CheckCircle2, FileText, Trash2 } from "lucide-react"
+import { Plus, Eye, AlertTriangle, CheckCircle2, FileText } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import { ESTADO_OP_LABEL, ESTADO_OP_COLOR } from "@/lib/db/orden-produccion"
 import { crearOrdenAction } from "@/app/(dashboard)/produccion/actions"
@@ -28,13 +28,10 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
   const [error, setError] = React.useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const formRef = React.useRef<HTMLFormElement>(null)
-  const [lotes, setLotes] = React.useState<string[]>([])
-  const [nuevoLote, setNuevoLote] = React.useState("")
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const fd = new FormData(e.currentTarget)
-    lotes.forEach((l) => fd.append("lote_nombre", l))
     startTransition(async () => {
       const res = await crearOrdenAction(fd)
       if (res.error) {
@@ -43,17 +40,6 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
         onSuccess(res.id)
       }
     })
-  }
-
-  function addLote() {
-    const l = nuevoLote.trim()
-    if (!l) return
-    setLotes((p) => [...p, l])
-    setNuevoLote("")
-  }
-
-  function removeLote(i: number) {
-    setLotes((p) => p.filter((_, idx) => idx !== i))
   }
 
   const fieldCls =
@@ -76,25 +62,9 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-stone-700">Fecha programación</label>
-          <input type="date" name="fecha_programacion" className={fieldCls} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-stone-700">Gama / Color</label>
-          <input type="text" name="gama_color" placeholder="Ej: Azul marino" className={fieldCls} />
-        </div>
-      </div>
-
       <div className="space-y-1">
-        <label className="text-sm font-medium text-stone-700">Observaciones</label>
-        <textarea
-          name="observaciones"
-          rows={2}
-          className={`${fieldCls} resize-none`}
-          placeholder="Notas adicionales…"
-        />
+        <label className="text-sm font-medium text-stone-700">Fecha programación</label>
+        <input type="date" name="fecha_programacion" className={fieldCls} />
       </div>
 
       <div className="space-y-1">
@@ -107,47 +77,9 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
         />
       </div>
 
-      {/* Lotes iniciales */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-stone-700">Lotes iniciales</label>
-        {lotes.length > 0 && (
-          <div className="space-y-1">
-            {lotes.map((l, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="flex-1 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-700">
-                  {l}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeLote(i)}
-                  className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={nuevoLote}
-            onChange={(e) => setNuevoLote(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLote() } }}
-            placeholder="Nombre / código del lote"
-            className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
-          />
-          <button
-            type="button"
-            onClick={addLote}
-            className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Agregar
-          </button>
-        </div>
-        <p className="text-xs text-stone-400">Opcional. Puedes agregar los lotes después desde la ficha de la OP.</p>
-      </div>
+      <p className="text-xs text-stone-400">
+        Los lotes, colores y capas se gestionan en la pestaña Curva de la OP.
+      </p>
 
       {error && (
         <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
@@ -247,7 +179,7 @@ export function OrdenesClient({ ordenes }: Props) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["OP", "Referencia", "Gama", "Fecha prog.", "Estado", ""].map((h) => (
+                  {["OP", "Referencia", "Fecha prog.", "Estado", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-xs font-semibold text-stone-500 uppercase tracking-wide text-left"
@@ -273,7 +205,6 @@ export function OrdenesClient({ ordenes }: Props) {
                         <p className="text-xs text-stone-400 truncate max-w-xs">{op.descripcion}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-stone-500 text-xs">{op.gama_color ?? "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs text-stone-600">
                       {op.fecha_programacion ?? "—"}
                     </td>
