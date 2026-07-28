@@ -76,7 +76,10 @@ export async function guardarHojaCostosAction(
     ])
     const costo_materiales = Math.round(costo_m_raw * 10000) / 10000
     const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
-    const totalCapas = telaLotes.reduce((s, r) => s + r.capas, 0) || (orden?.capas ?? 1)
+    // Total de prendas basado solo en Material 1 (slot 1)
+    const totalCapas =
+      telaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0) ||
+      (orden?.capas ?? 1)
     const total_unidades = totalCapas * curva.length
 
     await updateHojaCostos(ordenId, {

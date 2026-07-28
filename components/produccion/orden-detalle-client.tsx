@@ -657,17 +657,19 @@ function generarImpresionOP(
     const colores = [...new Set(telas.map((t) => t.color ?? "").filter(Boolean))]
     // Colores que solo existen en op_tela_lote (por si acaso)
     for (const f of filas) if (!colores.includes(f.color)) colores.push(f.color)
-    const lotes = [...new Set(filas.map((r) => r.lote_nombre))].sort((a, b) =>
-      a.localeCompare(b, "es", { numeric: true })
-    )
+    // Orden de inserción (el mismo de la grilla), no alfabético
+    const lotes = [...new Set(filas.map((r) => r.lote_nombre))]
     const capa = (color: string, lote: string) =>
       filas.find((r) => r.color === color && r.lote_nombre === lote)?.capas ?? 0
 
     const capasPorLote = lotes.map((l) => colores.reduce((s, c) => s + capa(c, l), 0))
     const capasMaterial = capasPorLote.reduce((s, v) => s + v, 0)
     const unidadesMaterial = capasMaterial * tallas.length
-    totalCapasOP += capasMaterial
-    totalUnidadesOP += unidadesMaterial
+    // El gran total de la OP se basa solo en Material 1
+    if (slot === 1 || (slots.length > 0 && slots[0] === slot && !slots.includes(1))) {
+      totalCapasOP = capasMaterial
+      totalUnidadesOP = unidadesMaterial
+    }
 
     const tipoTela = telas[0]?.tipo_tela ?? ""
 
@@ -1010,7 +1012,9 @@ function CurvaTallasSection({
     })
   }
 
-  const totalCapas = Object.values(slotCapas).reduce((s, v) => s + v, 0)
+  // El total de prendas se basa SOLO en Material 1 (M2/M3 son telas
+  // adicionales de las mismas prendas, no prendas extra)
+  const totalCapas = slotCapas[1] ?? 0
   const totalUnidades = totalCapas * tallas.length
 
   return (
@@ -1282,7 +1286,8 @@ function LotesSection({
   const [descripcion, setDescripcion] = React.useState("")
   const [isPending, startTransition] = useTransition()
 
-  const totalCapas = opTelaLotes.reduce((s, r) => s + r.capas, 0) || orden.capas
+  const totalCapas =
+    opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0) || orden.capas
   const totalUnidades = totalCapas * tallas
   const totalLotificado = lotes.reduce((s, l) => s + l.cantidad_programada, 0)
   const pct = totalUnidades > 0 ? Math.min(100, Math.round((totalLotificado / totalUnidades) * 100)) : 0
@@ -2349,7 +2354,7 @@ export function OrdenDetalleClient({
             orden={orden}
             inicial={opMateriales}
             maestro={maestroMateriales}
-            totalUnidades={opTelaLotes.reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
+            totalUnidades={opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
             tieneVerCostos={tieneVerCostos}
             hojaCostos={hojaCostos}
             onMsg={handleMsg}

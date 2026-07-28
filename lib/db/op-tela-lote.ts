@@ -17,9 +17,7 @@ export async function getOpTelaLotes(ordenId: number): Promise<OpTelaLoteRow[]> 
     .from("op_tela_lote")
     .select("*")
     .eq("orden_id", ordenId)
-    .order("slot")
-    .order("color")
-    .order("lote_nombre")
+    .order("id")
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as OpTelaLoteRow[]
 }

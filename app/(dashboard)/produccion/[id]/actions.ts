@@ -190,7 +190,8 @@ export async function guardarMaterialesOPAction(
       ? VALORES_FIJOS.reduce((s, f) => s + (Number(hoja[f.key]) || 0), 0)
       : 0
     const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
-    const totalCapas = telaLotes.reduce((s, r) => s + r.capas, 0)
+    // Total de prendas basado solo en Material 1 (slot 1)
+    const totalCapas = telaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0)
     const total_unidades = totalCapas * curva.length
 
     await updateHojaCostos(ordenId, { costo_materiales, costo_unitario, total_unidades })
@@ -247,11 +248,17 @@ export async function guardarSlotAction(
     }
     await batchSaveSlotLotes(ordenId, slot, filas, session.userId)
 
-    // 3. Actualizar lote records: recalcular capas totales de cada lote sumando todos los slots
+    // 3. Actualizar lote records. Las cantidades se basan SOLO en Material 1:
+    // M2/M3 son telas adicionales de las mismas prendas, no prendas extra.
     const todosLotes = await getOpTelaLotes(ordenId)
     const loteNombres = new Set(grid.map((g) => g.lote_nombre).filter((n) => n.trim()))
     for (const nombre of loteNombres) {
-      const totalCapas = todosLotes.filter((r) => r.lote_nombre === nombre).reduce((s, r) => s + r.capas, 0)
+      let filasLote = todosLotes.filter((r) => r.lote_nombre === nombre && r.slot === 1)
+      // Fallback: si el lote no existe en Material 1, usar las filas del slot guardado
+      if (filasLote.length === 0) {
+        filasLote = todosLotes.filter((r) => r.lote_nombre === nombre && r.slot === slot)
+      }
+      const totalCapas = filasLote.reduce((s, r) => s + r.capas, 0)
       const cantidadProgramada = totalCapas * tallasCount
       await upsertLoteDesdeGrid(ordenId, nombre, cantidadProgramada, session.userId)
     }
