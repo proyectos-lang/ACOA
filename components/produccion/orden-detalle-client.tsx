@@ -821,12 +821,12 @@ function generarImpresionCosteo(
   const costoPrenda = costoMatPrenda + sumaFijos
   const costoTotalOrden = costoPrenda * totalUnidades
 
-  // Venta y utilidades
+  // Venta y utilidades: IVA y retención se calculan sobre el costo total por prenda
   const precio = Number(hojaCostos?.precio_venta ?? 0)
   const porcIva = Number(hojaCostos?.porc_iva ?? 0)
   const porcRet = Number(hojaCostos?.porc_retencion ?? 0)
-  const valorIva = precio * (porcIva / 100)
-  const valorRet = precio * (porcRet / 100)
+  const valorIva = costoPrenda * (porcIva / 100)
+  const valorRet = costoPrenda * (porcRet / 100)
   const margen = precio > 0 ? precio - costoPrenda : null
   const neto = margen != null ? margen - valorIva - valorRet : null
 
@@ -836,8 +836,8 @@ function generarImpresionCosteo(
     <tr><td class="izq">Precio de venta / prenda</td><td class="num">${cop(precio)}</td></tr>
     <tr><td class="izq">Margen (precio − costo)</td><td class="num">${cop(margen)}</td></tr>
     <tr><td class="izq">Ganancia total orden (× ${totalUnidades.toLocaleString("es-CO")})</td><td class="num">${cop(margen * totalUnidades)}</td></tr>
-    <tr><td class="izq">IVA (${porcIva}%)</td><td class="num">−${cop(valorIva)}</td></tr>
-    <tr><td class="izq">Retención (${porcRet}%)</td><td class="num">−${cop(valorRet)}</td></tr>
+    <tr><td class="izq">IVA (${porcIva}% del costo)</td><td class="num">−${cop(valorIva)}</td></tr>
+    <tr><td class="izq">Retención (${porcRet}% del costo)</td><td class="num">−${cop(valorRet)}</td></tr>
     <tr class="destacado"><td class="izq">Neto por prenda</td><td class="num">${cop(neto)}</td></tr>
     <tr class="destacado"><td class="izq">Utilidad neta total (× ${totalUnidades.toLocaleString("es-CO")})</td><td class="num">${cop(neto * totalUnidades)}</td></tr>`
       : ""
@@ -1948,12 +1948,13 @@ function HojaCostosSection({
   const totalUnidadesHoja = hojaCostos?.total_unidades ?? 0
   const costoTotalMateriales = costoMateriales * totalUnidadesHoja
 
-  // IVA y retención (Colombia) se calculan después del margen y restan:
+  // IVA y retención (Colombia) se calculan sobre el COSTO total por prenda
+  // (no sobre el precio de venta) y restan después del margen:
   // neto por prenda = margen − IVA − retención
   const porcIvaNum = parseFloat(porcIva) || 0
   const porcRetNum = parseFloat(porcRetencion) || 0
-  const valorIva = precioVentaNum * (porcIvaNum / 100)
-  const valorRetencion = precioVentaNum * (porcRetNum / 100)
+  const valorIva = costoUnitario * (porcIvaNum / 100)
+  const valorRetencion = costoUnitario * (porcRetNum / 100)
   const margenCalc = precioVentaNum > 0 ? precioVentaNum - costoUnitario : null
   const netoPorPrenda = margenCalc != null ? margenCalc - valorIva - valorRetencion : 0
   const gananciaTotalOrden = (margenCalc ?? 0) * totalUnidadesHoja
@@ -2129,11 +2130,11 @@ function HojaCostosSection({
         {precioVentaNum > 0 && (
           <>
             <div className="flex justify-between text-stone-600 border-t border-stone-200 pt-2">
-              <span>IVA ({porcIvaNum}%)</span>
+              <span>IVA ({porcIvaNum}% del costo)</span>
               <span className="font-mono text-red-700">−{cop(valorIva)}</span>
             </div>
             <div className="flex justify-between text-stone-600">
-              <span>Retención ({porcRetNum}%)</span>
+              <span>Retención ({porcRetNum}% del costo)</span>
               <span className="font-mono text-red-700">−{cop(valorRetencion)}</span>
             </div>
             <div className="flex justify-between border-t border-stone-300 pt-2 font-semibold text-stone-800">
