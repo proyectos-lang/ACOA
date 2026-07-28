@@ -12,7 +12,7 @@ export async function getCurvaTallas(ordenId: number): Promise<CurvaTallaRow[]> 
     .from("curva_talla")
     .select("id, orden_id, talla")
     .eq("orden_id", ordenId)
-    .order("talla")
+    .order("id")
   if (error) throw new Error(error.message)
   return (data ?? []) as CurvaTallaRow[]
 }
