@@ -431,6 +431,12 @@ function OpTelaSlotCard({
     const coloresFiltrados = colores.filter((c) => c.nombre.trim())
     const lotesFiltrados   = lotes.filter((l) => l.nombre.trim())
 
+    // La referencia de tela es obligatoria cuando el material tiene datos
+    if (coloresFiltrados.length > 0 && !tipoTela.trim()) {
+      onMsg(`Error: selecciona una referencia de tela del maestro para Material ${slot}`)
+      return
+    }
+
     const grid = lotesFiltrados.map((l) => ({
       lote_nombre: l.nombre,
       capas_por_color: coloresFiltrados.map((c) => capas[c.key]?.[l.key] ?? 0),
@@ -471,20 +477,24 @@ function OpTelaSlotCard({
           </button>
         )}
       </div>
-      <input
-        type="text"
+      <select
         value={tipoTela}
         onChange={(e) => setTipoTela(e.target.value)}
-        placeholder="Tipo de tela (ej: Algodón)"
-        className={`w-full ${inputCls}`}
-        list={`telas-maestro-slot-${slot}`}
-      />
-      {sugerenciasTela && sugerenciasTela.length > 0 && (
-        <datalist id={`telas-maestro-slot-${slot}`}>
-          {sugerenciasTela.map((n) => (
-            <option key={n} value={n} />
-          ))}
-        </datalist>
+        className={`w-full ${inputCls} ${!tipoTela ? "text-stone-400" : ""}`}
+      >
+        <option value="">— Selecciona una tela del maestro —</option>
+        {/* Valor guardado que ya no existe en el maestro: se conserva para no perderlo */}
+        {tipoTela && !(sugerenciasTela ?? []).includes(tipoTela) && (
+          <option value={tipoTela}>{tipoTela} (no está en el maestro)</option>
+        )}
+        {(sugerenciasTela ?? []).map((n) => (
+          <option key={n} value={n}>{n}</option>
+        ))}
+      </select>
+      {(sugerenciasTela ?? []).length === 0 && (
+        <p className="text-xs text-amber-600">
+          No hay telas en el módulo de Materiales. Crea materiales con tipo &quot;Tela&quot; para poder seleccionarlos.
+        </p>
       )}
 
       {/* Grilla colores × lotes */}
