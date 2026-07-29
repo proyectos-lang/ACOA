@@ -235,7 +235,7 @@ function OpTelaSlotCard({
   onGridChange,
   plantilla,
   plantillaKey,
-  celda00Ref,
+  sugerenciasTela,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
@@ -248,7 +248,7 @@ function OpTelaSlotCard({
   onGridChange?: (grid: SlotGrid) => void
   plantilla?: SlotGrid | null
   plantillaKey?: number
-  celda00Ref?: number | null
+  sugerenciasTela?: string[]
 }) {
   const router = useRouter()
   const [isPending, startSave] = useTransition()
@@ -431,19 +431,6 @@ function OpTelaSlotCard({
     const coloresFiltrados = colores.filter((c) => c.nombre.trim())
     const lotesFiltrados   = lotes.filter((l) => l.nombre.trim())
 
-    // Filtro de seguridad: [Color 1 × Lote 1] debe coincidir con Material 1
-    if (celda00Ref !== undefined && celda00Ref !== null &&
-        coloresFiltrados.length > 0 && lotesFiltrados.length > 0) {
-      const miCelda00 = capas[coloresFiltrados[0].key]?.[lotesFiltrados[0].key] ?? 0
-      if (miCelda00 !== celda00Ref) {
-        onMsg(
-          `Error: [${coloresFiltrados[0].nombre} × ${lotesFiltrados[0].nombre}] ` +
-          `debe tener ${celda00Ref} capas (igual a Material 1)`
-        )
-        return
-      }
-    }
-
     const grid = lotesFiltrados.map((l) => ({
       lote_nombre: l.nombre,
       capas_por_color: coloresFiltrados.map((c) => capas[c.key]?.[l.key] ?? 0),
@@ -490,7 +477,15 @@ function OpTelaSlotCard({
         onChange={(e) => setTipoTela(e.target.value)}
         placeholder="Tipo de tela (ej: Algodón)"
         className={`w-full ${inputCls}`}
+        list={`telas-maestro-slot-${slot}`}
       />
+      {sugerenciasTela && sugerenciasTela.length > 0 && (
+        <datalist id={`telas-maestro-slot-${slot}`}>
+          {sugerenciasTela.map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
+      )}
 
       {/* Grilla colores × lotes */}
       {(colores.length > 0 || lotes.length > 0) && (
@@ -947,6 +942,7 @@ function CurvaTallasSection({
   inicial,
   opTelas,
   opTelaLotes,
+  sugerenciasTela,
   onSaved,
 }: {
   ordenId: number
@@ -954,6 +950,7 @@ function CurvaTallasSection({
   inicial: CurvaTallaRow[]
   opTelas: OpTelaRow[]
   opTelaLotes: OpTelaLoteRow[]
+  sugerenciasTela: string[]
   onSaved: (msg: string) => void
 }) {
   const router = useRouter()
@@ -971,8 +968,6 @@ function CurvaTallasSection({
   const handleSlot1GridChange = React.useCallback((grid: SlotGrid) => {
     setSlot1Grid(grid)
   }, [])
-  const slot1Celda00 = slot1Grid.capas[slot1Grid.colores[0]?.key ?? ""]?.[slot1Grid.lotes[0]?.key ?? ""] ?? null
-
   // Habilitación de M2/M3
   const [habilitado2, setHabilitado2] = React.useState(
     () => opTelas.some((t) => t.slot === 2) || opTelaLotes.some((r) => r.slot === 2)
@@ -1073,6 +1068,7 @@ function CurvaTallasSection({
             inicialesLotes={opTelaLotes}
             tallasCount={tallas.length}
             numLotesPreset={presetAplicado}
+            sugerenciasTela={sugerenciasTela}
             onMsg={onSaved}
             onCapasChange={handleCapasChange}
             onGridChange={handleSlot1GridChange}
@@ -1090,7 +1086,7 @@ function CurvaTallasSection({
               numLotesPreset={presetAplicado}
               plantilla={slot1Grid}
               plantillaKey={plantillaKey2}
-              celda00Ref={slot1Celda00}
+              sugerenciasTela={sugerenciasTela}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
@@ -1127,7 +1123,7 @@ function CurvaTallasSection({
               numLotesPreset={presetAplicado}
               plantilla={slot1Grid}
               plantillaKey={plantillaKey3}
-              celda00Ref={slot1Celda00}
+              sugerenciasTela={sugerenciasTela}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
@@ -1486,12 +1482,14 @@ function LotesSection({
 type FilaMaterialState = { consumo: string; valor: string }
 
 const esUnidad = (u: string) => u.trim().toLowerCase() === "unidad"
+const esTela = (t: string) => t.trim().toLowerCase() === "tela"
 
 function MaterialesOPSection({
   ordenId,
   orden,
   inicial,
   maestro,
+  opTelas,
   totalUnidades,
   tieneVerCostos,
   hojaCostos,
@@ -1501,6 +1499,7 @@ function MaterialesOPSection({
   orden: OrdenProduccionRow
   inicial: OpMaterialRow[]
   maestro: MaterialRow[]
+  opTelas: OpTelaRow[]
   totalUnidades: number
   tieneVerCostos: boolean
   hojaCostos: HojaCostosRow | null
@@ -1509,6 +1508,18 @@ function MaterialesOPSection({
   const router = useRouter()
   const [deleteId, setDeleteId] = React.useState<number | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  // Los materiales tipo Tela solo se listan si su nombre coincide con un
+  // "Tipo de tela" usado en la Curva (Material 1/2/3). El resto (insumos,
+  // etc.) se listan todos.
+  const maestroVisible = React.useMemo(() => {
+    const telasUsadas = new Set(
+      opTelas.map((t) => (t.tipo_tela ?? "").trim().toLowerCase()).filter(Boolean)
+    )
+    return maestro.filter(
+      (m) => !esTela(m.tipo) || telasUsadas.has(m.nombre.trim().toLowerCase())
+    )
+  }, [maestro, opTelas])
 
   // Filas manuales heredadas (sin vínculo al maestro)
   const manualRows = React.useMemo(
@@ -1519,7 +1530,7 @@ function MaterialesOPSection({
   // Estado editable por fila: clave `m{material_id}` (maestro) o `op{id}` (manual)
   const buildFilas = React.useCallback(() => {
     const init: Record<string, FilaMaterialState> = {}
-    for (const m of maestro) {
+    for (const m of maestroVisible) {
       const saved = inicial.find((r) => r.material_id === m.id)
       init[`m${m.id}`] = {
         consumo:
@@ -1536,7 +1547,7 @@ function MaterialesOPSection({
       }
     }
     return init
-  }, [maestro, inicial])
+  }, [maestroVisible, inicial])
 
   const [filas, setFilas] = React.useState<Record<string, FilaMaterialState>>(buildFilas)
   React.useEffect(() => { setFilas(buildFilas()) }, [buildFilas])
@@ -1568,7 +1579,7 @@ function MaterialesOPSection({
 
   // Totales en tiempo real
   const costoPorPrenda =
-    maestro.reduce((s, m) => {
+    maestroVisible.reduce((s, m) => {
       const f = filas[`m${m.id}`]
       return s + num(f?.consumo) * num(f?.valor)
     }, 0) +
@@ -1580,7 +1591,7 @@ function MaterialesOPSection({
 
   function handleGuardarTodos() {
     const payload: OpMaterialBatchFila[] = []
-    for (const m of maestro) {
+    for (const m of maestroVisible) {
       const f = filas[`m${m.id}`]
       if (!f) continue
       const consumo = num(f.consumo)
@@ -1720,7 +1731,14 @@ function MaterialesOPSection({
         </div>
       )}
 
-      {maestro.length === 0 && manualRows.length === 0 ? (
+      {maestro.some((m) => esTela(m.tipo)) &&
+        !maestroVisible.some((m) => esTela(m.tipo)) && (
+        <div className="rounded-xl bg-stone-50 border border-stone-200 px-3 py-2 text-xs text-stone-500">
+          Las telas aparecen aquí cuando se asignan en el campo &quot;Tipo de tela&quot; de la Curva (Material 1, 2 o 3).
+        </div>
+      )}
+
+      {maestroVisible.length === 0 && manualRows.length === 0 ? (
         <p className="text-xs text-stone-400 py-6 text-center">
           No hay materiales registrados en el módulo de Materiales.
         </p>
@@ -1739,7 +1757,7 @@ function MaterialesOPSection({
               </tr>
             </thead>
             <tbody>
-              {maestro.map((m) =>
+              {maestroVisible.map((m) =>
                 renderFilaMaterial(`m${m.id}`, m.tipo, m.nombre, m.unidad_medida, false)
               )}
               {manualRows.map((r) =>
@@ -2339,6 +2357,7 @@ export function OrdenDetalleClient({
             inicial={curvaTallas}
             opTelas={opTelas}
             opTelaLotes={opTelaLotes}
+            sugerenciasTela={maestroMateriales.filter((m) => esTela(m.tipo)).map((m) => m.nombre)}
             onSaved={handleMsg}
           />
         </TabsContent>
@@ -2360,6 +2379,7 @@ export function OrdenDetalleClient({
             orden={orden}
             inicial={opMateriales}
             maestro={maestroMateriales}
+            opTelas={opTelas}
             totalUnidades={opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
             tieneVerCostos={tieneVerCostos}
             hojaCostos={hojaCostos}
