@@ -105,27 +105,43 @@ export async function upsertLoteDesdeGrid(
   creadoPor: number
 ): Promise<void> {
   const db = createVanessaClient()
-  const { data: existing } = await db
+  // Traer TODOS los lotes con ese nombre: con maybeSingle() un duplicado
+  // devolvía error (ignorado) → existing null → se creaba otro duplicado más
+  const { data, error: selError } = await db
     .from("lote")
     .select("id, estado")
     .eq("orden_id", ordenId)
     .eq("descripcion", loteNombre)
-    .maybeSingle()
+    .order("id")
+  if (selError) throw new Error(selError.message)
+  const rows = (data ?? []) as { id: number; estado: string }[]
 
-  if (existing) {
-    if ((existing as { id: number; estado: string }).estado === "cortado") {
-      const { error } = await db
-        .from("lote")
-        .update({ cantidad_programada: cantidadProgramada })
-        .eq("id", (existing as { id: number; estado: string }).id)
-      if (error) throw new Error(error.message)
-    }
-    // Si ya está en producción (estado != cortado), no modificar
-  } else {
+  if (rows.length === 0) {
     await createLoteDesdeOP(
       { orden_id: ordenId, descripcion: loteNombre, cantidad_programada: cantidadProgramada },
       creadoPor
     )
+    return
+  }
+
+  // Canónico: preferir uno que ya esté en producción; si no, el más antiguo
+  const canonico = rows.find((r) => r.estado !== "cortado") ?? rows[0]
+
+  if (canonico.estado === "cortado") {
+    const { error } = await db
+      .from("lote")
+      .update({ cantidad_programada: cantidadProgramada })
+      .eq("id", canonico.id)
+    if (error) throw new Error(error.message)
+  }
+  // Si el canónico ya está en producción, no se modifica
+
+  // Auto-sanar: eliminar duplicados en estado "cortado" distintos del canónico
+  for (const r of rows) {
+    if (r.id !== canonico.id && r.estado === "cortado") {
+      const { error } = await db.from("lote").delete().eq("id", r.id)
+      if (error) throw new Error(error.message)
+    }
   }
 }
 

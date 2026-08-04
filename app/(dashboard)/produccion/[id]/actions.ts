@@ -6,12 +6,12 @@ import { getSession } from "@/lib/auth/session"
 import { updateOrden, uploadMolde, cambiarEstado } from "@/lib/db/orden-produccion"
 import {
   addOpMaterial, updateOpMaterial, deleteOpMaterial,
-  batchSaveOpMateriales, sumValorPorPrenda,
+  batchSaveOpMateriales, sumValorPorPrenda, deleteOpMaterialTelasNoUsadas,
   type OpMaterialBatchFila,
 } from "@/lib/db/op-material"
 import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
-import { insertOpTelas, deleteOpTela } from "@/lib/db/op-tela"
+import { insertOpTelas, deleteOpTela, getOpTelas } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
@@ -184,6 +184,27 @@ export async function deleteOpMaterialAction(
   }
 }
 
+// Recalcula costo_materiales / costo_unitario / total_unidades en hoja_costos.
+// No exportada: los archivos "use server" solo pueden exportar actions async.
+async function recalcularHojaCostos(ordenId: number): Promise<void> {
+  const [costo_m_raw, curva, telaLotes, hoja] = await Promise.all([
+    sumValorPorPrenda(ordenId),
+    getCurvaTallas(ordenId),
+    getOpTelaLotes(ordenId),
+    getHojaCostos(ordenId),
+  ])
+  const costo_materiales = Math.round(costo_m_raw * 10000) / 10000
+  const sumaFijos = hoja
+    ? VALORES_FIJOS.reduce((s, f) => s + (Number(hoja[f.key]) || 0), 0)
+    : 0
+  const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
+  // Total de prendas basado solo en Material 1 (slot 1)
+  const totalCapas = telaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0)
+  const total_unidades = totalCapas * curva.length
+
+  await updateHojaCostos(ordenId, { costo_materiales, costo_unitario, total_unidades })
+}
+
 // Guarda el listado completo de materiales de la OP y recalcula la hoja de costos
 export async function guardarMaterialesOPAction(
   ordenId: number,
@@ -194,24 +215,7 @@ export async function guardarMaterialesOPAction(
 
   try {
     await batchSaveOpMateriales(ordenId, filas, session.userId)
-
-    // Recalcular costo de materiales en hoja_costos para la pestaña Costos
-    const [costo_m_raw, curva, telaLotes, hoja] = await Promise.all([
-      sumValorPorPrenda(ordenId),
-      getCurvaTallas(ordenId),
-      getOpTelaLotes(ordenId),
-      getHojaCostos(ordenId),
-    ])
-    const costo_materiales = Math.round(costo_m_raw * 10000) / 10000
-    const sumaFijos = hoja
-      ? VALORES_FIJOS.reduce((s, f) => s + (Number(hoja[f.key]) || 0), 0)
-      : 0
-    const costo_unitario = Math.round((costo_materiales + sumaFijos) * 10000) / 10000
-    // Total de prendas basado solo en Material 1 (slot 1)
-    const totalCapas = telaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0)
-    const total_unidades = totalCapas * curva.length
-
-    await updateHojaCostos(ordenId, { costo_materiales, costo_unitario, total_unidades })
+    await recalcularHojaCostos(ordenId)
 
     revalidatePath(`/produccion/${ordenId}`)
     revalidatePath(`/produccion/${ordenId}/costos`)
@@ -240,6 +244,13 @@ export async function guardarSlotAction(
     try {
       await deleteOpTela(ordenId, slot)
       await batchSaveSlotLotes(ordenId, slot, [], session.userId)
+      // La tela de este slot puede quedar huérfana en el costeo
+      const telasRestantes = await getOpTelas(ordenId)
+      const nombresRestantes = [
+        ...new Set(telasRestantes.map((t) => (t.tipo_tela ?? "").trim()).filter(Boolean)),
+      ]
+      const eliminadas = await deleteOpMaterialTelasNoUsadas(ordenId, nombresRestantes)
+      if (eliminadas > 0) await recalcularHojaCostos(ordenId)
       revalidatePath(`/produccion/${ordenId}`)
       return { success: true }
     } catch (err: unknown) {
@@ -279,6 +290,18 @@ export async function guardarSlotAction(
       const cantidadProgramada = totalCapas * tallasCount
       await upsertLoteDesdeGrid(ordenId, nombre, cantidadProgramada, session.userId)
     }
+
+    // 4. Limpiar telas huérfanas del costeo: filas de op_material tipo Tela
+    // cuya tela ya no se usa en ningún material de la curva, y recalcular
+    // la hoja de costos para que Costos no sume telas fantasma
+    const telasActuales = await getOpTelas(ordenId)
+    const nombresUsados = [
+      ...new Set(
+        telasActuales.map((t) => (t.tipo_tela ?? "").trim()).filter(Boolean)
+      ),
+    ]
+    const eliminadas = await deleteOpMaterialTelasNoUsadas(ordenId, nombresUsados)
+    if (eliminadas > 0) await recalcularHojaCostos(ordenId)
 
     revalidatePath(`/produccion/${ordenId}`)
     return { success: true }

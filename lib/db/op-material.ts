@@ -169,6 +169,37 @@ export async function batchSaveOpMateriales(
   }
 }
 
+// Elimina filas de op_material tipo Tela (ligadas al maestro) cuyo nombre ya
+// no coincide con ningún tipo_tela usado en la curva. Sin esto, al cambiar la
+// tela de un material la fila vieja queda invisible en la UI pero sigue
+// sumando en los costos.
+export async function deleteOpMaterialTelasNoUsadas(
+  ordenId: number,
+  nombresUsados: string[]
+): Promise<number> {
+  const db = createVanessaClient()
+  const { data, error } = await db
+    .from("op_material")
+    .select("id, tipo, nombre, material_id")
+    .eq("orden_id", ordenId)
+  if (error) throw new Error(error.message)
+
+  const usados = new Set(nombresUsados.map((n) => n.trim().toLowerCase()))
+  const huerfanas = ((data ?? []) as { id: number; tipo: string; nombre: string; material_id: number | null }[])
+    .filter(
+      (r) =>
+        r.material_id != null &&
+        r.tipo.trim().toLowerCase() === "tela" &&
+        !usados.has(r.nombre.trim().toLowerCase())
+    )
+
+  for (const r of huerfanas) {
+    const { error: delError } = await db.from("op_material").delete().eq("id", r.id)
+    if (delError) throw new Error(delError.message)
+  }
+  return huerfanas.length
+}
+
 export async function sumValorPorPrenda(ordenId: number): Promise<number> {
   const db = createVanessaClient()
   const { data } = await db
