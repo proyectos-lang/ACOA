@@ -14,9 +14,10 @@ import {
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { DisenoRow, DisenoConOP } from "@/lib/db/diseno"
 import type { LoteRow } from "@/lib/db/lote"
+import type { OpTelaRow } from "@/lib/db/op-tela"
+import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
-  guardarDisenoAction,
   aprobarDisenoAction,
   guardarLoteDisenoAction,
 } from "@/app/(dashboard)/diseno/[id]/actions"
@@ -37,6 +38,8 @@ interface Props {
   diseno: DisenoRow | null
   disenosAnteriores: DisenoConOP[]
   lotes: LoteRow[]
+  opTelas: OpTelaRow[]
+  opTelaLotes: OpTelaLoteRow[]
 }
 
 function padOP(n: number) {
@@ -174,37 +177,21 @@ function Toast({
   )
 }
 
-export function DisenaFichaClient({ orden, diseno, disenosAnteriores, lotes }: Props) {
+export function DisenaFichaClient({
+  orden,
+  diseno,
+  disenosAnteriores,
+  lotes,
+  opTelas,
+  opTelaLotes,
+}: Props) {
   const router = useRouter()
-  const [isPendingSave, startSave] = useTransition()
   const [isPendingApprove, startApprove] = useTransition()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
-  const [imagePreview, setImagePreview] = React.useState<string | null>(
-    diseno?.url_imagen_prenda ?? null
-  )
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 4000)
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (f) setImagePreview(URL.createObjectURL(f))
-  }
-
-  function handleSave(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    startSave(async () => {
-      const res = await guardarDisenoAction(orden.id, fd)
-      if (res.error) {
-        showToast("error", res.error)
-      } else {
-        showToast("ok", "Diseño guardado")
-        router.refresh()
-      }
-    })
   }
 
   function handleApprove() {
@@ -219,10 +206,14 @@ export function DisenaFichaClient({ orden, diseno, disenosAnteriores, lotes }: P
     })
   }
 
-  const fieldCls =
-    "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
   const isAprobado = diseno?.aprobado === true
-  const tieneImagen = Boolean(imagePreview)
+  const lotesSinImagen = lotes.filter((l) => !l.url_imagen)
+  const puedeAprobar = lotes.length === 0 || lotesSinImagen.length === 0
+
+  // Materiales de la curva con datos (colores por fila y capas por lote)
+  const slotsConDatos = ([1, 2, 3] as const).filter(
+    (s) => opTelas.some((t) => t.slot === s) || opTelaLotes.some((r) => r.slot === s)
+  )
 
   return (
     <div className="space-y-6">
@@ -273,143 +264,83 @@ export function DisenaFichaClient({ orden, diseno, disenosAnteriores, lotes }: P
         )}
       </div>
 
-      <form onSubmit={handleSave}>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Especificaciones */}
-          <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
-              Datos del diseño
-            </h2>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">
-                Especificaciones de confirmación
-              </label>
-              <textarea
-                name="especificaciones_confirmacion"
-                rows={4}
-                defaultValue={diseno?.especificaciones_confirmacion ?? ""}
-                className={`${fieldCls} resize-none`}
-                placeholder="Detalles confirmados con el cliente…"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Carta de color</label>
-              <input
-                type="text"
-                name="carta_color"
-                defaultValue={diseno?.carta_color ?? ""}
-                className={fieldCls}
-                placeholder="Ej: Pantone 286 C — Azul marino"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">
-                Especificaciones de diseño
-              </label>
-              <textarea
-                name="especificaciones_diseno"
-                rows={4}
-                defaultValue={diseno?.especificaciones_diseno ?? ""}
-                className={`${fieldCls} resize-none`}
-                placeholder="Técnica, posición, medidas de estampado…"
-              />
-            </div>
-          </div>
-
-          {/* Imagen */}
-          <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
-            <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
-              Imagen de la prenda <span className="text-red-500">*</span>
-            </h2>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Subir imagen</label>
-              <input
-                type="file"
-                name="imagen_prenda"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="w-full text-sm text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:px-3 file:py-1.5 file:text-xs file:font-medium file:bg-stone-100 file:text-stone-600 hover:file:bg-stone-200"
-              />
-              <p className="text-xs text-stone-400">Requerida para aprobar el diseño</p>
-            </div>
-
-            {imagePreview ? (
-              <div className="space-y-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imagePreview}
-                  alt="Vista previa de la prenda"
-                  className="w-full max-h-72 object-contain rounded-xl border border-stone-200 bg-stone-50 p-2"
-                />
-                {diseno?.url_imagen_prenda && (
-                  <a
-                    href={diseno.url_imagen_prenda}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-stone-500 hover:text-stone-700"
-                  >
-                    <ExternalLink className="h-3 w-3" /> Ver imagen guardada
-                  </a>
-                )}
+      {/* Curva de materiales: colores por material y capas por lote */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-5">
+        <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
+          Materiales de la curva — colores y capas por lote
+        </h2>
+        {slotsConDatos.length === 0 ? (
+          <p className="text-sm text-stone-400 py-4 text-center">
+            La curva de esta orden aún no tiene materiales configurados.
+          </p>
+        ) : (
+          slotsConDatos.map((slot) => {
+            const telas = opTelas
+              .filter((t) => t.slot === slot)
+              .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
+            const filasLote = opTelaLotes.filter((r) => r.slot === slot)
+            const nombresLote = [...new Set(filasLote.map((r) => r.lote_nombre))]
+            const capa = (fila: number, lote: string) =>
+              filasLote.find((r) => (r.fila ?? 0) === fila && r.lote_nombre === lote)?.capas ?? 0
+            const tipoTela = telas[0]?.tipo_tela ?? ""
+            return (
+              <div key={slot} className="space-y-2">
+                <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
+                  Material {slot}{tipoTela ? ` — ${tipoTela}` : ""}
+                </p>
+                <div className="overflow-x-auto rounded-xl border border-stone-200">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-stone-100 bg-stone-50">
+                        <th className="px-3 py-2 text-left font-semibold text-stone-500 w-32">Color</th>
+                        {nombresLote.map((l) => (
+                          <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
+                            {l}
+                          </th>
+                        ))}
+                        <th className="px-3 py-2 text-center font-semibold text-stone-600 bg-stone-100">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {telas.map((t) => {
+                        const totalFila = nombresLote.reduce((s, l) => s + capa(t.fila ?? 0, l), 0)
+                        return (
+                          <tr key={t.id} className="border-b border-stone-100 last:border-0">
+                            <td className="px-3 py-2 font-medium text-stone-800">{t.color ?? "—"}</td>
+                            {nombresLote.map((l) => (
+                              <td key={l} className="px-3 py-2 text-center font-mono text-stone-700">
+                                {capa(t.fila ?? 0, l) || "—"}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2 text-center font-mono font-semibold text-stone-800 bg-stone-50">
+                              {totalFila}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-stone-200 bg-stone-50">
+                        <td className="px-3 py-2 font-semibold text-stone-600">Capas</td>
+                        {nombresLote.map((l) => (
+                          <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
+                            {telas.reduce((s, t) => s + capa(t.fila ?? 0, l), 0)}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-center font-mono font-bold bg-stone-100" style={{ color: "#344966" }}>
+                          {telas.reduce(
+                            (s, t) => s + nombresLote.reduce((ls, l) => ls + capa(t.fila ?? 0, l), 0), 0
+                          )}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-200 bg-stone-50 p-10 text-center">
-                <ImageIcon className="h-10 w-10 text-stone-300 mb-2" />
-                <p className="text-sm text-stone-400">Sin imagen cargada</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Botones */}
-        <div className="flex justify-end gap-3 mt-4">
-          <button
-            type="submit"
-            disabled={isPendingSave}
-            className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 transition-opacity"
-            style={{ backgroundColor: "#344966" }}
-          >
-            <Save className="h-4 w-4" />
-            {isPendingSave ? "Guardando…" : "Guardar diseño"}
-          </button>
-
-          {!isAprobado && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button
-                  type="button"
-                  disabled={!tieneImagen || isPendingApprove}
-                  title={!tieneImagen ? "Suba una imagen de la prenda antes de aprobar" : undefined}
-                  className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
-                  style={{ backgroundColor: "#15803d" }}
-                >
-                  <CheckCircle className="h-4 w-4" />
-                  {isPendingApprove ? "Aprobando…" : "Aprobar diseño"}
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>¿Aprobar diseño?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    La orden <strong>{padOP(orden.numero_op)}</strong> pasará a estado{" "}
-                    <strong>Corte</strong>. Esta acción no se puede deshacer.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleApprove}>
-                    Aprobar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-        </div>
-      </form>
+            )
+          })
+        )}
+      </div>
 
       {/* Diseño por lote: imagen de referencia + datos de cada lote */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
@@ -428,6 +359,45 @@ export function DisenaFichaClient({ orden, diseno, disenosAnteriores, lotes }: P
           </div>
         )}
       </div>
+
+      {/* Aprobar diseño */}
+      {!isAprobado && (
+        <div className="flex justify-end">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                disabled={!puedeAprobar || isPendingApprove}
+                title={
+                  !puedeAprobar
+                    ? `Falta la imagen de referencia en ${lotesSinImagen.length} lote(s)`
+                    : undefined
+                }
+                className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
+                style={{ backgroundColor: "#15803d" }}
+              >
+                <CheckCircle className="h-4 w-4" />
+                {isPendingApprove ? "Aprobando…" : "Aprobar diseño"}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Aprobar diseño?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  La orden <strong>{padOP(orden.numero_op)}</strong> pasará a estado{" "}
+                  <strong>Corte</strong>. Esta acción no se puede deshacer.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={handleApprove}>
+                  Aprobar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
 
       {/* Diseños anteriores de la misma referencia */}
       {disenosAnteriores.length > 0 && (
