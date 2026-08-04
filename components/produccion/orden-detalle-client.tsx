@@ -1995,8 +1995,9 @@ function HojaCostosSection({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [showDetMateriales, setShowDetMateriales] = React.useState(false)
-  const [showDetFijos, setShowDetFijos] = React.useState(false)
+  const [showDetTela, setShowDetTela] = React.useState(false)
+  const [showDetInsumos, setShowDetInsumos] = React.useState(false)
+  const [showDetManoObra, setShowDetManoObra] = React.useState(false)
 
   const [precioVenta, setPrecioVenta] = React.useState(
     hojaCostos?.precio_venta != null ? String(hojaCostos.precio_venta) : ""
@@ -2009,11 +2010,25 @@ function HojaCostosSection({
   )
 
   const costoMateriales = hojaCostos?.costo_materiales ?? 0
-  // Los 15 conceptos fijos se editan en la pestaña Materiales; aquí solo se leen
-  const sumaFijos = VALORES_FIJOS.reduce(
-    (s, f) => s + (Number(hojaCostos?.[f.key]) || 0), 0
-  )
-  const costoUnitario = costoMateriales + sumaFijos
+
+  // Desglose en 3 grupos: tela, insumos y mano de obra indirecta.
+  // Los 15 conceptos fijos se editan en la pestaña Materiales; aquí solo se leen.
+  const matTela = opMateriales.filter((m) => esTela(m.tipo))
+  const matOtros = opMateriales.filter((m) => !esTela(m.tipo))
+  const costoTela = matTela.reduce((s, m) => s + Number(m.valor_por_prenda), 0)
+  const costoInsumosMat = matOtros.reduce((s, m) => s + Number(m.valor_por_prenda), 0)
+
+  const FIJOS_INSUMOS_KEYS = new Set([
+    "valor_cordon", "valor_empaque", "valor_bandera",
+    "valor_bolsas_flechas_stickers", "valor_etiqueta", "valor_instruccion",
+  ])
+  const fijosInsumos = VALORES_FIJOS.filter((f) => FIJOS_INSUMOS_KEYS.has(f.key as string))
+  const fijosManoObra = VALORES_FIJOS.filter((f) => !FIJOS_INSUMOS_KEYS.has(f.key as string))
+  const sumaFijosInsumos = fijosInsumos.reduce((s, f) => s + (Number(hojaCostos?.[f.key]) || 0), 0)
+  const sumaManoObra = fijosManoObra.reduce((s, f) => s + (Number(hojaCostos?.[f.key]) || 0), 0)
+
+  const costoInsumos = costoInsumosMat + sumaFijosInsumos
+  const costoUnitario = costoTela + costoInsumos + sumaManoObra
   const precioVentaNum = parseFloat(precioVenta) || 0
 
   function handleSave() {
@@ -2133,25 +2148,26 @@ function HojaCostosSection({
 
       {/* Resumen de costos */}
       <div className="rounded-xl border border-stone-200 bg-stone-50 p-4 space-y-2 text-sm max-w-sm">
+        {/* 1. Materiales (tela) */}
         <button
           type="button"
-          onClick={() => setShowDetMateriales((v) => !v)}
+          onClick={() => setShowDetTela((v) => !v)}
           className="flex justify-between items-center w-full text-stone-600 hover:text-stone-800 transition-colors"
         >
           <span className="flex items-center gap-1">
             <ChevronRight
-              className={`h-3.5 w-3.5 transition-transform ${showDetMateriales ? "rotate-90" : ""}`}
+              className={`h-3.5 w-3.5 transition-transform ${showDetTela ? "rotate-90" : ""}`}
             />
-            Costo materiales / prenda
+            Materiales (tela) / prenda
           </span>
-          <span className="font-mono">{cop(costoMateriales)}</span>
+          <span className="font-mono">{cop(costoTela)}</span>
         </button>
-        {showDetMateriales && (
+        {showDetTela && (
           <div className="pl-5 space-y-1 text-xs text-stone-500 border-l border-stone-200 ml-1.5">
-            {opMateriales.length === 0 ? (
-              <p className="text-stone-400">Sin materiales guardados.</p>
+            {matTela.length === 0 ? (
+              <p className="text-stone-400">Sin telas guardadas.</p>
             ) : (
-              opMateriales.map((m) => (
+              matTela.map((m) => (
                 <div key={m.id} className="flex justify-between gap-2">
                   <span className="truncate">{m.nombre}</span>
                   <span className="font-mono shrink-0">{cop(Number(m.valor_por_prenda))}</span>
@@ -2160,25 +2176,67 @@ function HojaCostosSection({
             )}
           </div>
         )}
+
+        {/* 2. Insumos: materiales no-tela + fijos de insumos */}
         <button
           type="button"
-          onClick={() => setShowDetFijos((v) => !v)}
+          onClick={() => setShowDetInsumos((v) => !v)}
           className="flex justify-between items-center w-full text-stone-600 hover:text-stone-800 transition-colors"
         >
           <span className="flex items-center gap-1">
             <ChevronRight
-              className={`h-3.5 w-3.5 transition-transform ${showDetFijos ? "rotate-90" : ""}`}
+              className={`h-3.5 w-3.5 transition-transform ${showDetInsumos ? "rotate-90" : ""}`}
             />
-            Suma valores fijos
+            Insumos / prenda
           </span>
-          <span className="font-mono">{cop(sumaFijos)}</span>
+          <span className="font-mono">{cop(costoInsumos)}</span>
         </button>
-        {showDetFijos && (
+        {showDetInsumos && (
           <div className="pl-5 space-y-1 text-xs text-stone-500 border-l border-stone-200 ml-1.5">
-            {VALORES_FIJOS.filter((f) => (Number(hojaCostos?.[f.key]) || 0) > 0).length === 0 ? (
-              <p className="text-stone-400">Sin costos fijos registrados.</p>
+            {matOtros.length === 0 &&
+              fijosInsumos.every((f) => (Number(hojaCostos?.[f.key]) || 0) === 0) ? (
+              <p className="text-stone-400">Sin insumos registrados.</p>
             ) : (
-              VALORES_FIJOS
+              <>
+                {matOtros.map((m) => (
+                  <div key={m.id} className="flex justify-between gap-2">
+                    <span className="truncate">{m.nombre}</span>
+                    <span className="font-mono shrink-0">{cop(Number(m.valor_por_prenda))}</span>
+                  </div>
+                ))}
+                {fijosInsumos
+                  .filter((f) => (Number(hojaCostos?.[f.key]) || 0) > 0)
+                  .map((f) => (
+                    <div key={f.key as string} className="flex justify-between gap-2">
+                      <span className="truncate">{f.label}</span>
+                      <span className="font-mono shrink-0">{cop(Number(hojaCostos?.[f.key]) || 0)}</span>
+                    </div>
+                  ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* 3. Mano de obra indirecta */}
+        <button
+          type="button"
+          onClick={() => setShowDetManoObra((v) => !v)}
+          className="flex justify-between items-center w-full text-stone-600 hover:text-stone-800 transition-colors"
+        >
+          <span className="flex items-center gap-1">
+            <ChevronRight
+              className={`h-3.5 w-3.5 transition-transform ${showDetManoObra ? "rotate-90" : ""}`}
+            />
+            Mano de obra indirecta / prenda
+          </span>
+          <span className="font-mono">{cop(sumaManoObra)}</span>
+        </button>
+        {showDetManoObra && (
+          <div className="pl-5 space-y-1 text-xs text-stone-500 border-l border-stone-200 ml-1.5">
+            {fijosManoObra.every((f) => (Number(hojaCostos?.[f.key]) || 0) === 0) ? (
+              <p className="text-stone-400">Sin valores registrados.</p>
+            ) : (
+              fijosManoObra
                 .filter((f) => (Number(hojaCostos?.[f.key]) || 0) > 0)
                 .map((f) => (
                   <div key={f.key as string} className="flex justify-between gap-2">
