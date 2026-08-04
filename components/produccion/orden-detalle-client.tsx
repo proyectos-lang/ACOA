@@ -436,6 +436,24 @@ function OpTelaSlotCard({
       return
     }
 
+    // Nombres repetidos rompen la clave única (orden, slot, color, lote)
+    const nombresColor = coloresFiltrados.map((c) => c.nombre.trim().toLowerCase())
+    const colorRepetido = coloresFiltrados.find(
+      (c, i) => nombresColor.indexOf(c.nombre.trim().toLowerCase()) !== i
+    )
+    if (colorRepetido) {
+      onMsg(`Error: el color "${colorRepetido.nombre}" está repetido en Material ${slot}`)
+      return
+    }
+    const nombresLote = lotesFiltrados.map((l) => l.nombre.trim().toLowerCase())
+    const loteRepetido = lotesFiltrados.find(
+      (l, i) => nombresLote.indexOf(l.nombre.trim().toLowerCase()) !== i
+    )
+    if (loteRepetido) {
+      onMsg(`Error: el lote "${loteRepetido.nombre}" está repetido en Material ${slot}`)
+      return
+    }
+
     // Validación solo por TOTAL de capas (no matricial): el total del material
     // debe coincidir con el total de Material 1
     if (totalCapasRef != null && totalCapasRef > 0 && coloresFiltrados.length > 0) {

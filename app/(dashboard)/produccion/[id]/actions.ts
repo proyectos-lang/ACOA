@@ -248,22 +248,31 @@ export async function guardarSlotAction(
   }
 
   try {
-    // 1. Reemplazar colores del slot
+    // 1. Reemplazar colores del slot (sin repetidos: la clave es orden+slot+color)
+    const coloresUnicos = [...new Set(coloresFiltrados.map((c) => c.trim()))]
     await deleteOpTela(ordenId, slot)
-    for (const color of coloresFiltrados) {
+    for (const color of coloresUnicos) {
       await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color, creado_por: session.userId })
     }
 
-    // 2. Construir y guardar filas op_tela_lote
-    const filas: { color: string; lote_nombre: string; capas: number }[] = []
+    // 2. Construir y guardar filas op_tela_lote. Si un (color, lote) viene
+    // repetido, se agregan las capas sumándolas — un upsert con claves
+    // duplicadas falla con "ON CONFLICT DO UPDATE cannot affect row a second time"
+    // y dejaría el slot vacío (el delete ya habría corrido).
+    const filasMap = new Map<string, { color: string; lote_nombre: string; capas: number }>()
     for (const loteEntry of grid) {
-      if (!loteEntry.lote_nombre.trim()) continue
+      const loteNombre = loteEntry.lote_nombre.trim()
+      if (!loteNombre) continue
       coloresFiltrados.forEach((color, ci) => {
         const capas = loteEntry.capas_por_color[ci] ?? 0
-        if (capas > 0) filas.push({ color, lote_nombre: loteEntry.lote_nombre, capas })
+        if (capas <= 0) return
+        const key = `${color.trim()}||${loteNombre}`
+        const prev = filasMap.get(key)
+        if (prev) prev.capas += capas
+        else filasMap.set(key, { color: color.trim(), lote_nombre: loteNombre, capas })
       })
     }
-    await batchSaveSlotLotes(ordenId, slot, filas, session.userId)
+    await batchSaveSlotLotes(ordenId, slot, [...filasMap.values()], session.userId)
 
     // 3. Actualizar lote records. Las cantidades se basan SOLO en Material 1:
     // M2/M3 son telas adicionales de las mismas prendas, no prendas extra.
