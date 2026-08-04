@@ -760,7 +760,7 @@ export function CorteFichaClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
+                  {["Imagen", "Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
                     <th key={h} className="px-3 py-2 text-xs font-semibold text-stone-500 uppercase tracking-wide text-left">
                       {h}
                     </th>
@@ -770,6 +770,20 @@ export function CorteFichaClient({
               <tbody>
                 {lotes.map((l) => (
                   <tr key={l.id} className="border-b border-stone-100 last:border-0">
+                    <td className="px-3 py-2">
+                      {l.url_imagen ? (
+                        <a href={l.url_imagen} target="_blank" rel="noopener noreferrer" title="Ver imagen de referencia">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={l.url_imagen}
+                            alt={`Lote ${l.numero_lote}`}
+                            className="h-10 w-10 rounded-lg object-cover border border-stone-200 bg-white"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-10 w-10 rounded-lg border border-dashed border-stone-200 bg-stone-50" />
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono font-semibold text-stone-700">
                       {padLote(l.numero_lote)}
                     </td>

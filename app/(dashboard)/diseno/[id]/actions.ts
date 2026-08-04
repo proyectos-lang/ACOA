@@ -8,6 +8,7 @@ import {
   getDisenoByOrden,
 } from "@/lib/db/diseno"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
+import { updateLoteDiseno, uploadImagenLote } from "@/lib/db/lote"
 import { revalidatePath } from "next/cache"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -44,6 +45,34 @@ export async function guardarDisenoAction(
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error guardando diseño" }
+  }
+}
+
+export async function guardarLoteDisenoAction(
+  loteId: number,
+  ordenId: number,
+  formData: FormData
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const notas = (formData.get("notas_diseno") as string | null)?.trim() ?? ""
+    const file = formData.get("imagen_lote") as File | null
+
+    const input: { url_imagen?: string; notas_diseno: string | null } = {
+      notas_diseno: notas || null,
+    }
+    if (file && file.size > 0) {
+      input.url_imagen = await uploadImagenLote(file, ordenId, loteId)
+    }
+
+    await updateLoteDiseno(loteId, input)
+    revalidatePath(`/diseno/${ordenId}`)
+    revalidatePath(`/produccion/${ordenId}`)
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error guardando diseño del lote" }
   }
 }
 

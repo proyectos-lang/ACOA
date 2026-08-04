@@ -14,6 +14,7 @@ import {
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
+import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConteoRow, ConteoDetalleRow } from "@/lib/db/conteo"
 import type { EmpaqueRegistroRow } from "@/lib/db/empaque-registro"
@@ -206,6 +207,11 @@ export function EmpaqueRegistroClient({
 
       {/* ── Cabecera ─────────────────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5">
+        {lote.url_imagen && (
+          <div className="mb-4">
+            <LoteImagenRef lote={lote} />
+          </div>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-xs text-stone-500">Lote</p>

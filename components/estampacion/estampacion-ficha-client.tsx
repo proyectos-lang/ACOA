@@ -16,6 +16,7 @@ import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteRow } from "@/lib/db/corte"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
+import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { EstampacionRow } from "@/lib/db/estampacion"
 import type { NovedadProcesoRow } from "@/lib/db/novedad-proceso"
@@ -193,7 +194,8 @@ export function EstampacionFichaClient({
       {/* ── Cabecera lote + OP ──────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-3">
+          <LoteImagenRef lote={lote} />
+          <div className="space-y-3 flex-1">
             <div>
               <p className="text-xs text-stone-500">Lote</p>
               <p className="text-2xl font-bold font-mono text-stone-900">

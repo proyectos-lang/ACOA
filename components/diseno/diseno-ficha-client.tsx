@@ -13,9 +13,12 @@ import {
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { DisenoRow, DisenoConOP } from "@/lib/db/diseno"
+import type { LoteRow } from "@/lib/db/lote"
+import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   guardarDisenoAction,
   aprobarDisenoAction,
+  guardarLoteDisenoAction,
 } from "@/app/(dashboard)/diseno/[id]/actions"
 import {
   AlertDialog,
@@ -33,10 +36,117 @@ interface Props {
   orden: OrdenProduccionRow
   diseno: DisenoRow | null
   disenosAnteriores: DisenoConOP[]
+  lotes: LoteRow[]
 }
 
 function padOP(n: number) {
   return `OP-${String(n).padStart(4, "0")}`
+}
+
+function padLote(n: number) {
+  return `LOTE-${String(n).padStart(4, "0")}`
+}
+
+// ── Tarjeta de diseño por lote ────────────────────────────────────────────────
+
+function LoteDisenoCard({
+  lote,
+  ordenId,
+  onMsg,
+}: {
+  lote: LoteRow
+  ordenId: number
+  onMsg: (tipo: "ok" | "error", msg: string) => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [preview, setPreview] = React.useState<string | null>(lote.url_imagen)
+  const [notas, setNotas] = React.useState(lote.notas_diseno ?? "")
+  const fileRef = React.useRef<HTMLInputElement>(null)
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (f) setPreview(URL.createObjectURL(f))
+  }
+
+  function handleSave() {
+    const fd = new FormData()
+    fd.set("notas_diseno", notas)
+    const file = fileRef.current?.files?.[0]
+    if (file) fd.set("imagen_lote", file)
+    startTransition(async () => {
+      const res = await guardarLoteDisenoAction(lote.id, ordenId, fd)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", `${padLote(lote.numero_lote)} guardado`)
+        router.refresh()
+      }
+    })
+  }
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-mono font-semibold text-sm text-stone-800">
+            {padLote(lote.numero_lote)}
+          </p>
+          <p className="text-xs text-stone-500 truncate">
+            {lote.descripcion ?? "—"} · {lote.cantidad_programada.toLocaleString("es-CO")} uds
+          </p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${
+            LOTE_ESTADO_COLOR[lote.estado] ?? "bg-stone-100 text-stone-600"
+          }`}
+        >
+          {LOTE_ESTADO_LABEL[lote.estado] ?? lote.estado}
+        </span>
+      </div>
+
+      {/* Imagen */}
+      {preview ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={preview}
+          alt={`Imagen de ${padLote(lote.numero_lote)}`}
+          className="w-full h-40 object-contain rounded-lg border border-stone-200 bg-white p-1"
+        />
+      ) : (
+        <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-stone-200 bg-white h-40">
+          <ImageIcon className="h-8 w-8 text-stone-300 mb-1" />
+          <p className="text-xs text-stone-400">Sin imagen</p>
+        </div>
+      )}
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFile}
+        className="w-full text-xs text-stone-500 file:mr-2 file:rounded-lg file:border-0 file:px-2.5 file:py-1 file:text-xs file:font-medium file:bg-stone-100 file:text-stone-600 hover:file:bg-stone-200"
+      />
+
+      <textarea
+        value={notas}
+        onChange={(e) => setNotas(e.target.value)}
+        rows={2}
+        placeholder="Datos de diseño del lote (colores, estampado, ubicación…)"
+        className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966] resize-none"
+      />
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={isPending}
+        className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60 w-full justify-center"
+        style={{ backgroundColor: "#344966" }}
+      >
+        <Save className="h-3 w-3" />
+        {isPending ? "Guardando…" : "Guardar lote"}
+      </button>
+    </div>
+  )
 }
 
 function Toast({
@@ -64,7 +174,7 @@ function Toast({
   )
 }
 
-export function DisenaFichaClient({ orden, diseno, disenosAnteriores }: Props) {
+export function DisenaFichaClient({ orden, diseno, disenosAnteriores, lotes }: Props) {
   const router = useRouter()
   const [isPendingSave, startSave] = useTransition()
   const [isPendingApprove, startApprove] = useTransition()
@@ -300,6 +410,24 @@ export function DisenaFichaClient({ orden, diseno, disenosAnteriores }: Props) {
           )}
         </div>
       </form>
+
+      {/* Diseño por lote: imagen de referencia + datos de cada lote */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
+          Lotes de la orden — imagen de referencia por lote
+        </h2>
+        {lotes.length === 0 ? (
+          <p className="text-sm text-stone-400 py-4 text-center">
+            Esta orden aún no tiene lotes. Se crean desde la pestaña Curva de la OP.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {lotes.map((l) => (
+              <LoteDisenoCard key={l.id} lote={l} ordenId={orden.id} onMsg={showToast} />
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Diseños anteriores de la misma referencia */}
       {disenosAnteriores.length > 0 && (

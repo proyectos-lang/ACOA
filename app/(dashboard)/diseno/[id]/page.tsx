@@ -1,6 +1,7 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
 import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getDisenoByOrden, getDisenosByReferencia } from "@/lib/db/diseno"
+import { getLotesByOrden } from "@/lib/db/lote"
 import { DisenaFichaClient } from "@/components/diseno/diseno-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -15,9 +16,10 @@ export default async function DisenaFichaPage({
   const { id } = await params
   const ordenId = parseInt(id, 10)
 
-  const [orden, diseno] = await Promise.all([
+  const [orden, diseno, lotes] = await Promise.all([
     getOrdenById(ordenId),
     getDisenoByOrden(ordenId),
+    getLotesByOrden(ordenId),
   ])
 
   if (!orden) notFound()
@@ -40,7 +42,12 @@ export default async function DisenaFichaPage({
         </span>
       </div>
 
-      <DisenaFichaClient orden={orden} diseno={diseno} disenosAnteriores={disenosAnteriores} />
+      <DisenaFichaClient
+        orden={orden}
+        diseno={diseno}
+        disenosAnteriores={disenosAnteriores}
+        lotes={lotes}
+      />
     </div>
   )
 }

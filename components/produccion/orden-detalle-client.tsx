@@ -1425,7 +1425,7 @@ function LotesSection({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50">
-                {["Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
+                {["Imagen", "Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
                   <th key={h} className="px-3 py-2 text-left font-semibold text-stone-500">{h}</th>
                 ))}
               </tr>
@@ -1435,6 +1435,20 @@ function LotesSection({
                 const link = LOTE_LINKS[lote.estado]?.(lote.id)
                 return (
                   <tr key={lote.id} className="border-b border-stone-100 last:border-0">
+                    <td className="px-3 py-2">
+                      {lote.url_imagen ? (
+                        <a href={lote.url_imagen} target="_blank" rel="noopener noreferrer" title="Ver imagen de referencia">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={lote.url_imagen}
+                            alt={`Lote ${lote.numero_lote}`}
+                            className="h-10 w-10 rounded-lg object-cover border border-stone-200 bg-white"
+                          />
+                        </a>
+                      ) : (
+                        <div className="h-10 w-10 rounded-lg border border-dashed border-stone-200 bg-stone-50" />
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono font-semibold text-stone-700">
                       LOTE-{String(lote.numero_lote).padStart(4, "0")}
                     </td>

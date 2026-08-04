@@ -10,6 +10,8 @@ export interface LoteRow {
   cantidad_programada: number
   precio_empaque_unidad: number
   estado: string
+  url_imagen: string | null
+  notas_diseno: string | null
 }
 
 export const LOTE_ESTADO_LABEL: Record<string, string> = {
@@ -33,7 +35,7 @@ export const LOTE_ESTADO_COLOR: Record<string, string> = {
 }
 
 const SELECT_COLS =
-  "id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado"
+  "id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado, url_imagen, notas_diseno"
 
 export async function getLotesByOrden(ordenId: number): Promise<LoteRow[]> {
   const db = createVanessaClient()
@@ -125,6 +127,38 @@ export async function upsertLoteDesdeGrid(
       creadoPor
     )
   }
+}
+
+// ── Diseño por lote ───────────────────────────────────────────────────────────
+
+export async function updateLoteDiseno(
+  id: number,
+  input: { url_imagen?: string; notas_diseno?: string | null }
+): Promise<void> {
+  const db = createVanessaClient()
+  const payload: Record<string, unknown> = {}
+  if (input.url_imagen !== undefined) payload.url_imagen = input.url_imagen
+  if (input.notas_diseno !== undefined) payload.notas_diseno = input.notas_diseno
+  if (Object.keys(payload).length === 0) return
+  const { error } = await db.from("lote").update(payload).eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+export async function uploadImagenLote(
+  file: File,
+  ordenId: number,
+  loteId: number
+): Promise<string> {
+  const db = createVanessaClient()
+  const ext = file.name.split(".").pop() ?? "jpg"
+  const path = `${ordenId}/lote_${loteId}_${Date.now()}.${ext}`
+  const buffer = await file.arrayBuffer()
+  const { error } = await db.storage
+    .from("disenos")
+    .upload(path, buffer, { contentType: file.type, upsert: true })
+  if (error) throw new Error(error.message)
+  const { data } = db.storage.from("disenos").getPublicUrl(path)
+  return data.publicUrl
 }
 
 export async function updateLoteEstado(id: number, estado: string): Promise<void> {
