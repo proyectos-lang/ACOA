@@ -2019,7 +2019,7 @@ function HojaCostosSection({
   const costoInsumosMat = matOtros.reduce((s, m) => s + Number(m.valor_por_prenda), 0)
 
   const FIJOS_INSUMOS_KEYS = new Set([
-    "valor_cordon", "valor_empaque", "valor_bandera",
+    "valor_cordon", "valor_bandera",
     "valor_bolsas_flechas_stickers", "valor_etiqueta", "valor_instruccion",
   ])
   const fijosInsumos = VALORES_FIJOS.filter((f) => FIJOS_INSUMOS_KEYS.has(f.key as string))
