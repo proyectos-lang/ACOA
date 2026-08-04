@@ -202,21 +202,26 @@ function buildGridFromServer(
   opTelaLotes: OpTelaLoteRow[],
   slot: 1 | 2 | 3
 ): { tipoTela: string; colores: EntradaColor[]; lotes: EntradaLote[]; capas: CapasGrid } {
-  const telasSlot = opTelas.filter((t) => t.slot === slot)
+  const telasSlot = opTelas
+    .filter((t) => t.slot === slot)
+    .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
   const lotesSlot = opTelaLotes.filter((r) => r.slot === slot)
 
-  const coloresUnicos = [...new Set(telasSlot.map((t) => t.color ?? "").filter(Boolean))]
-  const lotesUnicos   = [...new Set(lotesSlot.map((r) => r.lote_nombre))]
-
-  const colores: EntradaColor[] = coloresUnicos.map((n) => ({ key: n, nombre: n }))
-  const lotes:   EntradaLote[]  = lotesUnicos.map((n)   => ({ key: n, nombre: n }))
+  // La identidad de cada fila es su posición (fila); los colores pueden repetirse
+  const colores: EntradaColor[] = telasSlot.map((t) => ({
+    key: `f${t.fila}`,
+    nombre: t.color ?? "",
+  }))
+  const lotesUnicos = [...new Set(lotesSlot.map((r) => r.lote_nombre))]
+  const lotes: EntradaLote[] = lotesUnicos.map((n) => ({ key: n, nombre: n }))
 
   const capas: CapasGrid = {}
-  for (const c of colores) {
-    capas[c.key] = {}
+  for (const t of telasSlot) {
+    const ck = `f${t.fila}`
+    capas[ck] = {}
     for (const l of lotes) {
-      const fila = lotesSlot.find((r) => r.color === c.nombre && r.lote_nombre === l.nombre)
-      capas[c.key][l.key] = fila?.capas ?? null
+      const row = lotesSlot.find((r) => (r.fila ?? 0) === t.fila && r.lote_nombre === l.nombre)
+      capas[ck][l.key] = row?.capas ?? null
     }
   }
 
@@ -436,15 +441,8 @@ function OpTelaSlotCard({
       return
     }
 
-    // Nombres repetidos rompen la clave única (orden, slot, color, lote)
-    const nombresColor = coloresFiltrados.map((c) => c.nombre.trim().toLowerCase())
-    const colorRepetido = coloresFiltrados.find(
-      (c, i) => nombresColor.indexOf(c.nombre.trim().toLowerCase()) !== i
-    )
-    if (colorRepetido) {
-      onMsg(`Error: el color "${colorRepetido.nombre}" está repetido en Material ${slot}`)
-      return
-    }
+    // Los colores pueden repetirse; los LOTES no (los registros de lote se
+    // identifican por nombre)
     const nombresLote = lotesFiltrados.map((l) => l.nombre.trim().toLowerCase())
     const loteRepetido = lotesFiltrados.find(
       (l, i) => nombresLote.indexOf(l.nombre.trim().toLowerCase()) !== i
@@ -703,17 +701,31 @@ function generarImpresionOP(
   let totalUnidadesOP = 0
 
   const secciones = slots.map((slot) => {
-    const telas = opTelas.filter((t) => t.slot === slot)
+    const telas = opTelas
+      .filter((t) => t.slot === slot)
+      .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
     const filas = opTelaLotes.filter((r) => r.slot === slot)
-    const colores = [...new Set(telas.map((t) => t.color ?? "").filter(Boolean))]
-    // Colores que solo existen en op_tela_lote (por si acaso)
-    for (const f of filas) if (!colores.includes(f.color)) colores.push(f.color)
+
+    // Filas de color por posición (los colores pueden repetirse)
+    let filasColor: { fila: number; nombre: string }[] = telas.map((t) => ({
+      fila: t.fila ?? 0,
+      nombre: t.color ?? "",
+    }))
+    // Fallback: filas que solo existen en op_tela_lote
+    if (filasColor.length === 0) {
+      const vistos = new Map<number, string>()
+      for (const f of filas) if (!vistos.has(f.fila ?? 0)) vistos.set(f.fila ?? 0, f.color)
+      filasColor = [...vistos.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([fila, nombre]) => ({ fila, nombre }))
+    }
+
     // Orden de inserción (el mismo de la grilla), no alfabético
     const lotes = [...new Set(filas.map((r) => r.lote_nombre))]
-    const capa = (color: string, lote: string) =>
-      filas.find((r) => r.color === color && r.lote_nombre === lote)?.capas ?? 0
+    const capa = (fila: number, lote: string) =>
+      filas.find((r) => (r.fila ?? 0) === fila && r.lote_nombre === lote)?.capas ?? 0
 
-    const capasPorLote = lotes.map((l) => colores.reduce((s, c) => s + capa(c, l), 0))
+    const capasPorLote = lotes.map((l) => filasColor.reduce((s, c) => s + capa(c.fila, l), 0))
     const capasMaterial = capasPorLote.reduce((s, v) => s + v, 0)
     const unidadesMaterial = capasMaterial * tallas.length
     // El gran total de la OP se basa solo en Material 1
@@ -724,13 +736,13 @@ function generarImpresionOP(
 
     const tipoTela = telas[0]?.tipo_tela ?? ""
 
-    const filasHtml = colores
+    const filasHtml = filasColor
       .map((c) => {
-        const totalColor = lotes.reduce((s, l) => s + capa(c, l), 0)
+        const totalColor = lotes.reduce((s, l) => s + capa(c.fila, l), 0)
         const celdas = lotes
-          .map((l) => `<td class="num">${capa(c, l) || ""}</td>`)
+          .map((l) => `<td class="num">${capa(c.fila, l) || ""}</td>`)
           .join("")
-        return `<tr><td class="color">${esc(c)}</td>${celdas}<td class="num total-col">${totalColor}</td></tr>`
+        return `<tr><td class="color">${esc(c.nombre)}</td>${celdas}<td class="num total-col">${totalColor}</td></tr>`
       })
       .join("")
 

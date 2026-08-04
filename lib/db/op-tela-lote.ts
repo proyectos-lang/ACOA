@@ -4,6 +4,7 @@ export interface OpTelaLoteRow {
   id: number
   orden_id: number
   slot: 1 | 2 | 3
+  fila: number
   color: string
   lote_nombre: string
   capas: number
@@ -25,7 +26,7 @@ export async function getOpTelaLotes(ordenId: number): Promise<OpTelaLoteRow[]> 
 export async function batchSaveSlotLotes(
   ordenId: number,
   slot: 1 | 2 | 3,
-  filas: { color: string; lote_nombre: string; capas: number }[],
+  filas: { fila: number; color: string; lote_nombre: string; capas: number }[],
   creadoPor: number
 ): Promise<void> {
   const db = createVanessaClient()
@@ -42,14 +43,14 @@ export async function batchSaveSlotLotes(
   const rows = filas.map((f) => ({
     orden_id: ordenId,
     slot,
+    fila: f.fila,
     color: f.color,
     lote_nombre: f.lote_nombre,
     capas: f.capas,
     creado_por: creadoPor,
   }))
 
-  const { error } = await db
-    .from("op_tela_lote")
-    .upsert(rows, { onConflict: "orden_id,slot,color,lote_nombre" })
+  // Insert simple: los colores pueden repetirse (la identidad es fila + lote)
+  const { error } = await db.from("op_tela_lote").insert(rows)
   if (error) throw new Error(error.message)
 }

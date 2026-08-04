@@ -11,7 +11,7 @@ import {
 } from "@/lib/db/op-material"
 import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
-import { upsertOpTela, deleteOpTela } from "@/lib/db/op-tela"
+import { insertOpTelas, deleteOpTela } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
@@ -248,31 +248,22 @@ export async function guardarSlotAction(
   }
 
   try {
-    // 1. Reemplazar colores del slot (sin repetidos: la clave es orden+slot+color)
-    const coloresUnicos = [...new Set(coloresFiltrados.map((c) => c.trim()))]
+    // 1. Reemplazar filas de color del slot. Los colores PUEDEN repetirse:
+    // la identidad de cada fila es su posición (fila = índice).
     await deleteOpTela(ordenId, slot)
-    for (const color of coloresUnicos) {
-      await upsertOpTela({ orden_id: ordenId, slot, tipo_tela: tipoTela || null, color, creado_por: session.userId })
-    }
+    await insertOpTelas(ordenId, slot, tipoTela || null, coloresFiltrados, session.userId)
 
-    // 2. Construir y guardar filas op_tela_lote. Si un (color, lote) viene
-    // repetido, se agregan las capas sumándolas — un upsert con claves
-    // duplicadas falla con "ON CONFLICT DO UPDATE cannot affect row a second time"
-    // y dejaría el slot vacío (el delete ya habría corrido).
-    const filasMap = new Map<string, { color: string; lote_nombre: string; capas: number }>()
+    // 2. Construir y guardar filas op_tela_lote (identidad = fila + lote)
+    const filas: { fila: number; color: string; lote_nombre: string; capas: number }[] = []
     for (const loteEntry of grid) {
       const loteNombre = loteEntry.lote_nombre.trim()
       if (!loteNombre) continue
       coloresFiltrados.forEach((color, ci) => {
         const capas = loteEntry.capas_por_color[ci] ?? 0
-        if (capas <= 0) return
-        const key = `${color.trim()}||${loteNombre}`
-        const prev = filasMap.get(key)
-        if (prev) prev.capas += capas
-        else filasMap.set(key, { color: color.trim(), lote_nombre: loteNombre, capas })
+        if (capas > 0) filas.push({ fila: ci, color: color.trim(), lote_nombre: loteNombre, capas })
       })
     }
-    await batchSaveSlotLotes(ordenId, slot, [...filasMap.values()], session.userId)
+    await batchSaveSlotLotes(ordenId, slot, filas, session.userId)
 
     // 3. Actualizar lote records. Las cantidades se basan SOLO en Material 1:
     // M2/M3 son telas adicionales de las mismas prendas, no prendas extra.
