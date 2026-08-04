@@ -236,6 +236,7 @@ function OpTelaSlotCard({
   plantilla,
   plantillaKey,
   sugerenciasTela,
+  totalCapasRef,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
@@ -249,6 +250,7 @@ function OpTelaSlotCard({
   plantilla?: SlotGrid | null
   plantillaKey?: number
   sugerenciasTela?: string[]
+  totalCapasRef?: number | null
 }) {
   const router = useRouter()
   const [isPending, startSave] = useTransition()
@@ -391,29 +393,26 @@ function OpTelaSlotCard({
     setLotes((p) => p.map((l) => l.key === lk ? { ...l, nombre } : l))
   }
 
-  // Re-sincroniza las columnas de lotes desde Material 1 (solo M2/M3).
-  // Conserva los colores propios; las capas se mantienen si el lote (por nombre)
-  // ya existía, y los lotes nuevos heredan el valor del primer lote de cada fila.
+  // Trae la estructura completa de Material 1 (mismas filas, lotes y capas
+  // por lote) pero con los colores en blanco para que el usuario los escriba.
   function recalcularLotesDesdePlantilla() {
     if (!plantilla || plantilla.lotes.length === 0) return
     const newLotes = plantilla.lotes.map((l) => ({ key: crypto.randomUUID(), nombre: l.nombre }))
-    const oldLotes = lotes
-    setCapas((prev) => {
-      const next: CapasGrid = {}
-      const firstOldKey = oldLotes[0]?.key
-      for (const c of colores) {
-        next[c.key] = {}
-        for (const nl of newLotes) {
-          const match = oldLotes.find((ol) => ol.nombre.trim() === nl.nombre.trim())
-          next[c.key][nl.key] = match
-            ? (prev[c.key]?.[match.key] ?? null)
-            : (firstOldKey ? prev[c.key]?.[firstOldKey] ?? null : null)
-        }
-      }
-      return next
+    const newColores = plantilla.colores.map(() => ({ key: crypto.randomUUID(), nombre: "" }))
+    const newCapas: CapasGrid = {}
+    plantilla.colores.forEach((pc, i) => {
+      const nk = newColores[i].key
+      newCapas[nk] = {}
+      plantilla.lotes.forEach((pl, j) => {
+        newCapas[nk][newLotes[j].key] = plantilla.capas[pc.key]?.[pl.key] ?? null
+      })
     })
+    setColores(newColores)
     setLotes(newLotes)
-    onMsg(`Lotes de Material ${slot} recalculados desde Material 1 (${newLotes.length} lotes)`)
+    setCapas(newCapas)
+    onMsg(
+      `Material ${slot}: ${newColores.length} filas y ${newLotes.length} lotes traídos de Material 1 — escribe los colores`
+    )
   }
 
   function setCelda(ck: string, lk: string, val: number | null) {
@@ -435,6 +434,20 @@ function OpTelaSlotCard({
     if (coloresFiltrados.length > 0 && !tipoTela.trim()) {
       onMsg(`Error: selecciona una referencia de tela del maestro para Material ${slot}`)
       return
+    }
+
+    // Validación solo por TOTAL de capas (no matricial): el total del material
+    // debe coincidir con el total de Material 1
+    if (totalCapasRef != null && totalCapasRef > 0 && coloresFiltrados.length > 0) {
+      const miTotal = coloresFiltrados.reduce(
+        (s, c) => s + lotesFiltrados.reduce((ls, l) => ls + (capas[c.key]?.[l.key] ?? 0), 0), 0
+      )
+      if (miTotal !== totalCapasRef) {
+        onMsg(
+          `Error: el total de capas de Material ${slot} (${miTotal}) debe ser igual al de Material 1 (${totalCapasRef})`
+        )
+        return
+      }
     }
 
     const grid = lotesFiltrados.map((l) => ({
@@ -626,7 +639,17 @@ function OpTelaSlotCard({
         </button>
         <div className="flex items-center gap-2">
           {totalCapasSlot > 0 && (
-            <span className="text-xs text-stone-400">{totalCapasSlot} capas</span>
+            totalCapasRef != null && totalCapasRef > 0 ? (
+              <span
+                className={`text-xs font-medium ${
+                  totalCapasSlot === totalCapasRef ? "text-green-600" : "text-red-500"
+                }`}
+              >
+                {totalCapasSlot} capas {totalCapasSlot === totalCapasRef ? "✓" : `(M1: ${totalCapasRef})`}
+              </span>
+            ) : (
+              <span className="text-xs text-stone-400">{totalCapasSlot} capas</span>
+            )
           )}
           <button
             onClick={guardar}
@@ -1097,6 +1120,7 @@ function CurvaTallasSection({
               plantilla={slot1Grid}
               plantillaKey={plantillaKey2}
               sugerenciasTela={sugerenciasTela}
+              totalCapasRef={slotCapas[1] ?? 0}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
@@ -1134,6 +1158,7 @@ function CurvaTallasSection({
               plantilla={slot1Grid}
               plantillaKey={plantillaKey3}
               sugerenciasTela={sugerenciasTela}
+              totalCapasRef={slotCapas[1] ?? 0}
               onMsg={onSaved}
               onCapasChange={handleCapasChange}
             />
