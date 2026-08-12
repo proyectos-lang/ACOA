@@ -273,83 +273,88 @@ export function DisenaFichaClient({
           <p className="text-sm text-stone-400 py-4 text-center">
             La curva de esta orden aún no tiene materiales configurados.
           </p>
-        ) : (
-          <div
-            className={`grid grid-cols-1 gap-4 ${
-              slotsConDatos.length === 2
-                ? "lg:grid-cols-2"
-                : slotsConDatos.length >= 3
-                  ? "lg:grid-cols-2 xl:grid-cols-3"
-                  : ""
-            }`}
-          >
-          {slotsConDatos.map((slot) => {
-            const telas = opTelas
-              .filter((t) => t.slot === slot)
-              .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
-            const filasLote = opTelaLotes.filter((r) => r.slot === slot)
-            const nombresLote = [...new Set(filasLote.map((r) => r.lote_nombre))]
-            const capa = (fila: number, lote: string) =>
-              filasLote.find((r) => (r.fila ?? 0) === fila && r.lote_nombre === lote)?.capas ?? 0
-            const tipoTela = telas[0]?.tipo_tela ?? ""
-            return (
-              <div key={slot} className="space-y-2">
-                <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
-                  Material {slot}{tipoTela ? ` — ${tipoTela}` : ""}
-                </p>
-                <div className="overflow-x-auto rounded-xl border border-stone-200">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-stone-100 bg-stone-50">
-                        <th className="px-3 py-2 text-left font-semibold text-stone-500 w-32">Color</th>
-                        {nombresLote.map((l) => (
-                          <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
-                            {l}
-                          </th>
-                        ))}
-                        <th className="px-3 py-2 text-center font-semibold text-stone-600 bg-stone-100">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {telas.map((t) => {
-                        const totalFila = nombresLote.reduce((s, l) => s + capa(t.fila ?? 0, l), 0)
-                        return (
-                          <tr key={t.id} className="border-b border-stone-100 last:border-0">
-                            <td className="px-3 py-2 font-medium text-stone-800">{t.color ?? "—"}</td>
-                            {nombresLote.map((l) => (
-                              <td key={l} className="px-3 py-2 text-center font-mono text-stone-700">
-                                {capa(t.fila ?? 0, l) || "—"}
-                              </td>
-                            ))}
-                            <td className="px-3 py-2 text-center font-mono font-semibold text-stone-800 bg-stone-50">
-                              {totalFila}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-stone-200 bg-stone-50">
-                        <td className="px-3 py-2 font-semibold text-stone-600">Capas</td>
-                        {nombresLote.map((l) => (
-                          <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
-                            {telas.reduce((s, t) => s + capa(t.fila ?? 0, l), 0)}
+        ) : (() => {
+          // Tabla unificada: colores de M1/M2/M3 lado a lado relacionados por
+          // posición (fila); las capas son compartidas y se toman de Material 1
+          const refSlot = slotsConDatos.includes(1) ? 1 : slotsConDatos[0]
+          const materiales = slotsConDatos.map((s) => ({
+            slot: s,
+            telas: opTelas
+              .filter((t) => t.slot === s)
+              .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0)),
+          }))
+          const refTelas = materiales.find((m) => m.slot === refSlot)?.telas ?? []
+          const filasRef = opTelaLotes.filter((r) => r.slot === refSlot)
+          const nombresLote = [...new Set(filasRef.map((r) => r.lote_nombre))]
+          const capa = (fila: number, lote: string) =>
+            filasRef.find((r) => (r.fila ?? 0) === fila && r.lote_nombre === lote)?.capas ?? 0
+          const numFilas = Math.max(...materiales.map((m) => m.telas.length))
+          const granTotal = refTelas.reduce(
+            (s, t) => s + nombresLote.reduce((ls, l) => ls + capa(t.fila ?? 0, l), 0), 0
+          )
+          return (
+            <div className="overflow-x-auto rounded-xl border border-stone-200">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-stone-100 bg-stone-50">
+                    {materiales.map((m) => (
+                      <th key={m.slot} className="px-3 py-2 text-left font-semibold text-stone-500 whitespace-nowrap">
+                        Material {m.slot}
+                        {m.telas[0]?.tipo_tela && (
+                          <span className="block font-normal text-stone-400">{m.telas[0].tipo_tela}</span>
+                        )}
+                      </th>
+                    ))}
+                    {nombresLote.map((l) => (
+                      <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
+                        {l}
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-center font-semibold text-stone-600 bg-stone-100">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: numFilas }, (_, i) => {
+                    const refFila = refTelas[i]?.fila ?? i
+                    const totalFila = nombresLote.reduce((s, l) => s + capa(refFila, l), 0)
+                    return (
+                      <tr key={i} className="border-b border-stone-100 last:border-0">
+                        {materiales.map((m) => (
+                          <td key={m.slot} className="px-3 py-2 font-medium text-stone-800">
+                            {m.telas[i]?.color ?? "—"}
                           </td>
                         ))}
-                        <td className="px-3 py-2 text-center font-mono font-bold bg-stone-100" style={{ color: "#344966" }}>
-                          {telas.reduce(
-                            (s, t) => s + nombresLote.reduce((ls, l) => ls + capa(t.fila ?? 0, l), 0), 0
-                          )}
+                        {nombresLote.map((l) => (
+                          <td key={l} className="px-3 py-2 text-center font-mono text-stone-700">
+                            {capa(refFila, l) || "—"}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-center font-mono font-semibold text-stone-800 bg-stone-50">
+                          {totalFila}
                         </td>
                       </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )
-          })}
-          </div>
-        )}
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-stone-200 bg-stone-50">
+                    <td colSpan={materiales.length} className="px-3 py-2 font-semibold text-stone-600">
+                      Capas
+                    </td>
+                    {nombresLote.map((l) => (
+                      <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
+                        {refTelas.reduce((s, t) => s + capa(t.fila ?? 0, l), 0)}
+                      </td>
+                    ))}
+                    <td className="px-3 py-2 text-center font-mono font-bold bg-stone-100" style={{ color: "#344966" }}>
+                      {granTotal}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Diseño por lote: imagen de referencia + datos de cada lote */}
