@@ -86,7 +86,7 @@ export async function aprobarDisenoAction(ordenId: number): Promise<ActionResult
     const sinImagen = lotes.filter((l) => !l.url_imagen)
     if (lotes.length > 0 && sinImagen.length > 0) {
       const nombres = sinImagen
-        .map((l) => `LOTE-${String(l.numero_lote).padStart(4, "0")}`)
+        .map((l) => l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`)
         .join(", ")
       return { error: `Falta la imagen de referencia en: ${nombres}` }
     }

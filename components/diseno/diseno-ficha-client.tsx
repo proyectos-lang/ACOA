@@ -72,6 +72,8 @@ function LoteDisenoCard({
     if (f) setPreview(URL.createObjectURL(f))
   }
 
+  const nombreLote = lote.descripcion ?? padLote(lote.numero_lote)
+
   function handleSave() {
     const fd = new FormData()
     fd.set("notas_diseno", notas)
@@ -81,7 +83,7 @@ function LoteDisenoCard({
       const res = await guardarLoteDisenoAction(lote.id, ordenId, fd)
       if (res.error) onMsg("error", res.error)
       else {
-        onMsg("ok", `${padLote(lote.numero_lote)} guardado`)
+        onMsg("ok", `${nombreLote} guardado`)
         router.refresh()
       }
     })
@@ -91,11 +93,9 @@ function LoteDisenoCard({
     <div className="rounded-xl border border-stone-200 bg-stone-50 p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono font-semibold text-sm text-stone-800">
-            {padLote(lote.numero_lote)}
-          </p>
-          <p className="text-xs text-stone-500 truncate">
-            {lote.descripcion ?? "—"} · {lote.cantidad_programada.toLocaleString("es-CO")} uds
+          <p className="font-semibold text-sm text-stone-800 truncate">{nombreLote}</p>
+          <p className="text-xs text-stone-500">
+            {lote.cantidad_programada.toLocaleString("es-CO")} uds
           </p>
         </div>
         <span
@@ -112,7 +112,7 @@ function LoteDisenoCard({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={preview}
-          alt={`Imagen de ${padLote(lote.numero_lote)}`}
+          alt={`Imagen de ${nombreLote}`}
           className="w-full h-40 object-contain rounded-lg border border-stone-200 bg-white p-1"
         />
       ) : (
@@ -368,9 +368,13 @@ export function DisenaFichaClient({
           </p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {lotes.map((l) => (
-              <LoteDisenoCard key={l.id} lote={l} ordenId={orden.id} onMsg={showToast} />
-            ))}
+            {[...lotes]
+              .sort((a, b) =>
+                (a.descripcion ?? "").localeCompare(b.descripcion ?? "", "es", { numeric: true })
+              )
+              .map((l) => (
+                <LoteDisenoCard key={l.id} lote={l} ordenId={orden.id} onMsg={showToast} />
+              ))}
           </div>
         )}
       </div>
