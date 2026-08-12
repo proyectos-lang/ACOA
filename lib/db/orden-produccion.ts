@@ -73,11 +73,14 @@ export async function listOrdenes(filtros?: {
 
 export async function getOrdenById(id: number): Promise<OrdenProduccionRow | null> {
   const db = createVanessaClient()
-  const { data } = await db
+  const { data, error } = await db
     .from("orden_produccion")
     .select(SELECT_COLS)
     .eq("id", id)
-    .single()
+    .maybeSingle()
+  // Un error real de DB (ej. columna faltante por migración sin correr) debe
+  // verse como error, no convertirse en un 404 engañoso
+  if (error) throw new Error(error.message)
   return data as OrdenProduccionRow | null
 }
 
