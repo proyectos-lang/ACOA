@@ -5,6 +5,9 @@ import { getCorteByOrden, getCorteConTelas, upsertCorte, ensureCorteTelas } from
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getOpMateriales } from "@/lib/db/op-material"
 import { getLotesByOrden } from "@/lib/db/lote"
+import { getOpTelas } from "@/lib/db/op-tela"
+import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
+import { getCorteCapasReales } from "@/lib/db/corte-capas"
 import { CorteFichaClient } from "@/components/corte/corte-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -22,11 +25,14 @@ export default async function CorteFichaPage({
 
   const session = await getSession()
 
-  const [orden, curvaTallas, opMateriales, lotes] = await Promise.all([
+  const [orden, curvaTallas, opMateriales, lotes, opTelas, opTelaLotes, corteCapas] = await Promise.all([
     getOrdenById(ordenId),
     getCurvaTallas(ordenId),
     getOpMateriales(ordenId),
     getLotesByOrden(ordenId),
+    getOpTelas(ordenId),
+    getOpTelaLotes(ordenId),
+    getCorteCapasReales(ordenId),
   ])
 
   if (!orden) notFound()
@@ -79,6 +85,9 @@ export default async function CorteFichaPage({
         curvaTallas={curvaTallas}
         opMateriales={opMateriales}
         lotes={lotes}
+        opTelas={opTelas}
+        opTelaLotes={opTelaLotes}
+        corteCapas={corteCapas}
       />
     </div>
   )

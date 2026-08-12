@@ -11,7 +11,12 @@ import {
   getLotesByOrden,
   createLoteDesdeOP,
   updateLoteEstado,
+  upsertLoteDesdeGrid,
 } from "@/lib/db/lote"
+import {
+  batchSaveCorteCapasReales,
+  type CorteCapaRealInput,
+} from "@/lib/db/corte-capas"
 import { cambiarEstado, updateOrden, getOrdenById } from "@/lib/db/orden-produccion"
 import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { updateOpMaterial, sumValorPorPrenda } from "@/lib/db/op-material"
@@ -185,6 +190,63 @@ export async function enviarAEstampacionAction(ordenId: number): Promise<ActionR
   }
 }
 
+// ── Confirmar capas reales cortadas ──────────────────────────────────────────
+
+export async function confirmarCorteAction(
+  ordenId: number,
+  filas: CorteCapaRealInput[],
+  tallasCount: number
+): Promise<ActionResult & { destino?: string }> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  // Toda modificación respecto a lo programado exige comentario
+  const sinComentario = filas.filter(
+    (f) => f.capas_reales !== f.capas_programadas && !(f.comentario ?? "").trim()
+  )
+  if (sinComentario.length > 0) {
+    const d = sinComentario[0]
+    return {
+      error: `Falta el comentario del cambio en [${d.color} × ${d.lote_nombre}] (Material ${d.slot}): programado ${d.capas_programadas}, cortado ${d.capas_reales}`,
+    }
+  }
+
+  try {
+    // 1. Guardar las capas reales confirmadas
+    await batchSaveCorteCapasReales(ordenId, filas, session.userId)
+
+    // 2. Recalcular la cantidad real de prendas por lote con las capas REALES
+    // de Material 1 (fallback al slot más bajo del lote)
+    const nombresLote = [...new Set(filas.map((f) => f.lote_nombre))]
+    for (const nombre of nombresLote) {
+      let filasLote = filas.filter((f) => f.lote_nombre === nombre && f.slot === 1)
+      if (filasLote.length === 0) {
+        const delNombre = filas.filter((f) => f.lote_nombre === nombre)
+        const slotMin = Math.min(...delNombre.map((f) => f.slot))
+        filasLote = delNombre.filter((f) => f.slot === slotMin)
+      }
+      const capasReales = filasLote.reduce((s, f) => s + f.capas_reales, 0)
+      await upsertLoteDesdeGrid(ordenId, nombre, capasReales * tallasCount, session.userId)
+    }
+
+    // 3. Avanzar los lotes y la OP: a Estampación, o directo a Costura si la
+    // OP no pasa por estampación
+    const orden = await getOrdenById(ordenId)
+    const destino = orden?.pasa_estampacion === false ? "confeccion" : "estampacion"
+    const lotes = await getLotesByOrden(ordenId)
+    for (const l of lotes.filter((l) => l.estado === "cortado")) {
+      await updateLoteEstado(l.id, destino)
+    }
+    await cambiarEstado(ordenId, destino as "estampacion" | "confeccion")
+
+    revalidatePath(`/corte/${ordenId}`)
+    revalidatePath("/corte")
+    return { success: true, destino }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error confirmando el corte" }
+  }
+}
+
 // ── Lotes ─────────────────────────────────────────────────────────────────────
 
 export async function crearLoteAction(input: {
@@ -217,15 +279,18 @@ export async function crearLoteAction(input: {
 export async function enviarLoteAEstampacionAction(
   loteId: number,
   ordenId: number
-): Promise<ActionResult> {
+): Promise<ActionResult & { destino?: string }> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    await updateLoteEstado(loteId, "estampacion")
+    // Respetar la ruta de la OP: sin estampación → directo a costura
+    const orden = await getOrdenById(ordenId)
+    const destino = orden?.pasa_estampacion === false ? "confeccion" : "estampacion"
+    await updateLoteEstado(loteId, destino)
     revalidatePath(`/corte/${ordenId}`)
-    return { success: true }
+    return { success: true, destino }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Error enviando lote a estampación" }
+    return { error: err instanceof Error ? err.message : "Error enviando lote" }
   }
 }

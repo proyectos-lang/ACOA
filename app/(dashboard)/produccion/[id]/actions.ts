@@ -72,6 +72,8 @@ export async function guardarInfoGeneralAction(
       fecha_programacion: parsed.data.fecha_programacion || null,
       gama_color: parsed.data.gama_color || null,
       categoria_id: parsed.data.categoria_id ?? null,
+      // Checkbox: presente en el form = true, ausente = false
+      pasa_estampacion: formData.get("pasa_estampacion") != null,
     })
 
     const moldeFile = formData.get("molde") as File | null

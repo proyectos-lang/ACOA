@@ -230,6 +230,19 @@ function InfoGeneralSection({
         />
       </div>
 
+      <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-xl border border-stone-200 px-3 py-2.5">
+        <input
+          type="checkbox"
+          name="pasa_estampacion"
+          defaultChecked={orden.pasa_estampacion !== false}
+          className="h-4 w-4 rounded border-stone-300 accent-[#344966]"
+        />
+        <span className="text-sm font-medium text-stone-700">Pasa por Estampación</span>
+        <span className="text-xs text-stone-400">
+          Si se desmarca, al confirmar el corte los lotes pasan directo a Costura
+        </span>
+      </label>
+
       <div className="space-y-1">
         <label className="text-sm font-medium text-stone-700">Molde (archivo)</label>
         {orden.url_molde && (

@@ -18,6 +18,9 @@ import type { CorteConTelas, CorteTela } from "@/lib/db/corte"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { OpMaterialRow } from "@/lib/db/op-material"
 import type { LoteRow } from "@/lib/db/lote"
+import type { OpTelaRow } from "@/lib/db/op-tela"
+import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
+import type { CorteCapaRealRow, CorteCapaRealInput } from "@/lib/db/corte-capas"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import {
   guardarInfoCorteAction,
@@ -27,6 +30,7 @@ import {
   enviarAEstampacionAction,
   crearLoteAction,
   enviarLoteAEstampacionAction,
+  confirmarCorteAction,
 } from "@/app/(dashboard)/corte/[id]/actions"
 import {
   Dialog,
@@ -52,6 +56,9 @@ interface Props {
   curvaTallas: CurvaTallaRow[]
   opMateriales: OpMaterialRow[]
   lotes: LoteRow[]
+  opTelas: OpTelaRow[]
+  opTelaLotes: OpTelaLoteRow[]
+  corteCapas: CorteCapaRealRow[]
 }
 
 function padOP(n: number) {
@@ -254,6 +261,299 @@ function CorteTelCard({
   )
 }
 
+// ─── Confirmación de capas reales cortadas ────────────────────────────────────
+// Precargado con la programación de la Curva (op_tela_lote); toda modificación
+// exige comentario. Al confirmar se recalculan las prendas por lote y la OP
+// pasa a Estampación (o directo a Costura según pasa_estampacion).
+
+function CapasCortadasSection({
+  orden,
+  opTelas,
+  opTelaLotes,
+  corteCapas,
+  tallasCount,
+  onMsg,
+}: {
+  orden: OrdenProduccionRow
+  opTelas: OpTelaRow[]
+  opTelaLotes: OpTelaLoteRow[]
+  corteCapas: CorteCapaRealRow[]
+  tallasCount: number
+  onMsg: (tipo: "ok" | "error", msg: string) => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+
+  const slots = React.useMemo(
+    () => ([1, 2, 3] as const).filter((s) => opTelaLotes.some((r) => r.slot === s)),
+    [opTelaLotes]
+  )
+
+  const keyDe = (slot: number, fila: number, lote: string) => `${slot}|${fila}|${lote}`
+
+  const buildInicial = React.useCallback(() => {
+    const reales: Record<string, string> = {}
+    const comentarios: Record<string, string> = {}
+    for (const r of opTelaLotes) {
+      const k = keyDe(r.slot, r.fila ?? 0, r.lote_nombre)
+      const guardado = corteCapas.find(
+        (c) => c.slot === r.slot && c.fila === (r.fila ?? 0) && c.lote_nombre === r.lote_nombre
+      )
+      reales[k] = String(guardado ? guardado.capas_reales : r.capas)
+      comentarios[k] = guardado?.comentario ?? ""
+    }
+    return { reales, comentarios }
+  }, [opTelaLotes, corteCapas])
+
+  const [estado, setEstado] = React.useState(buildInicial)
+  React.useEffect(() => { setEstado(buildInicial()) }, [buildInicial])
+  const { reales, comentarios } = estado
+
+  const programada = React.useCallback(
+    (slot: number, fila: number, lote: string) =>
+      opTelaLotes.find(
+        (r) => r.slot === slot && (r.fila ?? 0) === fila && r.lote_nombre === lote
+      )?.capas ?? 0,
+    [opTelaLotes]
+  )
+
+  const setReal = (k: string, v: string) =>
+    setEstado((p) => ({ ...p, reales: { ...p.reales, [k]: v } }))
+  const setComentario = (k: string, v: string) =>
+    setEstado((p) => ({ ...p, comentarios: { ...p.comentarios, [k]: v } }))
+
+  // Estructura de filas por slot: op_tela (fila, color) con fallback a op_tela_lote
+  const filasDe = React.useCallback(
+    (slot: number) => {
+      const telas = opTelas
+        .filter((t) => t.slot === slot)
+        .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
+      if (telas.length > 0)
+        return telas.map((t) => ({ fila: t.fila ?? 0, color: t.color ?? "—" }))
+      const vistos = new Map<number, string>()
+      for (const r of opTelaLotes.filter((r) => r.slot === slot)) {
+        if (!vistos.has(r.fila ?? 0)) vistos.set(r.fila ?? 0, r.color)
+      }
+      return [...vistos.entries()].sort((a, b) => a[0] - b[0]).map(([fila, color]) => ({ fila, color }))
+    },
+    [opTelas, opTelaLotes]
+  )
+
+  const lotesDe = React.useCallback(
+    (slot: number) => [...new Set(opTelaLotes.filter((r) => r.slot === slot).map((r) => r.lote_nombre))],
+    [opTelaLotes]
+  )
+
+  // Prendas reales estimadas: capas reales de Material 1 × tallas
+  const slotRef = slots.includes(1) ? 1 : slots[0]
+  const totalCapasReales = slotRef
+    ? filasDe(slotRef).reduce(
+        (s, f) =>
+          s +
+          lotesDe(slotRef).reduce(
+            (ls, l) => ls + (parseInt(reales[keyDe(slotRef, f.fila, l)] ?? "", 10) || 0),
+            0
+          ),
+        0
+      )
+    : 0
+  const prendasReales = totalCapasReales * tallasCount
+
+  const destinoLabel = orden.pasa_estampacion === false ? "Costura" : "Estampación"
+  const yaConfirmado = orden.estado !== "corte"
+
+  function confirmar() {
+    const payload: CorteCapaRealInput[] = []
+    for (const slot of slots) {
+      const filas = filasDe(slot)
+      const lotes = lotesDe(slot)
+      for (const f of filas) {
+        for (const l of lotes) {
+          const k = keyDe(slot, f.fila, l)
+          const prog = programada(slot, f.fila, l)
+          const real = parseInt(reales[k] ?? "", 10) || 0
+          if (prog === 0 && real === 0) continue
+          const comentario = (comentarios[k] ?? "").trim()
+          if (real !== prog && !comentario) {
+            onMsg(
+              "error",
+              `Falta el comentario del cambio en [${f.color} × ${l}] (Material ${slot}): programado ${prog}, cortado ${real}`
+            )
+            return
+          }
+          payload.push({
+            slot,
+            fila: f.fila,
+            color: f.color,
+            lote_nombre: l,
+            capas_programadas: prog,
+            capas_reales: real,
+            comentario: real !== prog ? comentario : null,
+          })
+        }
+      }
+    }
+
+    startTransition(async () => {
+      const res = await confirmarCorteAction(orden.id, payload, tallasCount)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", `Corte confirmado — lotes enviados a ${res.destino === "confeccion" ? "Costura" : "Estampación"}`)
+        router.refresh()
+      }
+    })
+  }
+
+  if (slots.length === 0) return null
+
+  const inputNumCls =
+    "w-16 rounded-lg border px-2 py-1 text-xs text-center font-mono outline-none focus:ring-2 focus:ring-[#344966]"
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
+      <div className="flex items-center justify-between gap-3 border-b border-stone-100 pb-2">
+        <h2 className="text-sm font-semibold text-stone-700">
+          Capas cortadas — confirmación por tela, color y lote
+        </h2>
+        <span className="text-xs text-stone-500">
+          Prendas reales estimadas:{" "}
+          <strong style={{ color: "#344966" }}>{prendasReales.toLocaleString("es-CO")}</strong>{" "}
+          ({totalCapasReales} capas × {tallasCount} tallas)
+        </span>
+      </div>
+
+      <p className="text-xs text-stone-400">
+        Los valores vienen precargados con la programación de la Curva. Si el valor cortado es
+        diferente, escribe el motivo — el comentario es obligatorio para confirmar.
+      </p>
+
+      {slots.map((slot) => {
+        const filas = filasDe(slot)
+        const lotes = lotesDe(slot)
+        const tipoTela = opTelas.find((t) => t.slot === slot)?.tipo_tela ?? ""
+        return (
+          <div key={slot} className="space-y-2">
+            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
+              Material {slot}{tipoTela ? ` — ${tipoTela}` : ""}
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-stone-200">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-stone-100 bg-stone-50">
+                    <th className="px-3 py-2 text-left font-semibold text-stone-500 w-32">Color</th>
+                    {lotes.map((l) => (
+                      <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
+                        {l}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr key={f.fila} className="border-b border-stone-100 last:border-0 align-top">
+                      <td className="px-3 py-2 font-medium text-stone-800">{f.color}</td>
+                      {lotes.map((l) => {
+                        const k = keyDe(slot, f.fila, l)
+                        const prog = programada(slot, f.fila, l)
+                        const real = parseInt(reales[k] ?? "", 10) || 0
+                        const modificado = real !== prog
+                        return (
+                          <td key={l} className="px-2 py-2 text-center">
+                            <div className="inline-flex flex-col items-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                value={reales[k] ?? ""}
+                                onChange={(e) => setReal(k, e.target.value)}
+                                disabled={yaConfirmado}
+                                className={`${inputNumCls} ${
+                                  modificado
+                                    ? "border-amber-400 bg-amber-50"
+                                    : "border-stone-200 bg-white"
+                                } disabled:opacity-60`}
+                              />
+                              <span className="text-[10px] text-stone-400 leading-none">
+                                prog. {prog}
+                              </span>
+                              {modificado && (
+                                <input
+                                  type="text"
+                                  value={comentarios[k] ?? ""}
+                                  onChange={(e) => setComentario(k, e.target.value)}
+                                  disabled={yaConfirmado}
+                                  placeholder="Motivo del cambio *"
+                                  className={`w-32 rounded-lg border px-2 py-1 text-[10px] outline-none focus:ring-1 focus:ring-[#344966] ${
+                                    (comentarios[k] ?? "").trim()
+                                      ? "border-stone-200"
+                                      : "border-red-300 bg-red-50"
+                                  } disabled:opacity-60`}
+                                />
+                              )}
+                            </div>
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-stone-200 bg-stone-50">
+                    <td className="px-3 py-2 font-semibold text-stone-600">Capas reales</td>
+                    {lotes.map((l) => (
+                      <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
+                        {filas.reduce(
+                          (s, f) => s + (parseInt(reales[keyDe(slot, f.fila, l)] ?? "", 10) || 0),
+                          0
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )
+      })}
+
+      {yaConfirmado ? (
+        <p className="text-xs text-stone-500">
+          El corte ya fue confirmado — la OP está en {LOTE_ESTADO_LABEL[orden.estado] ?? orden.estado}.
+        </p>
+      ) : (
+        <div className="flex justify-end">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                disabled={isPending}
+                className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                style={{ backgroundColor: "#15803d" }}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {isPending ? "Confirmando…" : `Confirmar corte y enviar a ${destinoLabel}`}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Confirmar capas cortadas?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Se registrarán las capas reales, se recalcularán las prendas por lote
+                  ({prendasReales.toLocaleString("es-CO")} prendas estimadas) y los lotes de{" "}
+                  {padOP(orden.numero_op)} pasarán a <strong>{destinoLabel}</strong>.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmar}>Confirmar</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function CorteFichaClient({
@@ -262,6 +562,9 @@ export function CorteFichaClient({
   curvaTallas,
   opMateriales,
   lotes: lotesIniciales,
+  opTelas,
+  opTelaLotes,
+  corteCapas,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -732,6 +1035,16 @@ export function CorteFichaClient({
           </div>
         </div>
       )}
+
+      {/* ── Capas cortadas: confirmación por tela/color/lote ──── */}
+      <CapasCortadasSection
+        orden={orden}
+        opTelas={opTelas}
+        opTelaLotes={opTelaLotes}
+        corteCapas={corteCapas}
+        tallasCount={tallas.length}
+        onMsg={showToast}
+      />
 
       {/* ── Lotes ─────────────────────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5">
