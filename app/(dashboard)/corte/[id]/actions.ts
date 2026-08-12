@@ -6,6 +6,7 @@ import {
   getCorteConTelas,
   upsertCorte,
   updateCorteTela,
+  setCortePendiente,
 } from "@/lib/db/corte"
 import {
   getLotesByOrden,
@@ -187,6 +188,30 @@ export async function enviarAEstampacionAction(ordenId: number): Promise<ActionR
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error enviando a estampación" }
+  }
+}
+
+// ── Pendiente por falta de materiales ────────────────────────────────────────
+
+export async function marcarCortePendienteAction(
+  ordenId: number,
+  pendiente: boolean,
+  motivo: string
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  if (pendiente && !motivo.trim()) {
+    return { error: "Describe qué materiales faltaron" }
+  }
+
+  try {
+    await setCortePendiente(ordenId, pendiente, motivo.trim() || null)
+    revalidatePath(`/corte/${ordenId}`)
+    revalidatePath("/corte")
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error actualizando el pendiente" }
   }
 }
 

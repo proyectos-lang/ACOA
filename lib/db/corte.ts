@@ -8,6 +8,9 @@ export interface CorteRow {
   fecha_programacion: string | null
   fecha_corte: string | null
   descripcion_piezas: string | null
+  pendiente: boolean
+  pendiente_motivo: string | null
+  pendiente_en: string | null
 }
 
 export interface CorteTela {
@@ -35,7 +38,7 @@ export interface CorteConTelas extends CorteRow {
 }
 
 const CORTE_SELECT =
-  "id, orden_id, consecutivo_corte, fecha_programacion, fecha_corte, descripcion_piezas"
+  "id, orden_id, consecutivo_corte, fecha_programacion, fecha_corte, descripcion_piezas, pendiente, pendiente_motivo, pendiente_en"
 
 const TELA_EMBED =
   "corte_tela!fk_cortetela_corte(id, corte_id, op_material_id, nombre_tela, ancho_tela, rendimiento, largo_trazo, capas, promedio_consumo, op_material!fk_cortetela_opmaterial(id, nombre, tipo, consumo_estimado, consumo_real, valor_por_prenda))"
@@ -134,6 +137,24 @@ export async function updateCorteTela(
 ): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db.from("corte_tela").update(input).eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+// Marca o resuelve el pendiente por falta de materiales del corte
+export async function setCortePendiente(
+  ordenId: number,
+  pendiente: boolean,
+  motivo: string | null
+): Promise<void> {
+  const db = createVanessaClient()
+  const { error } = await db
+    .from("corte")
+    .update({
+      pendiente,
+      pendiente_motivo: pendiente ? motivo : null,
+      pendiente_en: pendiente ? new Date().toISOString() : null,
+    })
+    .eq("orden_id", ordenId)
   if (error) throw new Error(error.message)
 }
 

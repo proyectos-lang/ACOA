@@ -1,7 +1,7 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
 import { listOPsEnCorte } from "@/lib/db/corte"
 import Link from "next/link"
-import { FileText, Ruler } from "lucide-react"
+import { FileText, Ruler, AlertTriangle } from "lucide-react"
 
 function padOP(n: number) {
   return `OP-${String(n).padStart(4, "0")}`
@@ -61,13 +61,23 @@ export default async function CortePage() {
                       {op.fecha_programacion ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      {op.corte ? (
-                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium">
-                          <Ruler className="h-3 w-3" /> Creada
-                        </span>
-                      ) : (
-                        <span className="text-xs text-stone-400">Pendiente</span>
-                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {op.corte ? (
+                          <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium">
+                            <Ruler className="h-3 w-3" /> Creada
+                          </span>
+                        ) : (
+                          <span className="text-xs text-stone-400">Pendiente</span>
+                        )}
+                        {op.corte?.pendiente && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-semibold"
+                            title={op.corte.pendiente_motivo ?? "Faltan materiales"}
+                          >
+                            <AlertTriangle className="h-3 w-3" /> Faltan materiales
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <Link

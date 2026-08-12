@@ -31,6 +31,7 @@ import {
   crearLoteAction,
   enviarLoteAEstampacionAction,
   confirmarCorteAction,
+  marcarCortePendienteAction,
 } from "@/app/(dashboard)/corte/[id]/actions"
 import {
   Dialog,
@@ -257,6 +258,113 @@ function CorteTelCard({
         <Save className="h-3.5 w-3.5" />
         {isPending ? "Guardando…" : "Guardar ficha"}
       </button>
+    </div>
+  )
+}
+
+// ─── Pendiente por falta de materiales ────────────────────────────────────────
+
+function PendienteMaterialesCard({
+  ordenId,
+  corte,
+  onMsg,
+}: {
+  ordenId: number
+  corte: CorteConTelas | null
+  onMsg: (tipo: "ok" | "error", msg: string) => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [reportando, setReportando] = React.useState(false)
+  const [motivo, setMotivo] = React.useState("")
+
+  function marcar(pendiente: boolean, texto: string) {
+    startTransition(async () => {
+      const res = await marcarCortePendienteAction(ordenId, pendiente, texto)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", pendiente ? "Pendiente registrado" : "Pendiente resuelto")
+        setReportando(false)
+        setMotivo("")
+        router.refresh()
+      }
+    })
+  }
+
+  if (corte?.pendiente) {
+    return (
+      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                Pendiente — faltan materiales
+              </p>
+              <p className="text-sm text-amber-700">{corte.pendiente_motivo}</p>
+              {corte.pendiente_en && (
+                <p className="text-xs text-amber-500 mt-1">
+                  Reportado el {new Date(corte.pendiente_en).toLocaleString("es-CO")}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => marcar(false, "")}
+            disabled={isPending}
+            className="shrink-0 rounded-xl px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: "#15803d" }}
+          >
+            {isPending ? "Guardando…" : "Marcar como resuelto"}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-4">
+      {reportando ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && motivo.trim()) { e.preventDefault(); marcar(true, motivo) }
+            }}
+            placeholder="¿Qué materiales faltaron? (ej: falta tela Algodón color AZUL, 20 m)"
+            className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+            autoFocus
+          />
+          <button
+            type="button"
+            onClick={() => marcar(true, motivo)}
+            disabled={isPending || !motivo.trim()}
+            className="rounded-xl px-4 py-2 text-xs font-semibold text-white disabled:opacity-60 shrink-0"
+            style={{ backgroundColor: "#b45309" }}
+          >
+            {isPending ? "Guardando…" : "Reportar pendiente"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setReportando(false); setMotivo("") }}
+            className="rounded-xl px-3 py-2 text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-50 shrink-0"
+          >
+            Cancelar
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setReportando(true)}
+          className="flex items-center gap-2 text-sm font-medium text-amber-700 hover:text-amber-800 transition-colors"
+        >
+          <AlertTriangle className="h-4 w-4" />
+          Reportar pendiente por falta de materiales
+        </button>
+      )}
     </div>
   )
 }
@@ -691,6 +799,9 @@ export function CorteFichaClient({
   return (
     <div className="space-y-6">
       {toast && <Toast tipo={toast.tipo} msg={toast.msg} />}
+
+      {/* ── Pendiente por falta de materiales ────────────────── */}
+      <PendienteMaterialesCard ordenId={orden.id} corte={corte} onMsg={showToast} />
 
       {/* ── Cabecera OP ─────────────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5">
