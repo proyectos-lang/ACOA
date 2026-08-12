@@ -274,7 +274,16 @@ export function DisenaFichaClient({
             La curva de esta orden aún no tiene materiales configurados.
           </p>
         ) : (
-          slotsConDatos.map((slot) => {
+          <div
+            className={`grid grid-cols-1 gap-4 ${
+              slotsConDatos.length === 2
+                ? "lg:grid-cols-2"
+                : slotsConDatos.length >= 3
+                  ? "lg:grid-cols-2 xl:grid-cols-3"
+                  : ""
+            }`}
+          >
+          {slotsConDatos.map((slot) => {
             const telas = opTelas
               .filter((t) => t.slot === slot)
               .sort((a, b) => (a.fila ?? 0) - (b.fila ?? 0))
@@ -338,7 +347,8 @@ export function DisenaFichaClient({
                 </div>
               </div>
             )
-          })
+          })}
+          </div>
         )}
       </div>
 
