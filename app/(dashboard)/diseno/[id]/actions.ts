@@ -8,7 +8,7 @@ import {
   getDisenoByOrden,
 } from "@/lib/db/diseno"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
-import { updateLoteDiseno, uploadImagenLote, getLotesByOrden } from "@/lib/db/lote"
+import { updateLoteDiseno, uploadImagenLote } from "@/lib/db/lote"
 import { revalidatePath } from "next/cache"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -81,16 +81,6 @@ export async function aprobarDisenoAction(ordenId: number): Promise<ActionResult
   if (!session) return { error: "No autorizado" }
 
   try {
-    // Cada lote debe tener su imagen de referencia antes de aprobar
-    const lotes = await getLotesByOrden(ordenId)
-    const sinImagen = lotes.filter((l) => !l.url_imagen)
-    if (lotes.length > 0 && sinImagen.length > 0) {
-      const nombres = sinImagen
-        .map((l) => l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`)
-        .join(", ")
-      return { error: `Falta la imagen de referencia en: ${nombres}` }
-    }
-
     // Asegurar que exista el registro de diseño antes de marcar aprobado
     const diseno = await getDisenoByOrden(ordenId)
     if (!diseno) {

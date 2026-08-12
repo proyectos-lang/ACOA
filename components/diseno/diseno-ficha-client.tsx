@@ -207,8 +207,8 @@ export function DisenaFichaClient({
   }
 
   const isAprobado = diseno?.aprobado === true
+  // Informativo: la imagen por lote es recomendada pero no bloquea la aprobación
   const lotesSinImagen = lotes.filter((l) => !l.url_imagen)
-  const puedeAprobar = lotes.length === 0 || lotesSinImagen.length === 0
 
   // Materiales de la curva con datos (colores por fila y capas por lote)
   const slotsConDatos = ([1, 2, 3] as const).filter(
@@ -381,17 +381,17 @@ export function DisenaFichaClient({
 
       {/* Aprobar diseño */}
       {!isAprobado && (
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-3">
+          {lotesSinImagen.length > 0 && (
+            <p className="text-xs text-amber-600">
+              {lotesSinImagen.length} lote{lotesSinImagen.length !== 1 ? "s" : ""} sin imagen de referencia
+            </p>
+          )}
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
                 type="button"
-                disabled={!puedeAprobar || isPendingApprove}
-                title={
-                  !puedeAprobar
-                    ? `Falta la imagen de referencia en ${lotesSinImagen.length} lote(s)`
-                    : undefined
-                }
+                disabled={isPendingApprove}
                 className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
                 style={{ backgroundColor: "#15803d" }}
               >
@@ -405,6 +405,9 @@ export function DisenaFichaClient({
                 <AlertDialogDescription>
                   La orden <strong>{padOP(orden.numero_op)}</strong> pasará a estado{" "}
                   <strong>Corte</strong>. Esta acción no se puede deshacer.
+                  {lotesSinImagen.length > 0 && (
+                    <> Hay {lotesSinImagen.length} lote{lotesSinImagen.length !== 1 ? "s" : ""} sin imagen de referencia.</>
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
