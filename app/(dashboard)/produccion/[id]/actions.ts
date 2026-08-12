@@ -112,6 +112,10 @@ export async function guardarCurvaAction(
 
   try {
     await batchReplaceCurvaTallas(ordenId, tallas, session.userId)
+    // Las cantidades de los lotes dependen del número de tallas: recalcular
+    // para que los lotes guardados antes de definir tallas no queden en 0
+    await recalcularCantidadesLotes(ordenId, tallas.length, session.userId)
+    await recalcularHojaCostos(ordenId)
     revalidatePath(`/produccion/${ordenId}`)
     return { success: true }
   } catch (err: unknown) {
@@ -181,6 +185,28 @@ export async function deleteOpMaterialAction(
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error eliminando material" }
+  }
+}
+
+// Recalcula la cantidad programada de TODOS los lotes de la OP a partir de
+// las capas guardadas en op_tela_lote (Material 1; fallback al slot más bajo
+// disponible) × número de tallas. No exportada (archivo "use server").
+async function recalcularCantidadesLotes(
+  ordenId: number,
+  tallasCount: number,
+  userId: number
+): Promise<void> {
+  const telaLotes = await getOpTelaLotes(ordenId)
+  const nombres = [...new Set(telaLotes.map((r) => r.lote_nombre))]
+  for (const nombre of nombres) {
+    let filas = telaLotes.filter((r) => r.lote_nombre === nombre && r.slot === 1)
+    if (filas.length === 0) {
+      const filasNombre = telaLotes.filter((r) => r.lote_nombre === nombre)
+      const slotMin = Math.min(...filasNombre.map((r) => r.slot))
+      filas = filasNombre.filter((r) => r.slot === slotMin)
+    }
+    const totalCapas = filas.reduce((s, r) => s + r.capas, 0)
+    await upsertLoteDesdeGrid(ordenId, nombre, totalCapas * tallasCount, userId)
   }
 }
 
@@ -276,20 +302,10 @@ export async function guardarSlotAction(
     }
     await batchSaveSlotLotes(ordenId, slot, filas, session.userId)
 
-    // 3. Actualizar lote records. Las cantidades se basan SOLO en Material 1:
-    // M2/M3 son telas adicionales de las mismas prendas, no prendas extra.
-    const todosLotes = await getOpTelaLotes(ordenId)
-    const loteNombres = new Set(grid.map((g) => g.lote_nombre).filter((n) => n.trim()))
-    for (const nombre of loteNombres) {
-      let filasLote = todosLotes.filter((r) => r.lote_nombre === nombre && r.slot === 1)
-      // Fallback: si el lote no existe en Material 1, usar las filas del slot guardado
-      if (filasLote.length === 0) {
-        filasLote = todosLotes.filter((r) => r.lote_nombre === nombre && r.slot === slot)
-      }
-      const totalCapas = filasLote.reduce((s, r) => s + r.capas, 0)
-      const cantidadProgramada = totalCapas * tallasCount
-      await upsertLoteDesdeGrid(ordenId, nombre, cantidadProgramada, session.userId)
-    }
+    // 3. Actualizar lote records. Las cantidades se basan SOLO en Material 1
+    // (fallback al slot más bajo si el lote no existe en M1): M2/M3 son telas
+    // adicionales de las mismas prendas, no prendas extra.
+    await recalcularCantidadesLotes(ordenId, tallasCount, session.userId)
 
     // 4. Limpiar telas huérfanas del costeo: filas de op_material tipo Tela
     // cuya tela ya no se usa en ningún material de la curva, y recalcular
