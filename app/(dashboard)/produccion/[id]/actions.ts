@@ -14,6 +14,7 @@ import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-co
 import { insertOpTelas, deleteOpTela, getOpTelas } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
+import { createCategoria } from "@/lib/db/categoria"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
 export interface ActionResult {
@@ -29,6 +30,7 @@ const infoSchema = z.object({
   descripcion: z.string().optional(),
   fecha_programacion: z.string().optional(),
   gama_color: z.string().optional(),
+  categoria_id: z.coerce.number().int().positive().optional(),
 })
 
 export async function guardarInfoGeneralAction(
@@ -44,6 +46,7 @@ export async function guardarInfoGeneralAction(
     descripcion: formData.get("descripcion") || undefined,
     fecha_programacion: formData.get("fecha_programacion") || undefined,
     gama_color: formData.get("gama_color") || undefined,
+    categoria_id: formData.get("categoria_id") || undefined,
   })
   if (!parsed.success) return { error: parsed.error.errors[0].message }
 
@@ -68,6 +71,7 @@ export async function guardarInfoGeneralAction(
       descripcion: parsed.data.descripcion || null,
       fecha_programacion: parsed.data.fecha_programacion || null,
       gama_color: parsed.data.gama_color || null,
+      categoria_id: parsed.data.categoria_id ?? null,
     })
 
     const moldeFile = formData.get("molde") as File | null
@@ -80,6 +84,28 @@ export async function guardarInfoGeneralAction(
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error guardando información" }
+  }
+}
+
+// ── Categorías ────────────────────────────────────────────────────────────────
+
+export async function crearCategoriaAction(
+  ordenId: number,
+  nombre: string
+): Promise<ActionResult & { id?: number }> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  const n = nombre.trim()
+  if (!n) return { error: "El nombre de la categoría es requerido" }
+
+  try {
+    const id = await createCategoria(n, session.userId)
+    revalidatePath(`/produccion/${ordenId}`)
+    return { success: true, id }
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Error creando categoría"
+    return { error: msg.includes("duplicate") ? `La categoría "${n}" ya existe` : msg }
   }
 }
 

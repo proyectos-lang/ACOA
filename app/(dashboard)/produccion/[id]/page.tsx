@@ -7,6 +7,7 @@ import { getSession } from "@/lib/auth/session"
 import { getPermiso } from "@/lib/db/permiso"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
 import { getConfigCostos } from "@/lib/db/config-costos"
+import { listCategorias } from "@/lib/db/categoria"
 import { getOpTelas } from "@/lib/db/op-tela"
 import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { getLotesByOrden } from "@/lib/db/lote"
@@ -31,7 +32,7 @@ export default async function OrdenDetallePage({
   const ordenId = Number(id)
   if (isNaN(ordenId)) notFound()
 
-  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes] = await Promise.all([
+  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes, categorias] = await Promise.all([
     getOrdenById(ordenId),
     getOpMateriales(ordenId),
     getCurvaTallas(ordenId),
@@ -40,6 +41,7 @@ export default async function OrdenDetallePage({
     getOpTelas(ordenId),
     getOpTelaLotes(ordenId),
     getLotesByOrden(ordenId),
+    listCategorias(),
   ])
 
   if (!orden) notFound()
@@ -92,6 +94,7 @@ export default async function OrdenDetallePage({
         opTelaLotes={opTelaLotes}
         lotes={lotes}
         configCostos={configCostos}
+        categorias={categorias}
       />
     </div>
   )

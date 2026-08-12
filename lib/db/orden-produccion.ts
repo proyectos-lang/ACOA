@@ -43,12 +43,13 @@ export interface OrdenProduccionRow {
   observaciones: string | null
   estado: EstadoOP
   capas: number
+  categoria_id: number | null
   creado_por: number | null
   creado_en: string
 }
 
 const SELECT_COLS =
-  "id, numero_op, fecha_programacion, referencia, descripcion, url_molde, gama_color, observaciones, estado, capas, creado_por, creado_en"
+  "id, numero_op, fecha_programacion, referencia, descripcion, url_molde, gama_color, observaciones, estado, capas, categoria_id, creado_por, creado_en"
 
 export async function listOrdenes(filtros?: {
   estado?: string
@@ -118,6 +119,7 @@ export async function updateOrden(
     observaciones: string | null
     url_molde: string | null
     capas: number
+    categoria_id: number | null
   }>
 ): Promise<void> {
   const db = createVanessaClient()

@@ -18,6 +18,7 @@ import { VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import type { OpTelaRow } from "@/lib/db/op-tela"
 import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
 import type { LoteRow } from "@/lib/db/lote"
+import type { CategoriaRow } from "@/lib/db/categoria"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   guardarInfoGeneralAction,
@@ -29,6 +30,7 @@ import {
   deleteOpMaterialAction,
   guardarMaterialesOPAction,
   enviarADisenoAction,
+  crearCategoriaAction,
 } from "@/app/(dashboard)/produccion/[id]/actions"
 import type { OpMaterialBatchFila } from "@/lib/db/op-material"
 import { guardarHojaCostosAction } from "@/app/(dashboard)/produccion/[id]/costos/actions"
@@ -60,6 +62,7 @@ interface Props {
   opTelaLotes: OpTelaLoteRow[]
   lotes: LoteRow[]
   configCostos: Record<string, number>
+  categorias: CategoriaRow[]
 }
 
 function padOP(n: number) {
@@ -82,14 +85,43 @@ const fieldCls =
 
 function InfoGeneralSection({
   orden,
+  categorias,
   onMsg,
 }: {
   orden: OrdenProduccionRow
+  categorias: CategoriaRow[]
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [error, setError] = React.useState<string | null>(null)
+
+  // Categoría: selector con creación inline
+  const [cats, setCats] = React.useState<CategoriaRow[]>(categorias)
+  React.useEffect(() => { setCats(categorias) }, [categorias])
+  const [categoriaId, setCategoriaId] = React.useState(
+    orden.categoria_id != null ? String(orden.categoria_id) : ""
+  )
+  const [creandoCat, setCreandoCat] = React.useState(false)
+  const [nuevaCat, setNuevaCat] = React.useState("")
+  const [isPendingCat, startCat] = useTransition()
+
+  function handleCrearCategoria() {
+    const nombre = nuevaCat.trim()
+    if (!nombre) return
+    startCat(async () => {
+      const res = await crearCategoriaAction(orden.id, nombre)
+      if (res.error) { onMsg(`Error: ${res.error}`); return }
+      if (res.id) {
+        setCats((p) => [...p, { id: res.id!, nombre }].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")))
+        setCategoriaId(String(res.id))
+      }
+      setNuevaCat("")
+      setCreandoCat(false)
+      onMsg(`Categoría "${nombre}" creada`)
+      router.refresh()
+    })
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -137,6 +169,55 @@ function InfoGeneralSection({
           className={`${fieldCls} resize-none`}
           placeholder="Descripción del producto..."
         />
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-sm font-medium text-stone-700">Categoría</label>
+        <div className="flex items-center gap-2">
+          <select
+            name="categoria_id"
+            value={categoriaId}
+            onChange={(e) => setCategoriaId(e.target.value)}
+            className={fieldCls}
+          >
+            <option value="">— Sin categoría —</option>
+            {cats.map((c) => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setCreandoCat((v) => !v)}
+            className="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600 whitespace-nowrap shrink-0"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Crear categoría
+          </button>
+        </div>
+        {creandoCat && (
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              value={nuevaCat}
+              onChange={(e) => setNuevaCat(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleCrearCategoria() }
+              }}
+              placeholder="Nombre de la nueva categoría…"
+              className={fieldCls}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={handleCrearCategoria}
+              disabled={isPendingCat || !nuevaCat.trim()}
+              className="rounded-xl px-4 py-2 text-xs font-semibold text-white disabled:opacity-60 shrink-0"
+              style={{ backgroundColor: "#344966" }}
+            >
+              {isPendingCat ? "Creando…" : "Crear"}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="space-y-1">
@@ -2405,6 +2486,7 @@ export function OrdenDetalleClient({
   opTelaLotes,
   lotes,
   configCostos,
+  categorias,
 }: Props) {
   const router = useRouter()
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
@@ -2493,7 +2575,7 @@ export function OrdenDetalleClient({
         </TabsList>
 
         <TabsContent value="info" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
-          <InfoGeneralSection orden={orden} onMsg={handleMsg} />
+          <InfoGeneralSection orden={orden} categorias={categorias} onMsg={handleMsg} />
         </TabsContent>
 
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
