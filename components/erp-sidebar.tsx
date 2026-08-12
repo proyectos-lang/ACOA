@@ -77,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Confección",       href: "/confeccion",    icon: Layers,        permisoKey: "mod_confeccion"       },
       { nombre: "Conteo",           href: "/conteo",        icon: Hash,          permisoKey: "mod_conteo"           },
       { nombre: "Empaque",          href: "/empaque",       icon: Package,       permisoKey: "mod_empaque"          },
+      { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
     ],
   },
 ]

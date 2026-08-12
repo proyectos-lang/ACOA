@@ -6,6 +6,7 @@ import { listMateriales } from "@/lib/db/material"
 import { getSession } from "@/lib/auth/session"
 import { getPermiso } from "@/lib/db/permiso"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
+import { getConfigCostos } from "@/lib/db/config-costos"
 import { getOpTelas } from "@/lib/db/op-tela"
 import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { getLotesByOrden } from "@/lib/db/lote"
@@ -45,7 +46,9 @@ export default async function OrdenDetallePage({
 
   const permiso = session ? await getPermiso(session.userId) : null
   const tieneVerCostos = permiso?.ver_costos === true
-  const hojaCostos = tieneVerCostos ? await getHojaCostos(ordenId) : null
+  const [hojaCostos, configCostos] = tieneVerCostos
+    ? await Promise.all([getHojaCostos(ordenId), getConfigCostos()])
+    : [null, {}]
 
   return (
     <div className="space-y-6">
@@ -88,6 +91,7 @@ export default async function OrdenDetallePage({
         opTelas={opTelas}
         opTelaLotes={opTelaLotes}
         lotes={lotes}
+        configCostos={configCostos}
       />
     </div>
   )

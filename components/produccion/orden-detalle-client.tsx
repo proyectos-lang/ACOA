@@ -59,6 +59,7 @@ interface Props {
   opTelas: OpTelaRow[]
   opTelaLotes: OpTelaLoteRow[]
   lotes: LoteRow[]
+  configCostos: Record<string, number>
 }
 
 function padOP(n: number) {
@@ -1572,6 +1573,7 @@ function MaterialesOPSection({
   totalUnidades,
   tieneVerCostos,
   hojaCostos,
+  configCostos,
   onMsg,
 }: {
   ordenId: number
@@ -1582,6 +1584,7 @@ function MaterialesOPSection({
   totalUnidades: number
   tieneVerCostos: boolean
   hojaCostos: HojaCostosRow | null
+  configCostos: Record<string, number>
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
@@ -1595,9 +1598,10 @@ function MaterialesOPSection({
     const telasUsadas = new Set(
       opTelas.map((t) => (t.tipo_tela ?? "").trim().toLowerCase()).filter(Boolean)
     )
-    return maestro.filter(
-      (m) => !esTela(m.tipo) || telasUsadas.has(m.nombre.trim().toLowerCase())
-    )
+    return maestro
+      .filter((m) => !esTela(m.tipo) || telasUsadas.has(m.nombre.trim().toLowerCase()))
+      // Telas arriba, insumos y demás abajo (mismo orden alfabético dentro de cada grupo)
+      .sort((a, b) => (esTela(a.tipo) ? 0 : 1) - (esTela(b.tipo) ? 0 : 1))
   }, [maestro, opTelas])
 
   // Filas manuales heredadas (sin vínculo al maestro)
@@ -1636,12 +1640,16 @@ function MaterialesOPSection({
   }
 
   // ── Costos fijos por prenda: los 15 conceptos de la hoja de costos ─────────
-  // (solo visible/editable con ver_costos)
+  // (solo visible/editable con ver_costos). Si la OP no tiene un valor guardado
+  // (o está en 0), se pre-carga el costo estándar del módulo Configuración de
+  // costos; el usuario lo modifica solo si aplica.
   const [fijosValores, setFijosValores] = React.useState<Record<string, string>>(() => {
     const init: Record<string, string> = {}
     for (const f of VALORES_FIJOS) {
-      const rawVal = hojaCostos?.[f.key]
-      init[f.key as string] = rawVal != null ? String(rawVal) : "0"
+      const k = f.key as string
+      const guardado = Number(hojaCostos?.[f.key]) || 0
+      const estandar = configCostos[k] ?? 0
+      init[k] = String(guardado > 0 ? guardado : estandar)
     }
     return init
   })
@@ -2396,6 +2404,7 @@ export function OrdenDetalleClient({
   opTelas,
   opTelaLotes,
   lotes,
+  configCostos,
 }: Props) {
   const router = useRouter()
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
@@ -2520,6 +2529,7 @@ export function OrdenDetalleClient({
             totalUnidades={opTelaLotes.filter((r) => r.slot === 1).reduce((s, r) => s + r.capas, 0) * curvaTallas.length}
             tieneVerCostos={tieneVerCostos}
             hojaCostos={hojaCostos}
+            configCostos={configCostos}
             onMsg={handleMsg}
           />
         </TabsContent>
