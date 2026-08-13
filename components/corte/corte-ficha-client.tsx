@@ -857,9 +857,10 @@ export function CorteFichaClient({
               <input
                 type="date"
                 name="fecha_programacion"
-                defaultValue={corte?.fecha_programacion ?? ""}
+                defaultValue={corte?.fecha_programacion ?? orden.fecha_programacion ?? ""}
                 className={fieldCls}
               />
+              <p className="text-xs text-stone-400">Precargada con la fecha de programación de la OP</p>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Fecha de corte real</label>

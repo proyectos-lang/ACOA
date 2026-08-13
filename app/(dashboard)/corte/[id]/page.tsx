@@ -41,7 +41,12 @@ export default async function CorteFichaPage({
   const existingCorte = await getCorteByOrden(ordenId)
   let corteId: number
   if (!existingCorte && session) {
-    corteId = await upsertCorte({ orden_id: ordenId, creado_por: session.userId })
+    // El corte nace con la fecha de programación definida al crear la OP
+    corteId = await upsertCorte({
+      orden_id: ordenId,
+      fecha_programacion: orden.fecha_programacion,
+      creado_por: session.userId,
+    })
   } else if (existingCorte) {
     corteId = existingCorte.id
   } else {
