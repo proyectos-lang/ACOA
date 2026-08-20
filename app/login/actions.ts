@@ -1,6 +1,7 @@
 "use server"
 
 import { redirect } from "next/navigation"
+import bcrypt from "bcryptjs"
 import { createSession, deleteSession } from "@/lib/auth/session"
 import { getUsuarioPorNombre } from "@/lib/db/usuario"
 
@@ -29,7 +30,14 @@ export async function loginAction(
     return { error: "Usuario inactivo. Contacta al administrador." }
   }
 
-  if (contrasena !== usuario.contrasena_hash) {
+  // Comparación en texto plano (esquema actual). Fallback bcrypt para los
+  // usuarios creados cuando el módulo guardaba hash, para no bloquearlos.
+  const almacenada = usuario.contrasena_hash
+  const esHashBcrypt = /^\$2[aby]\$/.test(almacenada)
+  const valida = esHashBcrypt
+    ? await bcrypt.compare(contrasena, almacenada)
+    : contrasena === almacenada
+  if (!valida) {
     return { error: "Usuario o contraseña incorrectos" }
   }
 

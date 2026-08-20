@@ -1,5 +1,4 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
-import bcrypt from "bcryptjs"
 import { createPermisoVacio } from "@/lib/db/permiso"
 
 export interface UsuarioRow {
@@ -66,13 +65,14 @@ export async function createUsuario(input: {
   creado_por: number
 }): Promise<number> {
   const db = createVanessaClient()
-  const hash = await bcrypt.hash(input.contrasena, 10)
 
   const { data, error } = await db
     .from("usuario")
     .insert({
       nombre_usuario: input.nombre_usuario.trim().toLowerCase(),
-      contrasena_hash: hash,
+      // Decisión del negocio: la contraseña se guarda en texto plano
+      // (el login compara texto plano; ver app/login/actions.ts)
+      contrasena_hash: input.contrasena,
       nombre_completo: input.nombre_completo.trim(),
       activo: input.activo,
       persona_id: input.persona_id ?? null,
@@ -105,7 +105,8 @@ export async function updateUsuario(
   if (input.activo !== undefined) updates.activo = input.activo
   if (input.persona_id !== undefined) updates.persona_id = input.persona_id
   if (input.contrasena && input.contrasena.length >= 6) {
-    updates.contrasena_hash = await bcrypt.hash(input.contrasena, 10)
+    // Texto plano, igual que en createUsuario
+    updates.contrasena_hash = input.contrasena
   }
 
   if (Object.keys(updates).length === 0) return
