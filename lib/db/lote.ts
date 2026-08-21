@@ -189,6 +189,7 @@ export type LoteConInfo = LoteRow & {
     nombre_estampador: string | null
     precio_estampacion: number | null
     fecha_entrega_lote: string | null
+    fecha_estimada_entrega: string | null
     fecha_retorno_lote: string | null
   } | null
 }
@@ -215,7 +216,7 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
       .in("id", ordenIds),
     db
       .from("estampacion")
-      .select("lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_retorno_lote")
+      .select("lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_estimada_entrega, fecha_retorno_lote")
       .in("lote_id", loteIds),
   ])
 
@@ -231,6 +232,7 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
         nombre_estampador: string | null
         precio_estampacion: number | null
         fecha_entrega_lote: string | null
+        fecha_estimada_entrega: string | null
         fecha_retorno_lote: string | null
       }>
     ).map((e) => [e.lote_id, e])

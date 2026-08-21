@@ -88,6 +88,30 @@ export async function marcarEntregaMasivaAction(
   }
 }
 
+// Marca la fecha estimada de entrega (devolución del estampador) en los
+// lotes seleccionados; alimenta las alertas de vencimiento del listado
+export async function marcarFechaEstimadaMasivaAction(
+  loteIds: number[],
+  fecha: string
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+  if (loteIds.length === 0) return { error: "Selecciona al menos un lote" }
+  if (!fecha) return { error: "Selecciona la fecha estimada de entrega" }
+
+  try {
+    let procesados = 0
+    for (const loteId of loteIds) {
+      await upsertEstampacionParcial(loteId, { fecha_estimada_entrega: fecha }, session.userId)
+      procesados++
+    }
+    revalidatePath("/estampacion")
+    return { success: true, procesados }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error marcando la fecha estimada" }
+  }
+}
+
 // Recepción masiva: registra la fecha de retorno (hoy) y envía los lotes a
 // Confección; la OP avanza cuando todos sus lotes ya están en confección
 export async function recepcionMasivaAction(loteIds: number[]): Promise<ActionResult> {

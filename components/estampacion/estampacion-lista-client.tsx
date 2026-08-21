@@ -11,6 +11,7 @@ import {
   asignarEstampadorMasivoAction,
   recepcionMasivaAction,
   marcarEntregaMasivaAction,
+  marcarFechaEstimadaMasivaAction,
 } from "@/app/(dashboard)/estampacion/actions"
 import {
   AlertDialog,
@@ -36,6 +37,27 @@ function cop(n: number) {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(n)
+}
+
+function hoyBogota(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
+}
+
+// Días desde hoy hasta la fecha (negativo = vencida)
+function diasHasta(fecha: string): number {
+  const hoy = new Date(hoyBogota() + "T00:00:00")
+  const f = new Date(fecha + "T00:00:00")
+  return Math.round((f.getTime() - hoy.getTime()) / 86400000)
+}
+
+// Alerta de vencimiento para lotes aún no devueltos
+function alertaVencimiento(l: LoteConInfo): "vencido" | "proximo" | null {
+  const est = l.estampacion?.fecha_estimada_entrega
+  if (!est || l.estampacion?.fecha_retorno_lote) return null
+  const d = diasHasta(est)
+  if (d < 0) return "vencido"
+  if (d <= 2) return "proximo"
+  return null
 }
 
 // ─── Relación de envío al estampador (PDF imprimible) ────────────────────────
@@ -65,6 +87,7 @@ function generarRelacionEnvio(
         <td>${padOP(l.orden.numero_op)}</td>
         <td class="izq">${esc(l.orden.referencia)}</td>
         <td class="num">${l.cantidad_programada.toLocaleString("es-CO")}</td>
+        <td>${esc(l.estampacion?.fecha_estimada_entrega) || "—"}</td>
         <td class="izq sub">${esc(l.notas_diseno) || "—"}</td>
       </tr>`
     )
@@ -112,7 +135,7 @@ function generarRelacionEnvio(
   <table class="detalle">
     <thead>
       <tr>
-        <th>Imagen</th><th>Lote</th><th>OP</th><th>Referencia</th><th>Cantidad</th><th>Notas de diseño</th>
+        <th>Imagen</th><th>Lote</th><th>OP</th><th>Referencia</th><th>Cantidad</th><th>F. estimada entrega</th><th>Notas de diseño</th>
       </tr>
     </thead>
     <tbody>${filas}</tbody>
@@ -120,6 +143,7 @@ function generarRelacionEnvio(
       <tr class="total">
         <td colspan="4" class="izq">TOTAL</td>
         <td class="num">${totalUds.toLocaleString("es-CO")}</td>
+        <td></td>
         <td></td>
       </tr>
     </tfoot>
@@ -159,6 +183,7 @@ export function EstampacionListaClient({
   const [seleccion, setSeleccion] = React.useState<Set<number>>(new Set())
   const [estampadorSel, setEstampadorSel] = React.useState("")
   const [fechaEntregaSel, setFechaEntregaSel] = React.useState("")
+  const [fechaEstimadaSel, setFechaEstimadaSel] = React.useState("")
 
   // ── Filtros ────────────────────────────────────────────────────
   const [fLote, setFLote] = React.useState("")
@@ -300,6 +325,18 @@ export function EstampacionListaClient({
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", `Fecha de entrega marcada en ${res.procesados} lote(s)`)
+        setSeleccion(new Set())
+        router.refresh()
+      }
+    })
+  }
+
+  function handleMarcarEstimada() {
+    startTransition(async () => {
+      const res = await marcarFechaEstimadaMasivaAction([...seleccion], fechaEstimadaSel)
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast("ok", `Fecha estimada marcada en ${res.procesados} lote(s)`)
         setSeleccion(new Set())
         router.refresh()
       }
@@ -468,6 +505,24 @@ export function EstampacionListaClient({
                 {isPending ? "Marcando…" : "Marcar entrega"}
               </button>
             </div>
+            <div className="flex items-center gap-1.5 border-l border-stone-200 pl-2">
+              <input
+                type="date"
+                value={fechaEstimadaSel}
+                onChange={(e) => setFechaEstimadaSel(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+                title="Fecha estimada de entrega (devolución del estampador)"
+              />
+              <button
+                type="button"
+                onClick={handleMarcarEstimada}
+                disabled={isPending || !fechaEstimadaSel}
+                className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: "#7c3aed" }}
+              >
+                {isPending ? "Marcando…" : "Marcar estimada"}
+              </button>
+            </div>
             <button
               type="button"
               onClick={handleImprimirRelacion}
@@ -510,6 +565,35 @@ export function EstampacionListaClient({
         </div>
       )}
 
+      {/* Alertas de vencimiento por fecha estimada de entrega */}
+      {(() => {
+        const vencidos = lotesFiltrados.filter((l) => alertaVencimiento(l) === "vencido").length
+        const proximos = lotesFiltrados.filter((l) => alertaVencimiento(l) === "proximo").length
+        if (vencidos === 0 && proximos === 0) return null
+        return (
+          <div
+            className={`flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium ${
+              vencidos > 0
+                ? "bg-red-50 border-red-200 text-red-800"
+                : "bg-amber-50 border-amber-200 text-amber-800"
+            }`}
+          >
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {vencidos > 0 && (
+              <span>
+                {vencidos} lote{vencidos !== 1 ? "s" : ""} con fecha estimada de entrega vencida
+              </span>
+            )}
+            {vencidos > 0 && proximos > 0 && <span>·</span>}
+            {proximos > 0 && (
+              <span>
+                {proximos} lote{proximos !== 1 ? "s" : ""} por vencer (≤ 2 días)
+              </span>
+            )}
+          </div>
+        )
+      })()}
+
       <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -523,7 +607,7 @@ export function EstampacionListaClient({
                     className="h-4 w-4 rounded border-stone-300 accent-[#344966]"
                   />
                 </th>
-                {["Imagen", "Lote", "OP / Referencia", "Cantidad", "Estampador", "Precio est.", "F. entrega", "F. retorno", "Estado", ""].map((h) => (
+                {["Imagen", "Lote", "OP / Referencia", "Cantidad", "Estampador", "Precio est.", "F. entrega", "F. estimada", "F. retorno", "Estado", ""].map((h) => (
                   <th
                     key={h}
                     className="px-3 py-3 text-xs font-semibold text-stone-500 uppercase tracking-wide text-left whitespace-nowrap"
@@ -536,7 +620,7 @@ export function EstampacionListaClient({
             <tbody>
               {lotesFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-stone-400">
+                  <td colSpan={12} className="px-4 py-8 text-center text-sm text-stone-400">
                     Ningún lote coincide con los filtros.
                   </td>
                 </tr>
@@ -595,6 +679,33 @@ export function EstampacionListaClient({
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-stone-600">
                     {lote.estampacion?.fecha_entrega_lote ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                    {lote.estampacion?.fecha_estimada_entrega ? (
+                      (() => {
+                        const alerta = alertaVencimiento(lote)
+                        const d = diasHasta(lote.estampacion!.fecha_estimada_entrega!)
+                        return (
+                          <span className="inline-flex flex-col gap-0.5">
+                            <span className="font-mono text-stone-600">
+                              {lote.estampacion!.fecha_estimada_entrega}
+                            </span>
+                            {alerta === "vencido" && (
+                              <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-700 text-center">
+                                Vencido {-d}d
+                              </span>
+                            )}
+                            {alerta === "proximo" && (
+                              <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 text-center">
+                                {d === 0 ? "Vence hoy" : `Vence en ${d}d`}
+                              </span>
+                            )}
+                          </span>
+                        )
+                      })()
+                    ) : (
+                      <span className="font-mono text-stone-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-stone-600">
                     {lote.estampacion?.fecha_retorno_lote ?? "—"}

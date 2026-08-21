@@ -23,6 +23,7 @@ export async function guardarEstampacionAction(
       nombre_estampador: (formData.get("nombre_estampador") as string)?.trim() || null,
       precio_estampacion: isNaN(precio) ? null : precio,
       fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
+      fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,
       observaciones_estampado:
         (formData.get("observaciones_estampado") as string)?.trim() || null,

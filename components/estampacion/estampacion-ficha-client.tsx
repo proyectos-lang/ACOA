@@ -247,6 +247,16 @@ export function EstampacionFichaClient({
                 />
               </div>
               <div className="space-y-1">
+                <label className="text-sm font-medium text-stone-700">Fecha estimada de entrega</label>
+                <input
+                  type="date"
+                  name="fecha_estimada_entrega"
+                  defaultValue={estampacion?.fecha_estimada_entrega ?? ""}
+                  className={fieldCls}
+                />
+                <p className="text-xs text-stone-400">Cuándo debe devolver el lote el estampador</p>
+              </div>
+              <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha retorno lote</label>
                 <input
                   type="date"

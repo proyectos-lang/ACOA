@@ -6,12 +6,13 @@ export interface EstampacionRow {
   nombre_estampador: string | null
   precio_estampacion: number | null
   fecha_entrega_lote: string | null
+  fecha_estimada_entrega: string | null
   fecha_retorno_lote: string | null
   observaciones_estampado: string | null
 }
 
 const SELECT_COLS =
-  "id, lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_retorno_lote, observaciones_estampado"
+  "id, lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_estimada_entrega, fecha_retorno_lote, observaciones_estampado"
 
 export async function getEstampacionByLote(loteId: number): Promise<EstampacionRow | null> {
   const db = createVanessaClient()
@@ -32,6 +33,7 @@ export async function upsertEstampacionParcial(
       | "nombre_estampador"
       | "precio_estampacion"
       | "fecha_entrega_lote"
+      | "fecha_estimada_entrega"
       | "fecha_retorno_lote"
       | "observaciones_estampado"
     >
@@ -57,6 +59,7 @@ export async function guardarEstampacion(input: {
   nombre_estampador?: string | null
   precio_estampacion?: number | null
   fecha_entrega_lote?: string | null
+  fecha_estimada_entrega?: string | null
   fecha_retorno_lote?: string | null
   observaciones_estampado?: string | null
   creado_por: number
@@ -68,6 +71,7 @@ export async function guardarEstampacion(input: {
     nombre_estampador: input.nombre_estampador ?? null,
     precio_estampacion: input.precio_estampacion ?? null,
     fecha_entrega_lote: input.fecha_entrega_lote ?? null,
+    fecha_estimada_entrega: input.fecha_estimada_entrega ?? null,
     fecha_retorno_lote: input.fecha_retorno_lote ?? null,
     observaciones_estampado: input.observaciones_estampado ?? null,
   }
