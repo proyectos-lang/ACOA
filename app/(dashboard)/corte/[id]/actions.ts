@@ -39,7 +39,6 @@ export async function guardarInfoCorteAction(
       orden_id: ordenId,
       fecha_programacion: (formData.get("fecha_programacion") as string) || null,
       fecha_corte: (formData.get("fecha_corte") as string) || null,
-      descripcion_piezas: (formData.get("descripcion_piezas") as string)?.trim() || null,
       creado_por: session.userId,
     })
     revalidatePath(`/corte/${ordenId}`)

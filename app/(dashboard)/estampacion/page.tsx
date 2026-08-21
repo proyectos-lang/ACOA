@@ -67,13 +67,19 @@ export default async function EstampacionPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          LOTE_ESTADO_COLOR[lote.estado] ?? "bg-stone-100 text-stone-700"
-                        }`}
-                      >
-                        {LOTE_ESTADO_LABEL[lote.estado] ?? lote.estado}
-                      </span>
+                      {!lote.estampacion?.nombre_estampador ? (
+                        <span className="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800">
+                          Por asignar
+                        </span>
+                      ) : (
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            LOTE_ESTADO_COLOR[lote.estado] ?? "bg-stone-100 text-stone-700"
+                          }`}
+                        >
+                          {LOTE_ESTADO_LABEL[lote.estado] ?? lote.estado}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Link

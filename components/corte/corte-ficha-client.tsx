@@ -5,11 +5,8 @@ import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Save,
-  Plus,
-  Trash2,
   CheckCircle2,
   AlertTriangle,
-  Send,
   ExternalLink,
   Zap,
 } from "lucide-react"
@@ -25,20 +22,10 @@ import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import {
   guardarInfoCorteAction,
   guardarCortetelaAction,
-  actualizarCurvaAction,
   aplicarConsumoRealAction,
-  enviarAEstampacionAction,
-  crearLoteAction,
-  enviarLoteAEstampacionAction,
   confirmarCorteAction,
   marcarCortePendienteAction,
 } from "@/app/(dashboard)/corte/[id]/actions"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -699,7 +686,6 @@ export function CorteFichaClient({
   corte,
   curvaTallas,
   opMateriales,
-  lotes: lotesIniciales,
   opTelas,
   opTelaLotes,
   corteCapas,
@@ -707,10 +693,8 @@ export function CorteFichaClient({
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
 
-  // ── Curva de tallas ───────────────────────────────────────────
-  const [tallas, setTallas] = React.useState<string[]>(() => curvaTallas.map((c) => c.talla))
-  const [nuevaTalla, setNuevaTalla] = React.useState("")
-  const [isPendingCurva, startCurva] = useTransition()
+  // ── Curva de tallas (solo lectura: se define en la OP) ────────
+  const tallas = curvaTallas.map((c) => c.talla)
 
   // ── Info corte ────────────────────────────────────────────────
   const [isPendingCorte, startCorte] = useTransition()
@@ -718,36 +702,11 @@ export function CorteFichaClient({
   // ── Consumo real ──────────────────────────────────────────────
   const [isPendingConsumo, startConsumo] = useTransition()
 
-  // ── Enviar estampación ────────────────────────────────────────
-  const [isPendingEstampacion, startEstampacion] = useTransition()
-
-  // ── Lotes ─────────────────────────────────────────────────────
-  const [lotes] = React.useState<LoteRow[]>(lotesIniciales)
-  const [loteDialogOpen, setLoteDialogOpen] = React.useState(false)
-  const [isPendingLote, startLote] = useTransition()
   const totalUnidades = orden.capas * tallas.length
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 5000)
-  }
-
-  // ── Curva de tallas ───────────────────────────────────────────
-  function addTalla() {
-    const t = nuevaTalla.trim().toUpperCase()
-    if (!t || tallas.includes(t)) return
-    setTallas((prev) => [...prev, t])
-    setNuevaTalla("")
-  }
-  function removeTalla(t: string) {
-    setTallas((prev) => prev.filter((x) => x !== t))
-  }
-  function handleSaveCurva() {
-    startCurva(async () => {
-      const res = await actualizarCurvaAction(orden.id, tallas)
-      if (res.error) showToast("error", res.error)
-      else { showToast("ok", "Curva de tallas guardada"); router.refresh() }
-    })
   }
 
   // ── Info corte ────────────────────────────────────────────────
@@ -776,52 +735,10 @@ export function CorteFichaClient({
     })
   }
 
-  // ── Enviar a estampación ──────────────────────────────────────
-  function handleEnviarEstampacion() {
-    startEstampacion(async () => {
-      const res = await enviarAEstampacionAction(orden.id)
-      if (res.error) showToast("error", res.error)
-      else { showToast("ok", "OP enviada a Estampación"); router.refresh() }
-    })
-  }
-
-  // ── Lotes ─────────────────────────────────────────────────────
-  function handleCrearLote(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    const cantidad = parseInt(fd.get("cantidad_programada") as string, 10)
-    const descripcion = (fd.get("descripcion") as string)?.trim() || undefined
-    if (!cantidad) return
-    startLote(async () => {
-      const res = await crearLoteAction({
-        orden_id: orden.id,
-        cantidad_programada: cantidad,
-        descripcion,
-      })
-      if (res.error) showToast("error", res.error)
-      else { setLoteDialogOpen(false); showToast("ok", "Lote creado"); router.refresh() }
-    })
-  }
-
-  function handleEnviarLoteEstampacion(loteId: number) {
-    startLote(async () => {
-      const res = await enviarLoteAEstampacionAction(loteId, orden.id)
-      if (res.error) showToast("error", res.error)
-      else { showToast("ok", "Lote enviado a estampación"); router.refresh() }
-    })
-  }
-
   const fieldCls =
     "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
-  const inputSmCls =
-    "rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-[#344966] w-full"
 
   const corteTelas = corte?.corte_tela ?? []
-
-  // Condiciones para "Enviar a estampación"
-  const todasConLargo = corteTelas.length > 0 && corteTelas.every((ct) => ct.largo_trazo && ct.largo_trazo > 0)
-  const todoConsumoAplicado = corteTelas.length > 0 && corteTelas.every((ct) => ct.op_material?.consumo_real != null)
-  const puedeEnviarEstampacion = todasConLargo && todoConsumoAplicado
 
   // Hay algún promedio calculado para habilitar "Aplicar consumo real"
   const hayPromedio = corteTelas.some((ct) => ct.promedio_consumo && ct.promedio_consumo > 0)
@@ -881,7 +798,7 @@ export function CorteFichaClient({
               </span>
             )}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Fecha programación</label>
               <input
@@ -899,16 +816,6 @@ export function CorteFichaClient({
                 name="fecha_corte"
                 defaultValue={corte?.fecha_corte ?? ""}
                 className={fieldCls}
-              />
-            </div>
-            <div className="space-y-1 sm:col-span-1">
-              <label className="text-sm font-medium text-stone-700">Descripción de piezas</label>
-              <input
-                type="text"
-                name="descripcion_piezas"
-                defaultValue={corte?.descripcion_piezas ?? ""}
-                className={fieldCls}
-                placeholder="Delantera, espalda, mangas…"
               />
             </div>
           </div>
@@ -932,43 +839,24 @@ export function CorteFichaClient({
             {tallas.length} tallas · {orden.capas} capas · {totalUnidades.toLocaleString("es-CO")} uds
           </span>
         </div>
-        <div className="space-y-3">
-          {tallas.length > 0 && (
+        <div className="space-y-2">
+          {tallas.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {tallas.map((t) => (
+              {tallas.map((t, idx) => (
                 <span
-                  key={t}
-                  className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
+                  key={`${t}-${idx}`}
+                  className="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
                 >
                   {t}
-                  <button
-                    type="button"
-                    onClick={() => removeTalla(t)}
-                    className="ml-0.5 rounded-full hover:bg-stone-200 p-0.5 transition-colors"
-                  >
-                    <Trash2 className="h-3 w-3 text-stone-500" />
-                  </button>
                 </span>
               ))}
             </div>
+          ) : (
+            <p className="text-xs text-stone-400">Sin tallas registradas.</p>
           )}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={nuevaTalla}
-              onChange={(e) => setNuevaTalla(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTalla() } }}
-              className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-28"
-              placeholder="XS, S, M…"
-            />
-            <button type="button" onClick={addTalla} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium border border-stone-200 hover:bg-stone-50 transition-colors text-stone-600">
-              <Plus className="h-3.5 w-3.5" /> Agregar
-            </button>
-            <button type="button" onClick={handleSaveCurva} disabled={isPendingCurva} className="flex items-center gap-1.5 rounded-xl px-4 py-1.5 text-xs font-semibold text-white disabled:opacity-60" style={{ backgroundColor: "#344966" }}>
-              <Save className="h-3.5 w-3.5" />
-              {isPendingCurva ? "Guardando…" : "Guardar tallas"}
-            </button>
-          </div>
+          <p className="text-xs text-stone-400">
+            La curva de tallas se define en la orden de producción y no se modifica desde Corte.
+          </p>
         </div>
       </div>
 
@@ -1097,46 +985,6 @@ export function CorteFichaClient({
               </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <button
-                  type="button"
-                  disabled={!puedeEnviarEstampacion || isPendingEstampacion || orden.estado !== "corte"}
-                  title={
-                    !todasConLargo
-                      ? "Faltan largos de trazo en una o más fichas"
-                      : !todoConsumoAplicado
-                      ? "Aplique el consumo real primero"
-                      : undefined
-                  }
-                  className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
-                  style={{ backgroundColor: "#344966" }}
-                >
-                  <Send className="h-4 w-4" />
-                  {isPendingEstampacion ? "Enviando…" : "Enviar a Estampación"}
-                </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>¿Enviar a Estampación?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    La OP {padOP(orden.numero_op)} pasará al estado "Estampación". Todas las
-                    fichas de tela tienen largo de trazo registrado y el consumo real fue
-                    aplicado.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleEnviarEstampacion}
-                    className="rounded-xl text-white"
-                    style={{ backgroundColor: "#344966" }}
-                  >
-                    Confirmar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
           </div>
         </div>
       )}
@@ -1189,118 +1037,6 @@ export function CorteFichaClient({
         onMsg={showToast}
       />
 
-      {/* ── Lotes ─────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-stone-200 bg-white p-5">
-        <div className="flex items-center justify-between mb-3 border-b border-stone-100 pb-2">
-          <h2 className="text-sm font-semibold text-stone-700">Lotes</h2>
-          <button
-            type="button"
-            onClick={() => setLoteDialogOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white"
-            style={{ backgroundColor: "#344966" }}
-          >
-            <Plus className="h-3.5 w-3.5" /> Nuevo lote
-          </button>
-        </div>
-
-        <p className="text-xs text-stone-400 mb-3">
-          Si no crea lotes manualmente, al enviar a Estampación se generará automáticamente 1 lote con {totalUnidades} unidades ({tallas.length} tallas × {orden.capas} capas).
-        </p>
-
-        {lotes.length === 0 ? (
-          <p className="text-sm text-stone-400 text-center py-4">
-            Sin lotes — se creará 1 lote automáticamente al enviar a Estampación.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-stone-100">
-                  {["Imagen", "Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
-                    <th key={h} className="px-3 py-2 text-xs font-semibold text-stone-500 uppercase tracking-wide text-left">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {lotes.map((l) => (
-                  <tr key={l.id} className="border-b border-stone-100 last:border-0">
-                    <td className="px-3 py-2">
-                      {l.url_imagen ? (
-                        <a href={l.url_imagen} target="_blank" rel="noopener noreferrer" title="Ver imagen de referencia">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={l.url_imagen}
-                            alt={`Lote ${l.numero_lote}`}
-                            className="h-10 w-10 rounded-lg object-cover border border-stone-200 bg-white"
-                          />
-                        </a>
-                      ) : (
-                        <div className="h-10 w-10 rounded-lg border border-dashed border-stone-200 bg-stone-50" />
-                      )}
-                    </td>
-                    <td className="px-3 py-2 font-mono font-semibold text-stone-700">
-                      {padLote(l.numero_lote)}
-                    </td>
-                    <td className="px-3 py-2 text-stone-500 text-xs">{l.descripcion ?? "—"}</td>
-                    <td className="px-3 py-2 font-mono text-stone-700">
-                      {l.cantidad_programada.toLocaleString("es-CO")}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${LOTE_ESTADO_COLOR[l.estado] ?? "bg-stone-100 text-stone-700"}`}>
-                        {LOTE_ESTADO_LABEL[l.estado] ?? l.estado}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {l.estado === "cortado" && (
-                        <button
-                          type="button"
-                          disabled={isPendingLote}
-                          onClick={() => handleEnviarLoteEstampacion(l.id)}
-                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium bg-pink-50 text-pink-700 hover:bg-pink-100 disabled:opacity-50 transition-colors"
-                        >
-                          <Send className="h-3 w-3" /> Enviar a estampación
-                        </button>
-                      )}
-                      {l.estado === "estampacion" && (
-                        <a
-                          href={`/estampacion/${l.id}`}
-                          className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium text-stone-500 hover:bg-stone-100 transition-colors"
-                        >
-                          <ExternalLink className="h-3 w-3" /> Ver en estampación
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* ── Dialog nuevo lote ────────────────────────────────── */}
-      <Dialog open={loteDialogOpen} onOpenChange={setLoteDialogOpen}>
-        <DialogContent className="sm:max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Nuevo lote</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCrearLote} className="space-y-4 pt-2">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Cantidad programada *</label>
-              <input type="number" name="cantidad_programada" required min="1" defaultValue={totalUnidades || ""} className={fieldCls} placeholder="0" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Descripción (opcional)</label>
-              <input type="text" name="descripcion" className={fieldCls} placeholder="Ej: Lote especial cliente A" />
-            </div>
-            <button type="submit" disabled={isPendingLote} className="w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60" style={{ backgroundColor: "#344966" }}>
-              {isPendingLote ? "Creando…" : "Crear lote"}
-            </button>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

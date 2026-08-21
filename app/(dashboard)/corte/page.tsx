@@ -29,7 +29,7 @@ export default async function CortePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["OP", "Referencia", "Gama / Color", "Fecha prog.", "Ficha de corte", ""].map(
+                  {["OP", "Referencia", "Fecha prog.", "Ficha de corte", ""].map(
                     (h) => (
                       <th
                         key={h}
@@ -56,7 +56,6 @@ export default async function CortePage() {
                         <p className="text-xs text-stone-400 truncate max-w-xs">{op.descripcion}</p>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-stone-500 text-xs">{op.gama_color ?? "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs text-stone-600">
                       {op.fecha_programacion ?? "—"}
                     </td>
