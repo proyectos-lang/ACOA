@@ -22,6 +22,7 @@ export interface CorteTela {
   rendimiento: number | null
   largo_trazo: number | null
   capas: number | null
+  numero_tallas: number | null
   promedio_consumo: number | null
   op_material?: {
     id: number
@@ -41,7 +42,7 @@ const CORTE_SELECT =
   "id, orden_id, consecutivo_corte, fecha_programacion, fecha_corte, descripcion_piezas, pendiente, pendiente_motivo, pendiente_en"
 
 const TELA_EMBED =
-  "corte_tela!fk_cortetela_corte(id, corte_id, op_material_id, nombre_tela, ancho_tela, rendimiento, largo_trazo, capas, promedio_consumo, op_material!fk_cortetela_opmaterial(id, nombre, tipo, consumo_estimado, consumo_real, valor_por_prenda))"
+  "corte_tela!fk_cortetela_corte(id, corte_id, op_material_id, nombre_tela, ancho_tela, rendimiento, largo_trazo, capas, numero_tallas, promedio_consumo, op_material!fk_cortetela_opmaterial(id, nombre, tipo, consumo_estimado, consumo_real, valor_por_prenda))"
 
 export async function getCorteByOrden(ordenId: number): Promise<CorteRow | null> {
   const db = createVanessaClient()
@@ -133,6 +134,7 @@ export async function updateCorteTela(
     rendimiento?: number | null
     largo_trazo?: number | null
     capas?: number | null
+    numero_tallas?: number | null
   }
 ): Promise<void> {
   const db = createVanessaClient()

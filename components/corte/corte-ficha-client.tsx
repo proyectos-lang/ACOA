@@ -100,10 +100,12 @@ function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
 function CorteTelCard({
   corteTela,
   ordenId,
+  tallasCount,
   onMsg,
 }: {
   corteTela: CorteTela
   ordenId: number
+  tallasCount: number
   onMsg: (m: string) => void
 }) {
   const router = useRouter()
@@ -113,18 +115,22 @@ function CorteTelCard({
   const [anchoTela, setAnchoTela] = React.useState(
     corteTela.ancho_tela != null ? String(corteTela.ancho_tela) : ""
   )
-  const [rendimiento, setRendimiento] = React.useState(
-    corteTela.rendimiento != null ? String(corteTela.rendimiento) : ""
-  )
   const [largoTrazo, setLargoTrazo] = React.useState(
     corteTela.largo_trazo != null ? String(corteTela.largo_trazo) : ""
   )
   const [capas, setCapas] = React.useState(
     corteTela.capas != null ? String(corteTela.capas) : ""
   )
+  // Precargado con el número de tallas de la curva si la ficha no tiene el propio
+  const [numeroTallas, setNumeroTallas] = React.useState(
+    corteTela.numero_tallas != null
+      ? String(corteTela.numero_tallas)
+      : tallasCount > 0 ? String(tallasCount) : ""
+  )
 
+  // Promedio consumo = largo del trazo / número de tallas
   const lt = parseFloat(largoTrazo) || 0
-  const nt = parseInt(capas, 10) || 0
+  const nt = parseInt(numeroTallas, 10) || 0
   const promedioLive = lt > 0 && nt > 0 ? lt / nt : null
 
   const consumoEstimado = corteTela.op_material?.consumo_estimado
@@ -135,9 +141,9 @@ function CorteTelCard({
       const res = await guardarCortetelaAction(corteTela.id, ordenId, {
         nombre_tela: nombreTela.trim() || corteTela.nombre_tela,
         ancho_tela: anchoTela ? parseFloat(anchoTela) : null,
-        rendimiento: rendimiento ? parseFloat(rendimiento) : null,
         largo_trazo: largoTrazo ? parseFloat(largoTrazo) : null,
         capas: capas ? parseInt(capas, 10) : null,
+        numero_tallas: numeroTallas ? parseInt(numeroTallas, 10) : null,
       })
       if (res.error) onMsg(`Error: ${res.error}`)
       else {
@@ -183,16 +189,17 @@ function CorteTelCard({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm font-medium text-stone-700">Rendimiento</label>
+          <label className="text-sm font-medium text-stone-700">Número de tallas</label>
           <input
             type="number"
-            min="0"
-            step="0.0001"
-            value={rendimiento}
-            onChange={(e) => setRendimiento(e.target.value)}
+            min="1"
+            step="1"
+            value={numeroTallas}
+            onChange={(e) => setNumeroTallas(e.target.value)}
             className={fieldCls}
-            placeholder="0.8500"
+            placeholder={tallasCount > 0 ? String(tallasCount) : "0"}
           />
+          <p className="text-xs text-stone-400">Precargado desde la curva de tallas</p>
         </div>
         <div className="space-y-1">
           <label className="text-sm font-medium text-stone-700">Largo del trazo (m)</label>
@@ -221,7 +228,7 @@ function CorteTelCard({
         </div>
         <div className="space-y-1">
           <label className="text-sm font-medium text-stone-700">
-            Promedio consumo / prenda
+            Promedio consumo (largo ÷ tallas)
           </label>
           <div className="rounded-xl bg-orange-50 border border-orange-200 px-3 py-2 text-sm font-mono font-bold text-orange-800 h-[42px] flex items-center">
             {promedioLive != null
@@ -471,34 +478,35 @@ function CapasCortadasSection({
   const yaConfirmado = orden.estado !== "corte"
 
   function confirmar() {
+    // Las capas son compartidas entre materiales: se registran una sola vez,
+    // tomando las cantidades del material de referencia (Material 1)
+    if (!slotRef) return
     const payload: CorteCapaRealInput[] = []
-    for (const slot of slots) {
-      const filas = filasDe(slot)
-      const lotes = lotesDe(slot)
-      for (const f of filas) {
-        for (const l of lotes) {
-          const k = keyDe(slot, f.fila, l)
-          const prog = programada(slot, f.fila, l)
-          const real = parseInt(reales[k] ?? "", 10) || 0
-          if (prog === 0 && real === 0) continue
-          const comentario = (comentarios[k] ?? "").trim()
-          if (real !== prog && !comentario) {
-            onMsg(
-              "error",
-              `Falta el comentario del cambio en [${f.color} × ${l}] (Material ${slot}): programado ${prog}, cortado ${real}`
-            )
-            return
-          }
-          payload.push({
-            slot,
-            fila: f.fila,
-            color: f.color,
-            lote_nombre: l,
-            capas_programadas: prog,
-            capas_reales: real,
-            comentario: real !== prog ? comentario : null,
-          })
+    const filas = filasDe(slotRef)
+    const lotes = lotesDe(slotRef)
+    for (const f of filas) {
+      for (const l of lotes) {
+        const k = keyDe(slotRef, f.fila, l)
+        const prog = programada(slotRef, f.fila, l)
+        const real = parseInt(reales[k] ?? "", 10) || 0
+        if (prog === 0 && real === 0) continue
+        const comentario = (comentarios[k] ?? "").trim()
+        if (real !== prog && !comentario) {
+          onMsg(
+            "error",
+            `Falta el comentario del cambio en [${f.color} × ${l}]: programado ${prog}, cortado ${real}`
+          )
+          return
         }
+        payload.push({
+          slot: slotRef,
+          fila: f.fila,
+          color: f.color,
+          lote_nombre: l,
+          capas_programadas: prog,
+          capas_reales: real,
+          comentario: real !== prog ? comentario : null,
+        })
       }
     }
 
@@ -531,38 +539,60 @@ function CapasCortadasSection({
       </div>
 
       <p className="text-xs text-stone-400">
-        Los valores vienen precargados con la programación de la Curva. Si el valor cortado es
-        diferente, escribe el motivo — el comentario es obligatorio para confirmar.
+        Los valores vienen precargados con la programación de la Curva. Las capas son
+        compartidas entre materiales (se toman de Material 1); los colores de cada material
+        se relacionan por su posición. Si el valor cortado es diferente, escribe el motivo —
+        el comentario es obligatorio para confirmar.
       </p>
 
-      {slots.map((slot) => {
-        const filas = filasDe(slot)
-        const lotes = lotesDe(slot)
-        const tipoTela = opTelas.find((t) => t.slot === slot)?.tipo_tela ?? ""
+      {(() => {
+        if (!slotRef) return null
+        const materiales = slots.map((s) => ({
+          slot: s,
+          filas: filasDe(s),
+          tipoTela: opTelas.find((t) => t.slot === s)?.tipo_tela ?? "",
+        }))
+        const refFilas = filasDe(slotRef)
+        const lotes = lotesDe(slotRef)
+        const numFilas = Math.max(...materiales.map((m) => m.filas.length))
         return (
-          <div key={slot} className="space-y-2">
-            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
-              Material {slot}{tipoTela ? ` — ${tipoTela}` : ""}
-            </p>
-            <div className="overflow-x-auto rounded-xl border border-stone-200">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-stone-100 bg-stone-50">
-                    <th className="px-3 py-2 text-left font-semibold text-stone-500 w-32">Color</th>
-                    {lotes.map((l) => (
-                      <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
-                        {l}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filas.map((f) => (
-                    <tr key={f.fila} className="border-b border-stone-100 last:border-0 align-top">
-                      <td className="px-3 py-2 font-medium text-stone-800">{f.color}</td>
+          <div className="overflow-x-auto rounded-xl border border-stone-200">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-stone-100 bg-stone-50">
+                  {materiales.map((m) => (
+                    <th key={m.slot} className="px-3 py-2 text-left font-semibold text-stone-500 whitespace-nowrap">
+                      Material {m.slot}
+                      {m.tipoTela && (
+                        <span className="block font-normal text-stone-400">{m.tipoTela}</span>
+                      )}
+                    </th>
+                  ))}
+                  {lotes.map((l) => (
+                    <th key={l} className="px-3 py-2 text-center font-semibold text-stone-500 whitespace-nowrap">
+                      {l}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: numFilas }, (_, i) => {
+                  const refFila = refFilas[i]
+                  return (
+                    <tr key={i} className="border-b border-stone-100 last:border-0 align-top">
+                      {materiales.map((m) => (
+                        <td key={m.slot} className="px-3 py-2 font-medium text-stone-800">
+                          {m.filas[i]?.color ?? "—"}
+                        </td>
+                      ))}
                       {lotes.map((l) => {
-                        const k = keyDe(slot, f.fila, l)
-                        const prog = programada(slot, f.fila, l)
+                        if (!refFila) {
+                          return (
+                            <td key={l} className="px-2 py-2 text-center text-stone-300">—</td>
+                          )
+                        }
+                        const k = keyDe(slotRef, refFila.fila, l)
+                        const prog = programada(slotRef, refFila.fila, l)
                         const real = parseInt(reales[k] ?? "", 10) || 0
                         const modificado = real !== prog
                         return (
@@ -602,26 +632,28 @@ function CapasCortadasSection({
                         )
                       })}
                     </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-stone-200 bg-stone-50">
+                  <td colSpan={materiales.length} className="px-3 py-2 font-semibold text-stone-600">
+                    Capas reales
+                  </td>
+                  {lotes.map((l) => (
+                    <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
+                      {refFilas.reduce(
+                        (s, f) => s + (parseInt(reales[keyDe(slotRef, f.fila, l)] ?? "", 10) || 0),
+                        0
+                      )}
+                    </td>
                   ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-stone-200 bg-stone-50">
-                    <td className="px-3 py-2 font-semibold text-stone-600">Capas reales</td>
-                    {lotes.map((l) => (
-                      <td key={l} className="px-3 py-2 text-center font-mono font-bold" style={{ color: "#344966" }}>
-                        {filas.reduce(
-                          (s, f) => s + (parseInt(reales[keyDe(slot, f.fila, l)] ?? "", 10) || 0),
-                          0
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         )
-      })}
+      })()}
 
       {yaConfirmado ? (
         <p className="text-xs text-stone-500">
@@ -960,6 +992,7 @@ export function CorteFichaClient({
               key={ct.id}
               corteTela={ct}
               ordenId={orden.id}
+              tallasCount={tallas.length}
               onMsg={(m) =>
                 showToast(m.startsWith("Error") ? "error" : "ok", m)
               }

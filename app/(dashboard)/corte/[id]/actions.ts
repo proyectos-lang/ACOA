@@ -57,9 +57,9 @@ export async function guardarCortetelaAction(
   input: {
     nombre_tela: string
     ancho_tela: number | null
-    rendimiento: number | null
     largo_trazo: number | null
     capas: number | null
+    numero_tallas: number | null
   }
 ): Promise<ActionResult> {
   const session = await getSession()
