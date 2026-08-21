@@ -23,6 +23,35 @@ export async function getEstampacionByLote(loteId: number): Promise<EstampacionR
   return data as EstampacionRow | null
 }
 
+// Upsert que solo toca los campos provistos (para asignación/recepción masiva)
+export async function upsertEstampacionParcial(
+  loteId: number,
+  campos: Partial<
+    Pick<
+      EstampacionRow,
+      | "nombre_estampador"
+      | "precio_estampacion"
+      | "fecha_entrega_lote"
+      | "fecha_retorno_lote"
+      | "observaciones_estampado"
+    >
+  >,
+  creadoPor: number
+): Promise<void> {
+  const db = createVanessaClient()
+  const existing = await getEstampacionByLote(loteId)
+  if (existing) {
+    if (Object.keys(campos).length === 0) return
+    const { error } = await db.from("estampacion").update(campos).eq("lote_id", loteId)
+    if (error) throw new Error(error.message)
+  } else {
+    const { error } = await db
+      .from("estampacion")
+      .insert({ lote_id: loteId, ...campos, creado_por: creadoPor })
+    if (error) throw new Error(error.message)
+  }
+}
+
 export async function guardarEstampacion(input: {
   lote_id: number
   nombre_estampador?: string | null

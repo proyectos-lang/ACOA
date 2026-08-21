@@ -185,7 +185,12 @@ export async function updateLoteEstado(id: number, estado: string): Promise<void
 
 export type LoteConInfo = LoteRow & {
   orden: { numero_op: number; referencia: string; gama_color: string | null }
-  estampacion: { nombre_estampador: string | null; fecha_entrega_lote: string | null } | null
+  estampacion: {
+    nombre_estampador: string | null
+    precio_estampacion: number | null
+    fecha_entrega_lote: string | null
+    fecha_retorno_lote: string | null
+  } | null
 }
 
 export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
@@ -210,7 +215,7 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
       .in("id", ordenIds),
     db
       .from("estampacion")
-      .select("lote_id, nombre_estampador, fecha_entrega_lote")
+      .select("lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_retorno_lote")
       .in("lote_id", loteIds),
   ])
 
@@ -224,7 +229,9 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
       (estampaciones ?? []) as Array<{
         lote_id: number
         nombre_estampador: string | null
+        precio_estampacion: number | null
         fecha_entrega_lote: string | null
+        fecha_retorno_lote: string | null
       }>
     ).map((e) => [e.lote_id, e])
   )

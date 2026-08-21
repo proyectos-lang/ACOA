@@ -41,6 +41,7 @@ interface Props {
   curvaTallas: CurvaTallaRow[]
   estampacion: EstampacionRow | null
   estampadores: EstampadorRow[]
+  precioEstampacionOP: number | null
 }
 
 function padOP(n: number) {
@@ -83,6 +84,7 @@ export function EstampacionFichaClient({
   curvaTallas,
   estampacion,
   estampadores,
+  precioEstampacionOP,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -223,10 +225,15 @@ export function EstampacionFichaClient({
                 name="precio_estampacion"
                 min="0"
                 step="0.01"
-                defaultValue={estampacion?.precio_estampacion ?? ""}
+                defaultValue={estampacion?.precio_estampacion ?? precioEstampacionOP ?? ""}
                 className={fieldCls}
                 placeholder="0.00"
               />
+              {estampacion?.precio_estampacion == null && precioEstampacionOP != null && (
+                <p className="text-xs text-stone-400">
+                  Precargado desde el costo de estampación de la OP
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
