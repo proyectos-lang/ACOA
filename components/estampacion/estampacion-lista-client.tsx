@@ -4,12 +4,13 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck } from "lucide-react"
+import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck, X } from "lucide-react"
 import type { LoteConInfo } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
 import {
   asignarEstampadorMasivoAction,
   recepcionMasivaAction,
+  marcarEntregaMasivaAction,
 } from "@/app/(dashboard)/estampacion/actions"
 import {
   AlertDialog,
@@ -49,16 +50,75 @@ export function EstampacionListaClient({
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [seleccion, setSeleccion] = React.useState<Set<number>>(new Set())
   const [estampadorSel, setEstampadorSel] = React.useState("")
+  const [fechaEntregaSel, setFechaEntregaSel] = React.useState("")
+
+  // ── Filtros ────────────────────────────────────────────────────
+  const [fLote, setFLote] = React.useState("")
+  const [fOP, setFOP] = React.useState("")
+  const [fEstampador, setFEstampador] = React.useState("todos")
+  const [fEstado, setFEstado] = React.useState("todos")
+  const [fEntregaDesde, setFEntregaDesde] = React.useState("")
+  const [fEntregaHasta, setFEntregaHasta] = React.useState("")
+  const [fRetornoDesde, setFRetornoDesde] = React.useState("")
+  const [fRetornoHasta, setFRetornoHasta] = React.useState("")
+
+  const hayFiltros =
+    fLote || fOP || fEstampador !== "todos" || fEstado !== "todos" ||
+    fEntregaDesde || fEntregaHasta || fRetornoDesde || fRetornoHasta
+
+  function limpiarFiltros() {
+    setFLote(""); setFOP(""); setFEstampador("todos"); setFEstado("todos")
+    setFEntregaDesde(""); setFEntregaHasta(""); setFRetornoDesde(""); setFRetornoHasta("")
+  }
+
+  // Estampadores para el filtro: los del módulo + los que ya figuran en lotes
+  const nombresEstampadorFiltro = React.useMemo(() => {
+    const set = new Set<string>(estampadores.map((e) => e.nombre_completo))
+    for (const l of lotes) {
+      if (l.estampacion?.nombre_estampador) set.add(l.estampacion.nombre_estampador)
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "es"))
+  }, [estampadores, lotes])
+
+  const lotesFiltrados = React.useMemo(() => {
+    return lotes.filter((l) => {
+      if (fLote) {
+        const q = fLote.toLowerCase()
+        const target = `${padLote(l.numero_lote)} ${l.numero_lote} ${l.descripcion ?? ""}`.toLowerCase()
+        if (!target.includes(q)) return false
+      }
+      if (fOP) {
+        const q = fOP.toLowerCase()
+        const target = `${padOP(l.orden.numero_op)} ${l.orden.numero_op} ${l.orden.referencia}`.toLowerCase()
+        if (!target.includes(q)) return false
+      }
+      if (fEstampador === "sin_asignar") {
+        if (l.estampacion?.nombre_estampador) return false
+      } else if (fEstampador !== "todos") {
+        if (l.estampacion?.nombre_estampador !== fEstampador) return false
+      }
+      if (fEstado === "por_asignar" && l.estampacion?.nombre_estampador) return false
+      if (fEstado === "en_estampacion" && !l.estampacion?.nombre_estampador) return false
+      const fe = l.estampacion?.fecha_entrega_lote
+      if (fEntregaDesde && (!fe || fe < fEntregaDesde)) return false
+      if (fEntregaHasta && (!fe || fe > fEntregaHasta)) return false
+      const fr = l.estampacion?.fecha_retorno_lote
+      if (fRetornoDesde && (!fr || fr < fRetornoDesde)) return false
+      if (fRetornoHasta && (!fr || fr > fRetornoHasta)) return false
+      return true
+    })
+  }, [lotes, fLote, fOP, fEstampador, fEstado, fEntregaDesde, fEntregaHasta, fRetornoDesde, fRetornoHasta])
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 4000)
   }
 
-  const todosSeleccionados = lotes.length > 0 && seleccion.size === lotes.length
+  const todosSeleccionados =
+    lotesFiltrados.length > 0 && lotesFiltrados.every((l) => seleccion.has(l.id))
 
   function toggleTodos() {
-    setSeleccion(todosSeleccionados ? new Set() : new Set(lotes.map((l) => l.id)))
+    setSeleccion(todosSeleccionados ? new Set() : new Set(lotesFiltrados.map((l) => l.id)))
   }
 
   function toggleUno(id: number) {
@@ -94,6 +154,18 @@ export function EstampacionListaClient({
     })
   }
 
+  function handleMarcarEntrega() {
+    startTransition(async () => {
+      const res = await marcarEntregaMasivaAction([...seleccion], fechaEntregaSel)
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast("ok", `Fecha de entrega marcada en ${res.procesados} lote(s)`)
+        setSeleccion(new Set())
+        router.refresh()
+      }
+    })
+  }
+
   return (
     <div className="space-y-4">
       {toast && (
@@ -112,6 +184,104 @@ export function EstampacionListaClient({
           {toast.msg}
         </div>
       )}
+
+      {/* Filtros */}
+      <div className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">Lote</label>
+            <input
+              type="text"
+              value={fLote}
+              onChange={(e) => setFLote(e.target.value)}
+              placeholder="Nº o descripción…"
+              className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-36"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">OP / Referencia</label>
+            <input
+              type="text"
+              value={fOP}
+              onChange={(e) => setFOP(e.target.value)}
+              placeholder="Nº OP o referencia…"
+              className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966] w-40"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">Estampador</label>
+            <select
+              value={fEstampador}
+              onChange={(e) => setFEstampador(e.target.value)}
+              className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+            >
+              <option value="todos">Todos</option>
+              <option value="sin_asignar">Sin asignar</option>
+              {nombresEstampadorFiltro.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">Estado</label>
+            <select
+              value={fEstado}
+              onChange={(e) => setFEstado(e.target.value)}
+              className="rounded-xl border border-stone-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+            >
+              <option value="todos">Todos</option>
+              <option value="por_asignar">Por asignar</option>
+              <option value="en_estampacion">En estampación</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">F. entrega (desde / hasta)</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={fEntregaDesde}
+                onChange={(e) => setFEntregaDesde(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+              />
+              <input
+                type="date"
+                value={fEntregaHasta}
+                onChange={(e) => setFEntregaHasta(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-stone-500">F. retorno (desde / hasta)</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="date"
+                value={fRetornoDesde}
+                onChange={(e) => setFRetornoDesde(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+              />
+              <input
+                type="date"
+                value={fRetornoHasta}
+                onChange={(e) => setFRetornoHasta(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+              />
+            </div>
+          </div>
+          {hayFiltros && (
+            <button
+              type="button"
+              onClick={limpiarFiltros}
+              className="flex items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-50 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" /> Limpiar
+            </button>
+          )}
+          <span className="ml-auto text-xs text-stone-400 self-center">
+            {lotesFiltrados.length} de {lotes.length} lote{lotes.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+      </div>
 
       {/* Barra de acciones masivas */}
       {seleccion.size > 0 && (
@@ -140,6 +310,24 @@ export function EstampacionListaClient({
               <UserCheck className="h-4 w-4" />
               {isPending ? "Asignando…" : "Asignar estampador"}
             </button>
+            <div className="flex items-center gap-1.5 border-l border-stone-200 pl-2">
+              <input
+                type="date"
+                value={fechaEntregaSel}
+                onChange={(e) => setFechaEntregaSel(e.target.value)}
+                className="rounded-xl border border-stone-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+                title="Fecha de entrega al estampador"
+              />
+              <button
+                type="button"
+                onClick={handleMarcarEntrega}
+                disabled={isPending || !fechaEntregaSel}
+                className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: "#b45309" }}
+              >
+                {isPending ? "Marcando…" : "Marcar entrega"}
+              </button>
+            </div>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
@@ -196,7 +384,14 @@ export function EstampacionListaClient({
               </tr>
             </thead>
             <tbody>
-              {lotes.map((lote) => (
+              {lotesFiltrados.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="px-4 py-8 text-center text-sm text-stone-400">
+                    Ningún lote coincide con los filtros.
+                  </td>
+                </tr>
+              )}
+              {lotesFiltrados.map((lote) => (
                 <tr
                   key={lote.id}
                   className={`border-b border-stone-100 last:border-0 transition-colors ${
