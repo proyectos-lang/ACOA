@@ -4,7 +4,6 @@ import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getCorteByOrden } from "@/lib/db/corte"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getEstampacionByLote } from "@/lib/db/estampacion"
-import { getNovedadesByLote } from "@/lib/db/novedad-proceso"
 import { listEstampadores } from "@/lib/db/estampador"
 import { EstampacionFichaClient } from "@/components/estampacion/estampacion-ficha-client"
 import { notFound } from "next/navigation"
@@ -23,12 +22,11 @@ export default async function EstampacionFichaPage({
   const lote = await getLoteById(loteId)
   if (!lote) notFound()
 
-  const [orden, corte, curvaTallas, estampacion, novedades, estampadores] = await Promise.all([
+  const [orden, corte, curvaTallas, estampacion, estampadores] = await Promise.all([
     getOrdenById(lote.orden_id),
     getCorteByOrden(lote.orden_id),
     getCurvaTallas(lote.orden_id),
     getEstampacionByLote(loteId),
-    getNovedadesByLote(loteId, "estampacion"),
     listEstampadores(true),
   ])
 
@@ -56,7 +54,6 @@ export default async function EstampacionFichaPage({
         corte={corte}
         curvaTallas={curvaTallas}
         estampacion={estampacion}
-        novedades={novedades}
         estampadores={estampadores}
       />
     </div>

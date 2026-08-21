@@ -5,38 +5,23 @@ import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
   Save,
-  Plus,
-  Trash2,
   CheckCircle2,
   AlertTriangle,
   Printer,
   Send,
+  ImageIcon,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteRow } from "@/lib/db/corte"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
-import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { EstampacionRow } from "@/lib/db/estampacion"
-import type { NovedadProcesoRow } from "@/lib/db/novedad-proceso"
-import {
-  TIPO_NOVEDAD_LABEL,
-  TIPO_NOVEDAD_COLOR,
-} from "@/lib/db/novedad-proceso"
 import {
   guardarEstampacionAction,
-  crearNovedadProcesoAction,
-  eliminarNovedadProcesoAction,
   enviarAConfeccionAction,
 } from "@/app/(dashboard)/estampacion/[id]/actions"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +40,6 @@ interface Props {
   corte: CorteRow | null
   curvaTallas: CurvaTallaRow[]
   estampacion: EstampacionRow | null
-  novedades: NovedadProcesoRow[]
   estampadores: EstampadorRow[]
 }
 
@@ -92,29 +76,18 @@ function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
   )
 }
 
-const TIPOS_NOVEDAD = [
-  "reposicion",
-  "averia",
-  "dano",
-  "cobro",
-  "compra",
-] as const
-
 export function EstampacionFichaClient({
   lote,
   orden,
   corte,
   curvaTallas,
   estampacion,
-  novedades: novedadesIniciales,
   estampadores,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [isPendingEst, startEst] = useTransition()
-  const [isPendingNov, startNov] = useTransition()
   const [isPendingConf, startConf] = useTransition()
-  const [novDialogOpen, setNovDialogOpen] = React.useState(false)
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -133,42 +106,6 @@ export function EstampacionFichaClient({
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", "Estampación guardada")
-        router.refresh()
-      }
-    })
-  }
-
-  // ── Novedad ───────────────────────────────────────────────────
-  function handleCrearNovedad(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const fd = new FormData(e.currentTarget)
-    const tipo = fd.get("tipo") as string
-    const cantidad = parseInt(fd.get("cantidad") as string, 10) || 0
-    const valor = parseFloat(fd.get("valor") as string) || 0
-    const descripcion = (fd.get("descripcion") as string)?.trim()
-    startNov(async () => {
-      const res = await crearNovedadProcesoAction({
-        lote_id: lote.id,
-        tipo,
-        cantidad,
-        valor,
-        descripcion,
-      })
-      if (res.error) showToast("error", res.error)
-      else {
-        setNovDialogOpen(false)
-        showToast("ok", "Novedad registrada")
-        router.refresh()
-      }
-    })
-  }
-
-  function handleEliminarNovedad(id: number) {
-    startNov(async () => {
-      const res = await eliminarNovedadProcesoAction(id, lote.id)
-      if (res.error) showToast("error", res.error)
-      else {
-        showToast("ok", "Novedad eliminada")
         router.refresh()
       }
     })
@@ -197,7 +134,6 @@ export function EstampacionFichaClient({
       {/* ── Cabecera lote + OP ──────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <LoteImagenRef lote={lote} />
           <div className="space-y-3 flex-1">
             <div>
               <p className="text-xs text-stone-500">Lote</p>
@@ -215,19 +151,9 @@ export function EstampacionFichaClient({
                 <p className="font-medium text-stone-800">{orden.referencia}</p>
               </div>
               <div>
-                <p className="text-xs text-stone-500">Color</p>
-                <p className="font-medium text-stone-800">{lote.color}</p>
-              </div>
-              <div>
                 <p className="text-xs text-stone-500">Cantidad</p>
                 <p className="font-mono font-semibold text-stone-700">
                   {lote.cantidad_programada.toLocaleString("es-CO")} uds
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-stone-500">P. empaque/ud</p>
-                <p className="font-mono text-stone-600 text-xs">
-                  {cop(Number(lote.precio_empaque_unidad))}
                 </p>
               </div>
               <div>
@@ -380,122 +306,43 @@ export function EstampacionFichaClient({
           </div>
         </form>
 
-        {/* ── Novedades ─────────────────────────────────────── */}
-        <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-            <h2 className="text-sm font-semibold text-stone-700">Novedades del proceso</h2>
-            <button
-              type="button"
-              onClick={() => setNovDialogOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium text-white"
-              style={{ backgroundColor: "#344966" }}
-            >
-              <Plus className="h-3.5 w-3.5" /> Agregar
-            </button>
-          </div>
-
-          {novedadesIniciales.length === 0 ? (
-            <p className="text-sm text-stone-400 text-center py-4">Sin novedades registradas.</p>
+        {/* ── Imagen de referencia del lote ─────────────────── */}
+        <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
+            Imagen del lote
+          </h2>
+          {lote.url_imagen ? (
+            <>
+              <a
+                href={lote.url_imagen}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Ver imagen completa"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={lote.url_imagen}
+                  alt={`Imagen de referencia del lote ${lote.numero_lote}`}
+                  className="w-full max-h-96 object-contain rounded-xl border border-stone-200 bg-stone-50 p-2"
+                />
+              </a>
+              {lote.notas_diseno && (
+                <p className="text-xs text-stone-500">
+                  <span className="font-semibold text-stone-600">Notas de diseño:</span>{" "}
+                  {lote.notas_diseno}
+                </p>
+              )}
+            </>
           ) : (
-            <div className="space-y-2">
-              {novedadesIniciales.map((n) => (
-                <div
-                  key={n.id}
-                  className="flex items-start justify-between gap-3 rounded-xl border border-stone-100 bg-stone-50 px-3 py-2.5"
-                >
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span
-                        className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                          TIPO_NOVEDAD_COLOR[n.tipo] ?? "bg-stone-100 text-stone-700"
-                        }`}
-                      >
-                        {TIPO_NOVEDAD_LABEL[n.tipo] ?? n.tipo}
-                      </span>
-                      <span className="text-xs font-mono font-semibold text-stone-700">
-                        {n.cantidad} uds · {cop(Number(n.valor))}
-                      </span>
-                    </div>
-                    {n.descripcion && (
-                      <p className="text-xs text-stone-500 truncate">{n.descripcion}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleEliminarNovedad(n.id)}
-                    disabled={isPendingNov}
-                    className="p-1 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors disabled:opacity-50 shrink-0"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
+            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-200 bg-stone-50 p-12 text-center">
+              <ImageIcon className="h-10 w-10 text-stone-300 mb-2" />
+              <p className="text-sm text-stone-400">
+                Este lote no tiene imagen de referencia. Se sube desde el módulo de Diseño.
+              </p>
             </div>
           )}
         </div>
       </div>
-
-      {/* ── Dialog nueva novedad ─────────────────────────────── */}
-      <Dialog open={novDialogOpen} onOpenChange={setNovDialogOpen}>
-        <DialogContent className="sm:max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Registrar novedad</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleCrearNovedad} className="space-y-4 pt-2">
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Tipo *</label>
-              <select name="tipo" required className={fieldCls}>
-                {TIPOS_NOVEDAD.map((t) => (
-                  <option key={t} value={t}>
-                    {TIPO_NOVEDAD_LABEL[t]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-stone-700">Cantidad *</label>
-                <input
-                  type="number"
-                  name="cantidad"
-                  required
-                  min="0"
-                  defaultValue="0"
-                  className={fieldCls}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-stone-700">Valor (COP)</label>
-                <input
-                  type="number"
-                  name="valor"
-                  min="0"
-                  step="0.01"
-                  defaultValue="0"
-                  className={fieldCls}
-                />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-stone-700">Descripción</label>
-              <textarea
-                name="descripcion"
-                rows={2}
-                className={`${fieldCls} resize-none`}
-                placeholder="Detalle de la novedad…"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={isPendingNov}
-              className="w-full rounded-xl py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-              style={{ backgroundColor: "#344966" }}
-            >
-              {isPendingNov ? "Guardando…" : "Registrar"}
-            </button>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* ── Sección de impresión (oculta en pantalla) ─────────── */}
       <style>{`
@@ -531,7 +378,6 @@ export function EstampacionFichaClient({
             </p>
           </div>
           <div style={{ textAlign: "right" }}>
-            <p style={{ fontSize: 13, fontWeight: "bold", color: "#344966" }}>Color: {lote.color}</p>
             <p style={{ fontSize: 11 }}>
               Cantidad: <strong>{lote.cantidad_programada.toLocaleString("es-CO")} prendas</strong>
             </p>
