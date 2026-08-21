@@ -702,7 +702,22 @@ export function CorteFichaClient({
   // ── Consumo real ──────────────────────────────────────────────
   const [isPendingConsumo, startConsumo] = useTransition()
 
-  const totalUnidades = orden.capas * tallas.length
+  // Capas por talla: cada talla de la curva produce (total capas del material
+  // de referencia) prendas. Usa las capas reales confirmadas si existen; si no,
+  // las programadas de la Curva.
+  const slotsConCapas = ([1, 2, 3] as const).filter((s) =>
+    opTelaLotes.some((r) => r.slot === s)
+  )
+  const slotRefCapas = slotsConCapas.includes(1) ? 1 : slotsConCapas[0]
+  const capasProgramadasRef = slotRefCapas
+    ? opTelaLotes.filter((r) => r.slot === slotRefCapas).reduce((s, r) => s + r.capas, 0)
+    : orden.capas
+  const capasRealesRef = corteCapas
+    .filter((c) => c.slot === slotRefCapas)
+    .reduce((s, c) => s + c.capas_reales, 0)
+  const capasPorTalla = corteCapas.length > 0 ? capasRealesRef : capasProgramadasRef
+
+  const totalUnidades = capasPorTalla * tallas.length
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -836,7 +851,8 @@ export function CorteFichaClient({
         <div className="flex items-center justify-between mb-3 border-b border-stone-100 pb-2">
           <h2 className="text-sm font-semibold text-stone-700">Curva de tallas</h2>
           <span className="text-xs text-stone-500">
-            {tallas.length} tallas · {orden.capas} capas · {totalUnidades.toLocaleString("es-CO")} uds
+            {tallas.length} tallas · {capasPorTalla.toLocaleString("es-CO")} capas por talla ·{" "}
+            {totalUnidades.toLocaleString("es-CO")} uds
           </span>
         </div>
         <div className="space-y-2">
@@ -845,9 +861,12 @@ export function CorteFichaClient({
               {tallas.map((t, idx) => (
                 <span
                   key={`${t}-${idx}`}
-                  className="inline-flex items-center rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
                 >
                   {t}
+                  <span className="font-mono font-normal text-stone-500">
+                    {capasPorTalla.toLocaleString("es-CO")} capas
+                  </span>
                 </span>
               ))}
             </div>
@@ -855,7 +874,9 @@ export function CorteFichaClient({
             <p className="text-xs text-stone-400">Sin tallas registradas.</p>
           )}
           <p className="text-xs text-stone-400">
-            La curva de tallas se define en la orden de producción y no se modifica desde Corte.
+            Cada talla produce una prenda por capa
+            {corteCapas.length > 0 ? " (capas reales confirmadas)" : " (capas programadas en la Curva)"}.
+            La curva se define en la orden de producción y no se modifica desde Corte.
           </p>
         </div>
       </div>

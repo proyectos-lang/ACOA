@@ -16,6 +16,7 @@ import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteRow } from "@/lib/db/corte"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
+import type { EstampadorRow } from "@/lib/db/estampador"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { EstampacionRow } from "@/lib/db/estampacion"
@@ -55,6 +56,7 @@ interface Props {
   curvaTallas: CurvaTallaRow[]
   estampacion: EstampacionRow | null
   novedades: NovedadProcesoRow[]
+  estampadores: EstampadorRow[]
 }
 
 function padOP(n: number) {
@@ -105,6 +107,7 @@ export function EstampacionFichaClient({
   curvaTallas,
   estampacion,
   novedades: novedadesIniciales,
+  estampadores,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -261,13 +264,28 @@ export function EstampacionFichaClient({
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Nombre del estampador</label>
-              <input
-                type="text"
+              <select
                 name="nombre_estampador"
                 defaultValue={estampacion?.nombre_estampador ?? ""}
                 className={fieldCls}
-                placeholder="Empresa o persona"
-              />
+              >
+                <option value="">— Selecciona un estampador —</option>
+                {/* Valor guardado que no está en el módulo Estampadores */}
+                {estampacion?.nombre_estampador &&
+                  !estampadores.some((e) => e.nombre_completo === estampacion.nombre_estampador) && (
+                    <option value={estampacion.nombre_estampador}>
+                      {estampacion.nombre_estampador} (no registrado)
+                    </option>
+                  )}
+                {estampadores.map((e) => (
+                  <option key={e.id} value={e.nombre_completo}>{e.nombre_completo}</option>
+                ))}
+              </select>
+              {estampadores.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  No hay estampadores registrados. Créalos en el módulo Estampadores.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">

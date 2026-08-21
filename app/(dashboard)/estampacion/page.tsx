@@ -32,7 +32,7 @@ export default async function EstampacionPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Lote", "OP / Referencia", "Color", "Cantidad", "Estampador", "Estado", ""].map(
+                  {["Lote", "OP / Referencia", "Cantidad", "Estampador", "Estado", ""].map(
                     (h) => (
                       <th
                         key={h}
@@ -57,7 +57,6 @@ export default async function EstampacionPage() {
                       <p className="font-medium text-stone-800">{lote.orden.referencia}</p>
                       <p className="text-xs text-stone-400 font-mono">{padOP(lote.orden.numero_op)}</p>
                     </td>
-                    <td className="px-4 py-3 text-stone-600">{lote.color}</td>
                     <td className="px-4 py-3 font-mono text-stone-700">
                       {lote.cantidad_programada.toLocaleString("es-CO")}
                     </td>

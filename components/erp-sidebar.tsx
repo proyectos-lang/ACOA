@@ -21,6 +21,7 @@ import {
   Settings,
   Database,
   BarChart3,
+  Stamp,
 } from "lucide-react"
 import {
   Sidebar,
@@ -62,6 +63,7 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Personal",      href: "/personal",      icon: UserCheck,       permisoKey: "mod_personal"     },
       { nombre: "Asistencia",    href: "/asistencia",    icon: Clock,           permisoKey: "mod_asistencia"   },
       { nombre: "Nómina",        href: "/nomina",        icon: Calculator,      permisoKey: "mod_nomina"       },
+      { nombre: "Estampadores",  href: "/estampadores",  icon: Stamp,           permisoKey: "mod_personal"     },
       { nombre: "Configuración", href: "/configuracion", icon: Settings,        permisoKey: "mod_configuracion"},
     ],
   },
