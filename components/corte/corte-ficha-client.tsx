@@ -858,17 +858,20 @@ export function CorteFichaClient({
         <div className="space-y-2">
           {tallas.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {tallas.map((t, idx) => (
-                <span
-                  key={`${t}-${idx}`}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
-                >
-                  {t}
-                  <span className="font-mono font-normal text-stone-500">
-                    {capasPorTalla.toLocaleString("es-CO")} capas
+              {/* Cada talla con la cantidad de veces que se tiró en la curva */}
+              {[...tallas.reduce((m, t) => m.set(t, (m.get(t) ?? 0) + 1), new Map<string, number>()).entries()].map(
+                ([t, veces]) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700"
+                  >
+                    {t}
+                    <span className="font-mono font-normal text-stone-500">
+                      × {veces} {veces === 1 ? "vez" : "veces"}
+                    </span>
                   </span>
-                </span>
-              ))}
+                )
+              )}
             </div>
           ) : (
             <p className="text-xs text-stone-400">Sin tallas registradas.</p>
