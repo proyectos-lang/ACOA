@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck, X } from "lucide-react"
+import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck, X, Printer } from "lucide-react"
 import type { LoteConInfo } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
 import {
@@ -36,6 +36,114 @@ function cop(n: number) {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(n)
+}
+
+// ─── Relación de envío al estampador (PDF imprimible) ────────────────────────
+
+function generarRelacionEnvio(
+  nombreEstampador: string,
+  seleccionados: LoteConInfo[],
+  fechaEntrega: string
+) {
+  const esc = (s: string | null | undefined) =>
+    (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+  const totalUds = seleccionados.reduce((s, l) => s + l.cantidad_programada, 0)
+
+  const filas = seleccionados
+    .map(
+      (l) => `<tr>
+        <td class="img-cell">${
+          l.url_imagen
+            ? `<img src="${esc(l.url_imagen)}" alt="Lote ${l.numero_lote}" />`
+            : `<div class="sin-img">Sin imagen</div>`
+        }</td>
+        <td class="izq">
+          <strong>${padLote(l.numero_lote)}</strong>
+          ${l.descripcion ? `<br/><span class="sub">${esc(l.descripcion)}</span>` : ""}
+        </td>
+        <td>${padOP(l.orden.numero_op)}</td>
+        <td class="izq">${esc(l.orden.referencia)}</td>
+        <td class="num">${l.cantidad_programada.toLocaleString("es-CO")}</td>
+        <td class="izq sub">${esc(l.notas_diseno) || "—"}</td>
+      </tr>`
+    )
+    .join("")
+
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Relación de envío — ${esc(nombreEstampador)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; padding: 24px; }
+  .encabezado { border: 2px solid #111; margin-bottom: 14px; }
+  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 14px; padding: 6px 10px; border-bottom: 2px solid #111; }
+  .encabezado table { width: 100%; border-collapse: collapse; }
+  .encabezado td { border: 1px solid #111; padding: 5px 8px; }
+  .encabezado td.label { font-weight: bold; background: #eee; width: 160px; text-transform: uppercase; }
+  table.detalle { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  table.detalle th, table.detalle td { border: 1px solid #111; padding: 5px 6px; text-align: center; vertical-align: middle; }
+  table.detalle th { background: #eee; text-transform: uppercase; font-size: 10px; }
+  td.izq { text-align: left; }
+  td.num { text-align: right; font-family: 'Courier New', monospace; font-weight: bold; }
+  .sub { color: #555; font-size: 10px; }
+  .img-cell { width: 90px; }
+  .img-cell img { width: 80px; height: 80px; object-fit: contain; }
+  .sin-img { width: 80px; height: 80px; border: 1px dashed #bbb; color: #999; font-size: 9px; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+  tr.total td { background: #dcefe4; font-weight: bold; }
+  .firmas { display: flex; gap: 40px; margin-top: 40px; }
+  .firmas div { flex: 1; border-top: 1px solid #111; padding-top: 6px; text-align: center; font-size: 11px; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+  <div class="encabezado">
+    <div class="titulo">RELACIÓN DE ENVÍO A ESTAMPACIÓN</div>
+    <table>
+      <tr><td class="label">Estampador</td><td>${esc(nombreEstampador)}</td></tr>
+      <tr><td class="label">Fecha de entrega</td><td>${esc(fechaEntrega)}</td></tr>
+      <tr><td class="label">Lotes enviados</td><td>${seleccionados.length}</td></tr>
+      <tr><td class="label">Total unidades</td><td>${totalUds.toLocaleString("es-CO")}</td></tr>
+    </table>
+  </div>
+
+  <table class="detalle">
+    <thead>
+      <tr>
+        <th>Imagen</th><th>Lote</th><th>OP</th><th>Referencia</th><th>Cantidad</th><th>Notas de diseño</th>
+      </tr>
+    </thead>
+    <tbody>${filas}</tbody>
+    <tfoot>
+      <tr class="total">
+        <td colspan="4" class="izq">TOTAL</td>
+        <td class="num">${totalUds.toLocaleString("es-CO")}</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="firmas">
+    <div>Entrega (Vanessa)</div>
+    <div>Recibe (${esc(nombreEstampador)})</div>
+  </div>
+
+  <script>
+    // Imprime cuando las imágenes hayan cargado
+    window.addEventListener("load", function () {
+      setTimeout(function () { window.print() }, 250)
+    })
+  </script>
+</body>
+</html>`
+
+  const w = window.open("", "_blank")
+  if (!w) return
+  w.document.write(html)
+  w.document.close()
+  w.focus()
 }
 
 export function EstampacionListaClient({
@@ -131,15 +239,47 @@ export function EstampacionListaClient({
   }
 
   function handleAsignar() {
+    const asignados = lotes.filter((l) => seleccion.has(l.id))
+    const nombre = estampadorSel
     startTransition(async () => {
-      const res = await asignarEstampadorMasivoAction([...seleccion], estampadorSel)
+      const res = await asignarEstampadorMasivoAction([...seleccion], nombre)
       if (res.error) showToast("error", res.error)
       else {
-        showToast("ok", `Estampador asignado a ${res.procesados} lote(s)`)
+        showToast("ok", `Estampador asignado a ${res.procesados} lote(s) — generando relación de envío`)
         setSeleccion(new Set())
+        // Relación de envío en PDF con los lotes recién asignados
+        generarRelacionEnvio(
+          nombre,
+          asignados,
+          new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })
+        )
         router.refresh()
       }
     })
+  }
+
+  // Reimprimir la relación para los lotes seleccionados
+  function handleImprimirRelacion() {
+    const seleccionados = lotes.filter((l) => seleccion.has(l.id))
+    const nombres = new Set(
+      seleccionados
+        .map((l) => estampadorSel || l.estampacion?.nombre_estampador || "")
+        .filter(Boolean)
+    )
+    if (nombres.size === 0) {
+      showToast("error", "Selecciona un estampador o lotes que ya lo tengan asignado")
+      return
+    }
+    if (nombres.size > 1) {
+      showToast("error", "Los lotes seleccionados tienen estampadores distintos — genera una relación por estampador")
+      return
+    }
+    generarRelacionEnvio(
+      [...nombres][0],
+      seleccionados,
+      seleccionados[0]?.estampacion?.fecha_entrega_lote ??
+        new Date().toLocaleDateString("es-CO", { timeZone: "America/Bogota" })
+    )
   }
 
   function handleRecepcion() {
@@ -328,6 +468,16 @@ export function EstampacionListaClient({
                 {isPending ? "Marcando…" : "Marcar entrega"}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={handleImprimirRelacion}
+              disabled={isPending}
+              className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold border border-[#344966] text-[#344966] hover:bg-[#344966] hover:text-white transition-colors disabled:opacity-50"
+              title="Genera la relación de envío en PDF de los lotes seleccionados"
+            >
+              <Printer className="h-4 w-4" />
+              Relación PDF
+            </button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <button
