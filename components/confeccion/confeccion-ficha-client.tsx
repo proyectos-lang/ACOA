@@ -15,6 +15,7 @@ import {
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
+import type { ConfeccionistaRow } from "@/lib/db/confeccionista"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConfeccionRow, ConfeccionInsumoRow } from "@/lib/db/confeccion"
@@ -58,6 +59,8 @@ interface Props {
   confeccion: ConfeccionRow | null
   insumos: ConfeccionInsumoRow[]
   novedades: NovedadProcesoRow[]
+  confeccionistas: ConfeccionistaRow[]
+  precioConfeccionOP: number | null
 }
 
 function padOP(n: number) {
@@ -108,6 +111,8 @@ export function ConfeccionFichaClient({
   confeccion,
   insumos: insumosIniciales,
   novedades: novedadesIniciales,
+  confeccionistas,
+  precioConfeccionOP,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -322,13 +327,27 @@ export function ConfeccionFichaClient({
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Confeccionista</label>
-              <input
-                type="text"
+              <select
                 name="nombre_confeccionista"
                 defaultValue={confeccion?.nombre_confeccionista ?? ""}
                 className={fieldCls}
-                placeholder="Nombre de la empresa o persona"
-              />
+              >
+                <option value="">— Selecciona un confeccionista —</option>
+                {confeccion?.nombre_confeccionista &&
+                  !confeccionistas.some((c) => c.nombre_completo === confeccion.nombre_confeccionista) && (
+                    <option value={confeccion.nombre_confeccionista}>
+                      {confeccion.nombre_confeccionista} (no registrado)
+                    </option>
+                  )}
+                {confeccionistas.map((c) => (
+                  <option key={c.id} value={c.nombre_completo}>{c.nombre_completo}</option>
+                ))}
+              </select>
+              {confeccionistas.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  No hay confeccionistas registrados. Créalos en el módulo Confeccionistas.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -350,10 +369,15 @@ export function ConfeccionFichaClient({
                   name="precio_confeccion"
                   min="0"
                   step="0.01"
-                  defaultValue={confeccion?.precio_confeccion ?? ""}
+                  defaultValue={confeccion?.precio_confeccion ?? precioConfeccionOP ?? ""}
                   className={fieldCls}
                   placeholder="0.00"
                 />
+                {confeccion?.precio_confeccion == null && precioConfeccionOP != null && (
+                  <p className="text-xs text-stone-400">
+                    Precargado desde el costo de confección de la OP
+                  </p>
+                )}
               </div>
             </div>
 
@@ -366,6 +390,16 @@ export function ConfeccionFichaClient({
                   defaultValue={confeccion?.fecha_entrega_lote ?? ""}
                   className={fieldCls}
                 />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-stone-700">Fecha estimada de entrega</label>
+                <input
+                  type="date"
+                  name="fecha_estimada_entrega"
+                  defaultValue={confeccion?.fecha_estimada_entrega ?? ""}
+                  className={fieldCls}
+                />
+                <p className="text-xs text-stone-400">Cuándo debe devolver el lote el confeccionista</p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha retorno lote</label>

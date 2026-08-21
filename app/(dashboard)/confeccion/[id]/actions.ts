@@ -32,6 +32,7 @@ export async function guardarConfeccionAction(
       nombre_confeccionista: (formData.get("nombre_confeccionista") as string)?.trim() || null,
       precio_confeccion: precioRaw ? parseFloat(precioRaw) : null,
       fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
+      fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,
       condiciones_confeccion: (formData.get("condiciones_confeccion") as string)?.trim() || null,
       ...(urlImagen !== undefined ? { url_imagen_prenda: urlImagen } : {}),

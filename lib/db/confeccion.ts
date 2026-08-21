@@ -9,6 +9,7 @@ export interface ConfeccionRow {
   nombre_confeccionista: string | null
   precio_confeccion: number | null
   fecha_entrega_lote: string | null
+  fecha_estimada_entrega: string | null
   fecha_retorno_lote: string | null
   url_imagen_prenda: string | null
   condiciones_confeccion: string | null
@@ -22,7 +23,7 @@ export interface ConfeccionInsumoRow {
 }
 
 const SELECT_COLS =
-  "id, lote_id, cantidad_reconfirmada, nombre_confeccionista, precio_confeccion, fecha_entrega_lote, fecha_retorno_lote, url_imagen_prenda, condiciones_confeccion"
+  "id, lote_id, cantidad_reconfirmada, nombre_confeccionista, precio_confeccion, fecha_entrega_lote, fecha_estimada_entrega, fecha_retorno_lote, url_imagen_prenda, condiciones_confeccion"
 
 export async function getConfeccionByLote(loteId: number): Promise<ConfeccionRow | null> {
   const db = createVanessaClient()
@@ -34,12 +35,44 @@ export async function getConfeccionByLote(loteId: number): Promise<ConfeccionRow
   return data as ConfeccionRow | null
 }
 
+// Upsert que solo toca los campos provistos (para asignación/recepción masiva)
+export async function upsertConfeccionParcial(
+  loteId: number,
+  campos: Partial<
+    Pick<
+      ConfeccionRow,
+      | "nombre_confeccionista"
+      | "precio_confeccion"
+      | "fecha_entrega_lote"
+      | "fecha_estimada_entrega"
+      | "fecha_retorno_lote"
+      | "cantidad_reconfirmada"
+      | "condiciones_confeccion"
+    >
+  >,
+  creadoPor: number
+): Promise<void> {
+  const db = createVanessaClient()
+  const existing = await getConfeccionByLote(loteId)
+  if (existing) {
+    if (Object.keys(campos).length === 0) return
+    const { error } = await db.from("confeccion").update(campos).eq("lote_id", loteId)
+    if (error) throw new Error(error.message)
+  } else {
+    const { error } = await db
+      .from("confeccion")
+      .insert({ lote_id: loteId, ...campos, creado_por: creadoPor })
+    if (error) throw new Error(error.message)
+  }
+}
+
 export async function guardarConfeccion(input: {
   lote_id: number
   cantidad_reconfirmada?: number | null
   nombre_confeccionista?: string | null
   precio_confeccion?: number | null
   fecha_entrega_lote?: string | null
+  fecha_estimada_entrega?: string | null
   fecha_retorno_lote?: string | null
   url_imagen_prenda?: string
   condiciones_confeccion?: string | null
@@ -53,6 +86,7 @@ export async function guardarConfeccion(input: {
     nombre_confeccionista: input.nombre_confeccionista ?? null,
     precio_confeccion: input.precio_confeccion ?? null,
     fecha_entrega_lote: input.fecha_entrega_lote ?? null,
+    fecha_estimada_entrega: input.fecha_estimada_entrega ?? null,
     fecha_retorno_lote: input.fecha_retorno_lote ?? null,
     condiciones_confeccion: input.condiciones_confeccion ?? null,
   }
@@ -136,7 +170,7 @@ export async function getLotesEnConfeccion(): Promise<LoteConConfeccion[]> {
   const db = createVanessaClient()
   const { data: lotes, error } = await db
     .from("lote")
-    .select("id, corte_id, orden_id, numero_lote, color, cantidad_programada, precio_empaque_unidad, estado")
+    .select("id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado, url_imagen, notas_diseno")
     .eq("estado", "confeccion")
     .order("numero_lote", { ascending: false })
   if (error) throw new Error(error.message)
