@@ -523,7 +523,7 @@ function CapasCortadasSection({
   if (slots.length === 0) return null
 
   const inputNumCls =
-    "w-16 rounded-lg border px-2 py-1 text-xs text-center font-mono outline-none focus:ring-2 focus:ring-[#344966]"
+    "w-16 rounded-lg border px-2 py-1 text-xs text-center font-mono outline-none focus:ring-2 focus:ring-[#344966] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
@@ -604,15 +604,13 @@ function CapasCortadasSection({
                                 value={reales[k] ?? ""}
                                 onChange={(e) => setReal(k, e.target.value)}
                                 disabled={yaConfirmado}
+                                title={`Programado: ${prog}`}
                                 className={`${inputNumCls} ${
                                   modificado
                                     ? "border-amber-400 bg-amber-50"
                                     : "border-stone-200 bg-white"
                                 } disabled:opacity-60`}
                               />
-                              <span className="text-[10px] text-stone-400 leading-none">
-                                prog. {prog}
-                              </span>
                               {modificado && (
                                 <input
                                   type="text"
