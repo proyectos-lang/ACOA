@@ -17,6 +17,7 @@ import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
 import type { ConfeccionistaRow } from "@/lib/db/confeccionista"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
+import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConfeccionRow, ConfeccionInsumoRow } from "@/lib/db/confeccion"
 import type { NovedadProcesoRow } from "@/lib/db/novedad-proceso"
@@ -316,6 +317,9 @@ export function ConfeccionFichaClient({
           </div>
         </div>
       </div>
+
+      {/* ── Imagen de referencia del lote (con subida) ────── */}
+      <LoteImagenUpload lote={lote} onMsg={showToast} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario confección ───────────────────────────── */}

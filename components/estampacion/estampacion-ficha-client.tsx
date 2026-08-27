@@ -9,13 +9,13 @@ import {
   AlertTriangle,
   Printer,
   Send,
-  ImageIcon,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteRow } from "@/lib/db/corte"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
+import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { EstampacionRow } from "@/lib/db/estampacion"
 import {
@@ -323,42 +323,8 @@ export function EstampacionFichaClient({
           </div>
         </form>
 
-        {/* ── Imagen de referencia del lote ─────────────────── */}
-        <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">
-          <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
-            Imagen del lote
-          </h2>
-          {lote.url_imagen ? (
-            <>
-              <a
-                href={lote.url_imagen}
-                target="_blank"
-                rel="noopener noreferrer"
-                title="Ver imagen completa"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={lote.url_imagen}
-                  alt={`Imagen de referencia del lote ${lote.numero_lote}`}
-                  className="w-full max-h-96 object-contain rounded-xl border border-stone-200 bg-stone-50 p-2"
-                />
-              </a>
-              {lote.notas_diseno && (
-                <p className="text-xs text-stone-500">
-                  <span className="font-semibold text-stone-600">Notas de diseño:</span>{" "}
-                  {lote.notas_diseno}
-                </p>
-              )}
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-stone-200 bg-stone-50 p-12 text-center">
-              <ImageIcon className="h-10 w-10 text-stone-300 mb-2" />
-              <p className="text-sm text-stone-400">
-                Este lote no tiene imagen de referencia. Se sube desde el módulo de Diseño.
-              </p>
-            </div>
-          )}
-        </div>
+        {/* ── Imagen de referencia del lote (con subida) ────── */}
+        <LoteImagenUpload lote={lote} onMsg={showToast} />
       </div>
 
       {/* ── Sección de impresión (oculta en pantalla) ─────────── */}
