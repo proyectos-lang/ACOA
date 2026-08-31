@@ -32,15 +32,19 @@ const SIGUIENTE_LABEL: Record<PrendaEstado, string> = {
 }
 
 const inputCls =
-  "rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+  "w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+const lblCls = "text-[11px] font-medium text-stone-500"
 
 // Fila editable de una prenda del conjunto: cada etapa edita sus campos
+// (estampación: estampador + precio + fechas; confección: confeccionista +
+// precio + fechas; conteo: cantidad contada)
 function PrendaFila({
   prenda,
   loteId,
   etapa,
   estampadores,
   confeccionistas,
+  precioDefault,
   onMsg,
 }: {
   prenda: LotePrendaRow
@@ -48,16 +52,33 @@ function PrendaFila({
   etapa: PrendaEstado
   estampadores: string[]
   confeccionistas: string[]
+  precioDefault: number | null
   onMsg: (tipo: "ok" | "error", msg: string) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
 
   const [estampador, setEstampador] = React.useState(prenda.nombre_estampador ?? "")
+  const [estPrecio, setEstPrecio] = React.useState(
+    prenda.est_precio != null
+      ? String(prenda.est_precio)
+      : etapa === "estampacion" && precioDefault != null
+        ? String(precioDefault)
+        : ""
+  )
   const [estEntrega, setEstEntrega] = React.useState(prenda.est_fecha_entrega ?? "")
+  const [estEstimada, setEstEstimada] = React.useState(prenda.est_fecha_estimada ?? "")
   const [estRetorno, setEstRetorno] = React.useState(prenda.est_fecha_retorno ?? "")
   const [confeccionista, setConfeccionista] = React.useState(prenda.nombre_confeccionista ?? "")
+  const [confPrecio, setConfPrecio] = React.useState(
+    prenda.conf_precio != null
+      ? String(prenda.conf_precio)
+      : etapa === "confeccion" && precioDefault != null
+        ? String(precioDefault)
+        : ""
+  )
   const [confEntrega, setConfEntrega] = React.useState(prenda.conf_fecha_entrega ?? "")
+  const [confEstimada, setConfEstimada] = React.useState(prenda.conf_fecha_estimada ?? "")
   const [confRetorno, setConfRetorno] = React.useState(prenda.conf_fecha_retorno ?? "")
   const [cantidad, setCantidad] = React.useState(
     prenda.cantidad_contada != null ? String(prenda.cantidad_contada) : ""
@@ -69,13 +90,17 @@ function PrendaFila({
         etapa === "estampacion"
           ? {
               nombre_estampador: estampador || null,
+              est_precio: estPrecio ? Number(estPrecio) : null,
               est_fecha_entrega: estEntrega || null,
+              est_fecha_estimada: estEstimada || null,
               est_fecha_retorno: estRetorno || null,
             }
           : etapa === "confeccion"
             ? {
                 nombre_confeccionista: confeccionista || null,
+                conf_precio: confPrecio ? Number(confPrecio) : null,
                 conf_fecha_entrega: confEntrega || null,
+                conf_fecha_estimada: confEstimada || null,
                 conf_fecha_retorno: confRetorno || null,
               }
             : { cantidad_contada: cantidad ? parseInt(cantidad, 10) : null }
@@ -115,6 +140,18 @@ function PrendaFila({
   // Los campos de la etapa solo se editan cuando la prenda está en esa etapa
   const editable = prenda.estado === etapa
 
+  const btnGuardar = (
+    <button
+      type="button"
+      onClick={guardar}
+      disabled={isPending}
+      className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+      style={{ backgroundColor: "#344966" }}
+    >
+      <Save className="h-3 w-3" /> Guardar
+    </button>
+  )
+
   return (
     <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -153,75 +190,120 @@ function PrendaFila({
         </div>
       </div>
 
-      {/* Resumen de lo ya registrado en otras etapas */}
+      {/* Resumen de lo registrado en otras etapas */}
       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-stone-500">
-        {prenda.nombre_estampador && <span>Estampador: <strong>{prenda.nombre_estampador}</strong></span>}
-        {prenda.nombre_confeccionista && <span>Confeccionista: <strong>{prenda.nombre_confeccionista}</strong></span>}
-        {prenda.cantidad_contada != null && <span>Contadas: <strong>{prenda.cantidad_contada.toLocaleString("es-CO")}</strong></span>}
+        {etapa !== "estampacion" && prenda.nombre_estampador && (
+          <span>Estampador: <strong>{prenda.nombre_estampador}</strong></span>
+        )}
+        {etapa !== "estampacion" && prenda.est_precio != null && (
+          <span>Precio est.: <strong>${Number(prenda.est_precio).toLocaleString("es-CO")}</strong></span>
+        )}
+        {etapa !== "confeccion" && prenda.nombre_confeccionista && (
+          <span>Confeccionista: <strong>{prenda.nombre_confeccionista}</strong></span>
+        )}
+        {etapa !== "confeccion" && prenda.conf_precio != null && (
+          <span>Precio conf.: <strong>${Number(prenda.conf_precio).toLocaleString("es-CO")}</strong></span>
+        )}
+        {etapa !== "conteo" && prenda.cantidad_contada != null && (
+          <span>Contadas: <strong>{prenda.cantidad_contada.toLocaleString("es-CO")}</strong></span>
+        )}
       </div>
 
       {editable && etapa === "estampacion" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={estampador} onChange={(e) => setEstampador(e.target.value)} className={inputCls}>
-            <option value="">— Estampador —</option>
-            {estampador && !estampadores.includes(estampador) && (
-              <option value={estampador}>{estampador} (no registrado)</option>
-            )}
-            {estampadores.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <input type="date" value={estEntrega} onChange={(e) => setEstEntrega(e.target.value)} className={inputCls} title="Fecha entrega" />
-          <input type="date" value={estRetorno} onChange={(e) => setEstRetorno(e.target.value)} className={inputCls} title="Fecha retorno" />
-          <button type="button" onClick={guardar} disabled={isPending} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" style={{ backgroundColor: "#344966" }}>
-            <Save className="h-3 w-3" /> Guardar
-          </button>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="space-y-0.5">
+            <label className={lblCls}>Estampador</label>
+            <select value={estampador} onChange={(e) => setEstampador(e.target.value)} className={inputCls}>
+              <option value="">— Estampador —</option>
+              {estampador && !estampadores.includes(estampador) && (
+                <option value={estampador}>{estampador} (no registrado)</option>
+              )}
+              {estampadores.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>Precio (COP)</label>
+            <input type="number" min="0" step="0.01" value={estPrecio} onChange={(e) => setEstPrecio(e.target.value)} className={inputCls} placeholder="0.00" />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. entrega</label>
+            <input type="date" value={estEntrega} onChange={(e) => setEstEntrega(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. estimada de entrega</label>
+            <input type="date" value={estEstimada} onChange={(e) => setEstEstimada(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. retorno</label>
+            <input type="date" value={estRetorno} onChange={(e) => setEstRetorno(e.target.value)} className={inputCls} />
+          </div>
+          <div className="flex items-end">{btnGuardar}</div>
         </div>
       )}
 
       {editable && etapa === "confeccion" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={confeccionista} onChange={(e) => setConfeccionista(e.target.value)} className={inputCls}>
-            <option value="">— Confeccionista —</option>
-            {confeccionista && !confeccionistas.includes(confeccionista) && (
-              <option value={confeccionista}>{confeccionista} (no registrado)</option>
-            )}
-            {confeccionistas.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <input type="date" value={confEntrega} onChange={(e) => setConfEntrega(e.target.value)} className={inputCls} title="Fecha entrega" />
-          <input type="date" value={confRetorno} onChange={(e) => setConfRetorno(e.target.value)} className={inputCls} title="Fecha retorno" />
-          <button type="button" onClick={guardar} disabled={isPending} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" style={{ backgroundColor: "#344966" }}>
-            <Save className="h-3 w-3" /> Guardar
-          </button>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="space-y-0.5">
+            <label className={lblCls}>Confeccionista</label>
+            <select value={confeccionista} onChange={(e) => setConfeccionista(e.target.value)} className={inputCls}>
+              <option value="">— Confeccionista —</option>
+              {confeccionista && !confeccionistas.includes(confeccionista) && (
+                <option value={confeccionista}>{confeccionista} (no registrado)</option>
+              )}
+              {confeccionistas.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>Precio (COP)</label>
+            <input type="number" min="0" step="0.01" value={confPrecio} onChange={(e) => setConfPrecio(e.target.value)} className={inputCls} placeholder="0.00" />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. entrega</label>
+            <input type="date" value={confEntrega} onChange={(e) => setConfEntrega(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. estimada de entrega</label>
+            <input type="date" value={confEstimada} onChange={(e) => setConfEstimada(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. retorno</label>
+            <input type="date" value={confRetorno} onChange={(e) => setConfRetorno(e.target.value)} className={inputCls} />
+          </div>
+          <div className="flex items-end">{btnGuardar}</div>
         </div>
       )}
 
       {editable && etapa === "conteo" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="number"
-            min="0"
-            value={cantidad}
-            onChange={(e) => setCantidad(e.target.value)}
-            className={`${inputCls} w-28`}
-            placeholder="Cantidad contada"
-          />
-          <button type="button" onClick={guardar} disabled={isPending} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50" style={{ backgroundColor: "#344966" }}>
-            <Save className="h-3 w-3" /> Guardar
-          </button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="space-y-0.5">
+            <label className={lblCls}>Cantidad contada</label>
+            <input
+              type="number"
+              min="0"
+              value={cantidad}
+              onChange={(e) => setCantidad(e.target.value)}
+              className={`${inputCls} w-28`}
+              placeholder="0"
+            />
+          </div>
+          {btnGuardar}
         </div>
       )}
     </div>
   )
 }
 
-// Sección "Prendas del conjunto": visible en las fichas de estampación,
-// confección y conteo cuando la OP es tipo conjunto. Muestra el estado de
-// cada prenda del lote y permite gestionar la etapa correspondiente.
+// Sección "Prendas del conjunto": en las fichas de estampación y confección
+// se incrusta dentro de la tarjeta de datos (embedded), subdividiendo los
+// campos de la etapa por cada prenda; en conteo va como sección propia.
 export function PrendasConjuntoSection({
   loteId,
   prendas,
   etapa,
   estampadores = [],
   confeccionistas = [],
+  precioDefault = null,
+  embedded = false,
   onMsg,
 }: {
   loteId: number
@@ -229,6 +311,8 @@ export function PrendasConjuntoSection({
   etapa: PrendaEstado
   estampadores?: string[]
   confeccionistas?: string[]
+  precioDefault?: number | null
+  embedded?: boolean
   onMsg: (tipo: "ok" | "error", msg: string) => void
 }) {
   const router = useRouter()
@@ -249,14 +333,14 @@ export function PrendasConjuntoSection({
     })
   }
 
-  return (
-    <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">
-      <div className="flex items-center justify-between border-b border-stone-100 pb-2">
-        <h2 className="text-sm font-semibold text-stone-700">
+  const contenido = (
+    <>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className={embedded ? "text-xs font-semibold text-stone-600" : "text-sm font-semibold text-stone-700"}>
           Prendas del conjunto ({prendas.length})
-        </h2>
-        <span className="text-xs text-stone-400">
-          Cada prenda se gestiona por separado en su etapa
+        </p>
+        <span className="text-[11px] text-stone-400">
+          Cada prenda con sus propios datos de la etapa
         </span>
       </div>
 
@@ -294,11 +378,20 @@ export function PrendasConjuntoSection({
               etapa={etapa}
               estampadores={estampadores}
               confeccionistas={confeccionistas}
+              precioDefault={precioDefault}
               onMsg={onMsg}
             />
           ))}
         </div>
       )}
+    </>
+  )
+
+  if (embedded) return <div className="space-y-3">{contenido}</div>
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-3">
+      {contenido}
     </div>
   )
 }

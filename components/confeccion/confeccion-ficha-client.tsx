@@ -148,6 +148,7 @@ export function ConfeccionFichaClient({
   const hayDiff =
     cantidadReconfirmada != null && cantidadReconfirmada !== lote.cantidad_programada
   const yaEnConteo = lote.estado !== "confeccion"
+  const esConjunto = orden.tipo_prenda === "conjunto"
 
   // ── Formulario confección ──────────────────────────────────────
   function handleSaveConf(e: React.FormEvent<HTMLFormElement>) {
@@ -325,17 +326,6 @@ export function ConfeccionFichaClient({
       {/* ── Imagen de referencia del lote (con subida) ────── */}
       <LoteImagenUpload lote={lote} onMsg={showToast} />
 
-      {/* ── Prendas del conjunto (OPs tipo conjunto) ─────── */}
-      {orden.tipo_prenda === "conjunto" && (
-        <PrendasConjuntoSection
-          loteId={lote.id}
-          prendas={prendas}
-          etapa="confeccion"
-          confeccionistas={confeccionistas.map((c) => c.nombre_completo)}
-          onMsg={showToast}
-        />
-      )}
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario confección ───────────────────────────── */}
         <form onSubmit={handleSaveConf} encType="multipart/form-data">
@@ -344,6 +334,19 @@ export function ConfeccionFichaClient({
               Datos de confección
             </h2>
 
+            {/* Conjunto: confeccionista, precio y fechas se capturan por prenda */}
+            {esConjunto ? (
+              <PrendasConjuntoSection
+                embedded
+                loteId={lote.id}
+                prendas={prendas}
+                etapa="confeccion"
+                confeccionistas={confeccionistas.map((c) => c.nombre_completo)}
+                precioDefault={precioConfeccionOP}
+                onMsg={showToast}
+              />
+            ) : (
+              <>
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Confeccionista</label>
               <select
@@ -368,6 +371,8 @@ export function ConfeccionFichaClient({
                 </p>
               )}
             </div>
+              </>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -381,6 +386,7 @@ export function ConfeccionFichaClient({
                   placeholder={String(lote.cantidad_programada)}
                 />
               </div>
+              {!esConjunto && (
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Precio confección (COP)</label>
                 <input
@@ -398,8 +404,10 @@ export function ConfeccionFichaClient({
                   </p>
                 )}
               </div>
+              )}
             </div>
 
+            {!esConjunto && (
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha entrega lote</label>
@@ -430,6 +438,7 @@ export function ConfeccionFichaClient({
                 />
               </div>
             </div>
+            )}
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Condiciones</label>

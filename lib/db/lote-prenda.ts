@@ -12,10 +12,12 @@ export interface LotePrendaRow {
   nombre: string
   estado: PrendaEstado
   nombre_estampador: string | null
+  est_precio: number | null
   est_fecha_entrega: string | null
   est_fecha_estimada: string | null
   est_fecha_retorno: string | null
   nombre_confeccionista: string | null
+  conf_precio: number | null
   conf_fecha_entrega: string | null
   conf_fecha_estimada: string | null
   conf_fecha_retorno: string | null
@@ -38,7 +40,7 @@ export const PRENDA_ESTADO_COLOR: Record<PrendaEstado, string> = {
 }
 
 const SELECT_COLS =
-  "id, lote_id, nombre, estado, nombre_estampador, est_fecha_entrega, est_fecha_estimada, est_fecha_retorno, nombre_confeccionista, conf_fecha_entrega, conf_fecha_estimada, conf_fecha_retorno, cantidad_contada, creado_en"
+  "id, lote_id, nombre, estado, nombre_estampador, est_precio, est_fecha_entrega, est_fecha_estimada, est_fecha_retorno, nombre_confeccionista, conf_precio, conf_fecha_entrega, conf_fecha_estimada, conf_fecha_retorno, cantidad_contada, creado_en"
 
 export async function listPrendasByLote(loteId: number): Promise<LotePrendaRow[]> {
   const db = createVanessaClient()

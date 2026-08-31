@@ -43,10 +43,12 @@ export async function actualizarPrendaAction(
   campos: {
     nombre?: string
     nombre_estampador?: string | null
+    est_precio?: number | null
     est_fecha_entrega?: string | null
     est_fecha_estimada?: string | null
     est_fecha_retorno?: string | null
     nombre_confeccionista?: string | null
+    conf_precio?: number | null
     conf_fecha_entrega?: string | null
     conf_fecha_estimada?: string | null
     conf_fecha_retorno?: string | null

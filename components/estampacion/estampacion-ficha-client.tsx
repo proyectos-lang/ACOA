@@ -132,6 +132,7 @@ export function EstampacionFichaClient({
   const fieldCls =
     "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
   const yaEnConfeccion = lote.estado !== "estampacion"
+  const esConjunto = orden.tipo_prenda === "conjunto"
 
   return (
     <div className="space-y-6">
@@ -194,6 +195,19 @@ export function EstampacionFichaClient({
               Datos de estampación
             </h2>
 
+            {/* Conjunto: estampador, precio y fechas se capturan por prenda */}
+            {esConjunto ? (
+              <PrendasConjuntoSection
+                embedded
+                loteId={lote.id}
+                prendas={prendas}
+                etapa="estampacion"
+                estampadores={estampadores.map((e) => e.nombre_completo)}
+                precioDefault={precioEstampacionOP}
+                onMsg={showToast}
+              />
+            ) : (
+              <>
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Nombre del estampador</label>
               <select
@@ -270,6 +284,8 @@ export function EstampacionFichaClient({
                 />
               </div>
             </div>
+              </>
+            )}
 
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Observaciones</label>
@@ -330,17 +346,6 @@ export function EstampacionFichaClient({
         {/* ── Imagen de referencia del lote (con subida) ────── */}
         <LoteImagenUpload lote={lote} onMsg={showToast} />
       </div>
-
-      {/* ── Prendas del conjunto (OPs tipo conjunto) ─────── */}
-      {orden.tipo_prenda === "conjunto" && (
-        <PrendasConjuntoSection
-          loteId={lote.id}
-          prendas={prendas}
-          etapa="estampacion"
-          estampadores={estampadores.map((e) => e.nombre_completo)}
-          onMsg={showToast}
-        />
-      )}
 
       {/* ── Sección de impresión (oculta en pantalla) ─────────── */}
       <style>{`
