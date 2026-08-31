@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Printer,
   Send,
+  Wallet,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteRow } from "@/lib/db/corte"
@@ -24,6 +25,7 @@ import {
   guardarEstampacionAction,
   enviarAConfeccionAction,
 } from "@/app/(dashboard)/estampacion/[id]/actions"
+import { habilitarPagoEstampacionAction } from "@/app/(dashboard)/pagos/actions"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -112,6 +114,24 @@ export function EstampacionFichaClient({
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", "Estampación guardada")
+        router.refresh()
+      }
+    })
+  }
+
+  // ── Habilitar pago al estampador ──────────────────────────────
+  const [isPendingPago, startPago] = useTransition()
+  function handleHabilitarPago() {
+    startPago(async () => {
+      const res = await habilitarPagoEstampacionAction(lote.id)
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast(
+          "ok",
+          res.count && res.count > 1
+            ? `Pago habilitado en el módulo Pagos (${res.count} prendas)`
+            : "Pago habilitado en el módulo Pagos"
+        )
         router.refresh()
       }
     })
@@ -339,6 +359,49 @@ export function EstampacionFichaClient({
                   </AlertDialogContent>
                 </AlertDialog>
               )}
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isPendingPago}
+                    className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                    style={{ backgroundColor: "#b45309" }}
+                  >
+                    <Wallet className="h-4 w-4" />
+                    {isPendingPago ? "Habilitando…" : "Habilitar pago"}
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="max-w-md rounded-2xl">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>¿Habilitar pago al estampador?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {esConjunto ? (
+                        <>
+                          Se habilitará en el módulo <strong>Pagos</strong> un pago por cada
+                          prenda del conjunto con estampador asignado (cantidad del lote ×
+                          precio de cada prenda).
+                        </>
+                      ) : (
+                        <>
+                          Se habilitará en el módulo <strong>Pagos</strong> el pago al
+                          estampador de este lote (cantidad × precio unitario). Guarde antes
+                          los datos de estampación.
+                        </>
+                      )}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleHabilitarPago}
+                      style={{ backgroundColor: "#b45309" }}
+                    >
+                      Habilitar
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
         </form>

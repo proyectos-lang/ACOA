@@ -88,17 +88,25 @@ export function ConteoFichaClient({
 
   const [filas, setFilas] = React.useState<DetallaFila[]>(() => {
     if (conteoDetalle.length > 0) {
-      return conteoDetalle.map((d) => ({
-        key: String(d.id),
-        color: d.color,
-        talla: d.talla,
-        cantidad_contada: d.cantidad_contada,
+      // El conteo se registra solo por talla: agrupar detalle existente
+      const porTalla = new Map<string, number>()
+      const ordenTallas: string[] = []
+      for (const d of conteoDetalle) {
+        const t = d.talla.trim()
+        if (!porTalla.has(t)) ordenTallas.push(t)
+        porTalla.set(t, (porTalla.get(t) ?? 0) + d.cantidad_contada)
+      }
+      return ordenTallas.map((t) => ({
+        key: `t_${t}`,
+        color: "",
+        talla: t,
+        cantidad_contada: porTalla.get(t) ?? 0,
       }))
     }
     // Pre-llenar con tallas de la OP
     return curvaTallas.map((ct) => ({
       key: `ct_${ct.id}`,
-      color: lote.color ?? "",
+      color: "",
       talla: ct.talla,
       cantidad_contada: 0,
     }))
@@ -112,7 +120,7 @@ export function ConteoFichaClient({
   function addFila() {
     setFilas((prev) => [
       ...prev,
-      { key: `new_${Date.now()}`, color: lote.color ?? "", talla: "", cantidad_contada: 0 },
+      { key: `new_${Date.now()}`, color: "", talla: "", cantidad_contada: 0 },
     ])
   }
 
@@ -176,7 +184,12 @@ export function ConteoFichaClient({
       const res = await validarConteoAction(lote.id, fd, filasLimpias)
       if (res.error) showToast("error", res.error)
       else {
-        showToast("ok", "Conteo validado. El lote está disponible para empaque.")
+        showToast(
+          "ok",
+          res.pagos_habilitados
+            ? "Conteo validado — pago al confeccionista habilitado en el módulo Pagos."
+            : "Conteo validado. El lote está disponible para empaque."
+        )
         router.refresh()
       }
     })
@@ -314,7 +327,6 @@ export function ConteoFichaClient({
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-stone-50 border-b border-stone-100">
-                      <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Color</th>
                       <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Talla</th>
                       <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Contado</th>
                       {!yaValidado && !yaEnEmpaque && <th className="w-8" />}
@@ -323,18 +335,6 @@ export function ConteoFichaClient({
                   <tbody>
                     {filas.map((f) => (
                       <tr key={f.key} className="border-b border-stone-100 last:border-0">
-                        <td className="px-3 py-1.5">
-                          {yaValidado || yaEnEmpaque ? (
-                            <span className="text-stone-700">{f.color}</span>
-                          ) : (
-                            <input
-                              type="text"
-                              value={f.color}
-                              onChange={(e) => updateFila(f.key, "color", e.target.value)}
-                              className="w-full rounded-lg border border-stone-200 px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-[#344966]"
-                            />
-                          )}
-                        </td>
                         <td className="px-3 py-1.5">
                           {yaValidado || yaEnEmpaque ? (
                             <span className="text-stone-700 font-medium">{f.talla}</span>
@@ -378,7 +378,7 @@ export function ConteoFichaClient({
                       </tr>
                     ))}
                     <tr className="bg-stone-50">
-                      <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-stone-700">
+                      <td className="px-3 py-2 text-xs font-semibold text-stone-700">
                         Total
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-semibold text-stone-800 text-xs">

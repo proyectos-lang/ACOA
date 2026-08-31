@@ -5,8 +5,14 @@ import { getSession } from "@/lib/auth/session"
 import { upsertConteo, replaceConteoDetalle, validarConteo } from "@/lib/db/conteo"
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
+import { habilitarPagoConfeccionPorConteo } from "@/lib/db/pago"
 
-type ActionResult = { error?: string; success?: boolean; total_contado?: number }
+type ActionResult = {
+  error?: string
+  success?: boolean
+  total_contado?: number
+  pagos_habilitados?: number
+}
 
 export async function guardarConteoAction(
   loteId: number,
@@ -68,9 +74,20 @@ export async function validarConteoAction(
       await cambiarEstado(lote.orden_id, "empaque")
     }
 
+    // Al cerrar el conteo se habilita automáticamente el pago al
+    // confeccionista con las cantidades contadas efectivas (no bloquea
+    // la validación si faltan datos de confección)
+    let pagosHabilitados = 0
+    try {
+      pagosHabilitados = await habilitarPagoConfeccionPorConteo(loteId, session.userId)
+    } catch {
+      pagosHabilitados = 0
+    }
+
     revalidatePath(`/conteo/${loteId}`)
     revalidatePath("/conteo")
-    return { success: true, total_contado: total }
+    revalidatePath("/pagos")
+    return { success: true, total_contado: total, pagos_habilitados: pagosHabilitados }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error validando conteo" }
   }
