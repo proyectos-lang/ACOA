@@ -18,6 +18,8 @@ import type { LoteRow } from "@/lib/db/lote"
 import type { ConfeccionistaRow } from "@/lib/db/confeccionista"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
+import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
+import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConfeccionRow, ConfeccionInsumoRow } from "@/lib/db/confeccion"
 import type { NovedadProcesoRow } from "@/lib/db/novedad-proceso"
@@ -62,6 +64,7 @@ interface Props {
   novedades: NovedadProcesoRow[]
   confeccionistas: ConfeccionistaRow[]
   precioConfeccionOP: number | null
+  prendas: LotePrendaRow[]
 }
 
 function padOP(n: number) {
@@ -114,6 +117,7 @@ export function ConfeccionFichaClient({
   novedades: novedadesIniciales,
   confeccionistas,
   precioConfeccionOP,
+  prendas,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -320,6 +324,17 @@ export function ConfeccionFichaClient({
 
       {/* ── Imagen de referencia del lote (con subida) ────── */}
       <LoteImagenUpload lote={lote} onMsg={showToast} />
+
+      {/* ── Prendas del conjunto (OPs tipo conjunto) ─────── */}
+      {orden.tipo_prenda === "conjunto" && (
+        <PrendasConjuntoSection
+          loteId={lote.id}
+          prendas={prendas}
+          etapa="confeccion"
+          confeccionistas={confeccionistas.map((c) => c.nombre_completo)}
+          onMsg={showToast}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario confección ───────────────────────────── */}

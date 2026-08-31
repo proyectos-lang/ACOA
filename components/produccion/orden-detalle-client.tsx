@@ -220,14 +220,30 @@ function InfoGeneralSection({
         )}
       </div>
 
-      <div className="space-y-1">
-        <label className="text-sm font-medium text-stone-700">Fecha programación</label>
-        <input
-          type="date"
-          name="fecha_programacion"
-          defaultValue={orden.fecha_programacion ?? ""}
-          className={fieldCls}
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Fecha programación</label>
+          <input
+            type="date"
+            name="fecha_programacion"
+            defaultValue={orden.fecha_programacion ?? ""}
+            className={fieldCls}
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Tipo</label>
+          <select
+            name="tipo_prenda"
+            defaultValue={orden.tipo_prenda ?? "prenda"}
+            className={fieldCls}
+          >
+            <option value="prenda">Prenda</option>
+            <option value="conjunto">Conjunto</option>
+          </select>
+          <p className="text-xs text-stone-400">
+            Conjunto: en estampación, confección y conteo cada prenda se gestiona por separado
+          </p>
+        </div>
       </div>
 
       <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-xl border border-stone-200 px-3 py-2.5">

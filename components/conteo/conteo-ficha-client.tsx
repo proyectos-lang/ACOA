@@ -8,6 +8,8 @@ import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
+import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
+import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConteoRow, ConteoDetalleRow } from "@/lib/db/conteo"
 import {
@@ -39,6 +41,7 @@ interface Props {
   curvaTallas: CurvaTallaRow[]
   conteo: ConteoRow | null
   conteoDetalle: ConteoDetalleRow[]
+  prendas: LotePrendaRow[]
 }
 
 function padOP(n: number) {
@@ -73,6 +76,7 @@ export function ConteoFichaClient({
   curvaTallas,
   conteo,
   conteoDetalle,
+  prendas,
 }: Props) {
   const router = useRouter()
   const formRef = React.useRef<HTMLFormElement>(null)
@@ -248,6 +252,16 @@ export function ConteoFichaClient({
           </div>
         </div>
       </div>
+
+      {/* ── Prendas del conjunto (OPs tipo conjunto) ─────── */}
+      {orden.tipo_prenda === "conjunto" && (
+        <PrendasConjuntoSection
+          loteId={lote.id}
+          prendas={prendas}
+          etapa="conteo"
+          onMsg={showToast}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario conteo ──────────────────────────────── */}

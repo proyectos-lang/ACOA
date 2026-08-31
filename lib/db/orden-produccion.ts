@@ -46,12 +46,13 @@ export interface OrdenProduccionRow {
   capas: number
   categoria_id: number | null
   pasa_estampacion: boolean
+  tipo_prenda: "prenda" | "conjunto"
   creado_por: number | null
   creado_en: string
 }
 
 const SELECT_COLS =
-  "id, numero_op, fecha_programacion, referencia, descripcion, url_molde, gama_color, observaciones, estado, capas, categoria_id, pasa_estampacion, creado_por, creado_en"
+  "id, numero_op, fecha_programacion, referencia, descripcion, url_molde, gama_color, observaciones, estado, capas, categoria_id, pasa_estampacion, tipo_prenda, creado_por, creado_en"
 
 export async function listOrdenes(filtros?: {
   estado?: string
@@ -93,6 +94,7 @@ export async function createOrden(input: {
   gama_color?: string | null
   observaciones?: string | null
   url_molde?: string | null
+  tipo_prenda?: "prenda" | "conjunto"
   creado_por: number
 }): Promise<number> {
   const db = createVanessaClient()
@@ -105,6 +107,7 @@ export async function createOrden(input: {
       gama_color: input.gama_color || null,
       observaciones: input.observaciones || null,
       url_molde: input.url_molde || null,
+      tipo_prenda: input.tipo_prenda ?? "prenda",
       creado_por: input.creado_por,
     })
     .select("id")
@@ -126,6 +129,7 @@ export async function updateOrden(
     capas: number
     categoria_id: number | null
     pasa_estampacion: boolean
+    tipo_prenda: "prenda" | "conjunto"
   }>
 ): Promise<void> {
   const db = createVanessaClient()

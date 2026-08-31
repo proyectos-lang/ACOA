@@ -72,9 +72,18 @@ function OrdenForm({ onSuccess }: { onSuccess: (id: number) => void }) {
         />
       </div>
 
-      <div className="space-y-1">
-        <label className="text-sm font-medium text-stone-700">Fecha programación</label>
-        <input type="date" name="fecha_programacion" className={fieldCls} />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Fecha programación</label>
+          <input type="date" name="fecha_programacion" className={fieldCls} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Tipo</label>
+          <select name="tipo_prenda" defaultValue="prenda" className={fieldCls}>
+            <option value="prenda">Prenda</option>
+            <option value="conjunto">Conjunto</option>
+          </select>
+        </div>
       </div>
 
       <div className="space-y-1">

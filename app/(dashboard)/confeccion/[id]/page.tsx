@@ -6,6 +6,7 @@ import { getConfeccionByLote, getInsumosByConfeccion } from "@/lib/db/confeccion
 import { getNovedadesByLote } from "@/lib/db/novedad-proceso"
 import { listConfeccionistas } from "@/lib/db/confeccionista"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 import { ConfeccionFichaClient } from "@/components/confeccion/confeccion-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -25,13 +26,14 @@ export default async function ConfeccionFichaPage({
 
   const confeccion = await getConfeccionByLote(loteId)
 
-  const [orden, curvaTallas, insumos, novedades, confeccionistas, hoja] = await Promise.all([
+  const [orden, curvaTallas, insumos, novedades, confeccionistas, hoja, prendas] = await Promise.all([
     getOrdenById(lote.orden_id),
     getCurvaTallas(lote.orden_id),
     confeccion ? getInsumosByConfeccion(confeccion.id) : Promise.resolve([]),
     getNovedadesByLote(loteId, "confeccion"),
     listConfeccionistas(true),
     getHojaCostos(lote.orden_id),
+    listPrendasByLote(loteId),
   ])
 
   if (!orden) notFound()
@@ -61,6 +63,7 @@ export default async function ConfeccionFichaPage({
         novedades={novedades}
         confeccionistas={confeccionistas}
         precioConfeccionOP={Number(hoja?.valor_confeccion) || null}
+        prendas={prendas}
       />
     </div>
   )

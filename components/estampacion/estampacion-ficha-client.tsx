@@ -16,6 +16,8 @@ import type { CurvaTallaRow } from "@/lib/db/curva-talla"
 import type { LoteRow } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
 import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
+import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
+import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { EstampacionRow } from "@/lib/db/estampacion"
 import {
@@ -42,6 +44,7 @@ interface Props {
   estampacion: EstampacionRow | null
   estampadores: EstampadorRow[]
   precioEstampacionOP: number | null
+  prendas: LotePrendaRow[]
 }
 
 function padOP(n: number) {
@@ -85,6 +88,7 @@ export function EstampacionFichaClient({
   estampacion,
   estampadores,
   precioEstampacionOP,
+  prendas,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -326,6 +330,17 @@ export function EstampacionFichaClient({
         {/* ── Imagen de referencia del lote (con subida) ────── */}
         <LoteImagenUpload lote={lote} onMsg={showToast} />
       </div>
+
+      {/* ── Prendas del conjunto (OPs tipo conjunto) ─────── */}
+      {orden.tipo_prenda === "conjunto" && (
+        <PrendasConjuntoSection
+          loteId={lote.id}
+          prendas={prendas}
+          etapa="estampacion"
+          estampadores={estampadores.map((e) => e.nombre_completo)}
+          onMsg={showToast}
+        />
+      )}
 
       {/* ── Sección de impresión (oculta en pantalla) ─────────── */}
       <style>{`

@@ -15,6 +15,7 @@ const ordenSchema = z.object({
   referencia: z.string().min(1, "Referencia requerida"),
   descripcion: z.string().optional(),
   fecha_programacion: z.string().optional(),
+  tipo_prenda: z.enum(["prenda", "conjunto"]).optional(),
 })
 
 export async function crearOrdenAction(formData: FormData): Promise<OrdenActionResult> {
@@ -25,6 +26,7 @@ export async function crearOrdenAction(formData: FormData): Promise<OrdenActionR
     referencia: formData.get("referencia"),
     descripcion: formData.get("descripcion") || undefined,
     fecha_programacion: formData.get("fecha_programacion") || undefined,
+    tipo_prenda: formData.get("tipo_prenda") || undefined,
   })
   if (!parsed.success) return { error: parsed.error.errors[0].message }
 

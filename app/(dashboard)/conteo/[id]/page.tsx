@@ -3,6 +3,7 @@ import { getLoteById } from "@/lib/db/lote"
 import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 import { ConteoFichaClient } from "@/components/conteo/conteo-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -22,10 +23,11 @@ export default async function ConteoFichaPage({
 
   const conteo = await getConteoByLote(loteId)
 
-  const [orden, curvaTallas, conteoDetalle] = await Promise.all([
+  const [orden, curvaTallas, conteoDetalle, prendas] = await Promise.all([
     getOrdenById(lote.orden_id),
     getCurvaTallas(lote.orden_id),
     conteo ? getConteoDetalle(conteo.id) : Promise.resolve([]),
+    listPrendasByLote(loteId),
   ])
 
   if (!orden) notFound()
@@ -52,6 +54,7 @@ export default async function ConteoFichaPage({
         curvaTallas={curvaTallas}
         conteo={conteo}
         conteoDetalle={conteoDetalle}
+        prendas={prendas}
       />
     </div>
   )

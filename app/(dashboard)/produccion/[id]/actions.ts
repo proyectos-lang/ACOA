@@ -74,6 +74,9 @@ export async function guardarInfoGeneralAction(
       categoria_id: parsed.data.categoria_id ?? null,
       // Checkbox: presente en el form = true, ausente = false
       pasa_estampacion: formData.get("pasa_estampacion") != null,
+      ...(formData.get("tipo_prenda") === "prenda" || formData.get("tipo_prenda") === "conjunto"
+        ? { tipo_prenda: formData.get("tipo_prenda") as "prenda" | "conjunto" }
+        : {}),
     })
 
     const moldeFile = formData.get("molde") as File | null
