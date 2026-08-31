@@ -81,8 +81,7 @@ function generarRelacionEnvio(
             : `<div class="sin-img">Sin imagen</div>`
         }</td>
         <td class="izq">
-          <strong>${padLote(l.numero_lote)}</strong>
-          ${l.descripcion ? `<br/><span class="sub">${esc(l.descripcion)}</span>` : ""}
+          <strong>${esc(l.descripcion) || padLote(l.numero_lote)}</strong>
         </td>
         <td>${padOP(l.orden.numero_op)}</td>
         <td class="izq">${esc(l.orden.referencia)}</td>
@@ -654,11 +653,8 @@ export function ConfeccionListaClient({
                       <div className="h-10 w-10 rounded-lg border border-dashed border-stone-200 bg-stone-50" />
                     )}
                   </td>
-                  <td className="px-3 py-2 font-mono font-semibold text-stone-700 whitespace-nowrap">
-                    {padLote(lote.numero_lote)}
-                    {lote.descripcion && (
-                      <span className="block font-sans font-normal text-xs text-stone-400">{lote.descripcion}</span>
-                    )}
+                  <td className="px-3 py-2 font-semibold text-stone-700 whitespace-nowrap">
+                    {lote.descripcion ?? padLote(lote.numero_lote)}
                   </td>
                   <td className="px-3 py-2">
                     <p className="font-medium text-stone-800">{lote.orden.referencia}</p>

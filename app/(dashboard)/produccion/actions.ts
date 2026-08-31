@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { getSession } from "@/lib/auth/session"
-import { createOrden, updateOrden, uploadMolde } from "@/lib/db/orden-produccion"
+import { createOrden, updateOrden, uploadMolde, deleteOrdenCascada } from "@/lib/db/orden-produccion"
 
 export interface OrdenActionResult {
   error?: string
@@ -76,5 +76,19 @@ export async function editarOrdenAction(formData: FormData): Promise<OrdenAction
     return { success: true, id }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error editando orden" }
+  }
+}
+
+export async function eliminarOrdenAction(ordenId: number): Promise<OrdenActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    // Elimina la OP completa con todos sus lotes y operaciones (cascada)
+    await deleteOrdenCascada(ordenId)
+    revalidatePath("/produccion")
+    return { success: true }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Error eliminando la orden" }
   }
 }

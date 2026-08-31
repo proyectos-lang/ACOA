@@ -198,7 +198,7 @@ export function ConteoFichaClient({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-xs text-stone-500">Lote</p>
-            <p className="font-mono font-bold text-stone-800 text-lg">{padLote(lote.numero_lote)}</p>
+            <p className="font-bold text-stone-800 text-lg">{lote.descripcion ?? padLote(lote.numero_lote)}</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">OP</p>
@@ -407,7 +407,7 @@ export function ConteoFichaClient({
                       <AlertDialogDescription>
                         Se validarán{" "}
                         <strong className="text-stone-800">{totalContado.toLocaleString("es-CO")} unidades</strong>{" "}
-                        para el lote <strong className="text-stone-800">{padLote(lote.numero_lote)}</strong>.
+                        para el lote <strong className="text-stone-800">{lote.descripcion ?? padLote(lote.numero_lote)}</strong>.
                         El lote pasará a <strong className="text-stone-800">Empaque</strong>.
                         Esta acción no se puede revertir.
                       </AlertDialogDescription>

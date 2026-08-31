@@ -3,16 +3,26 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { Plus, Eye, AlertTriangle, CheckCircle2, FileText } from "lucide-react"
+import { Plus, Eye, AlertTriangle, CheckCircle2, FileText, Trash2 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import { ESTADO_OP_LABEL, ESTADO_OP_COLOR } from "@/lib/db/orden-produccion"
-import { crearOrdenAction } from "@/app/(dashboard)/produccion/actions"
+import { crearOrdenAction, eliminarOrdenAction } from "@/app/(dashboard)/produccion/actions"
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface Props {
   ordenes: OrdenProduccionRow[]
@@ -106,6 +116,19 @@ export function OrdenesClient({ ordenes }: Props) {
   const [filtroEstado, setFiltroEstado] = React.useState("todos")
   const [busqueda, setBusqueda] = React.useState("")
   const [toast, setToast] = React.useState<string | null>(null)
+  const [deleteId, setDeleteId] = React.useState<number | null>(null)
+  const [isPendingDelete, startDelete] = useTransition()
+
+  function handleEliminarOrden() {
+    if (!deleteId) return
+    startDelete(async () => {
+      const res = await eliminarOrdenAction(deleteId)
+      setDeleteId(null)
+      setToast(res.error ? `Error: ${res.error}` : "Orden eliminada con todos sus lotes y operaciones")
+      setTimeout(() => setToast(null), 4000)
+      router.refresh()
+    })
+  }
 
   const filtered = ordenes.filter((o) => {
     const b = busqueda.trim().toLowerCase()
@@ -216,13 +239,22 @@ export function OrdenesClient({ ordenes }: Props) {
                       </span>
                     </td>
                     <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => router.push(`/produccion/${op.id}`)}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-stone-100 transition-colors text-stone-500"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Ver
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => router.push(`/produccion/${op.id}`)}
+                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-stone-100 transition-colors text-stone-500"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver
+                        </button>
+                        <button
+                          onClick={() => setDeleteId(op.id)}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
+                          title="Eliminar orden (borra lotes y operaciones)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -231,6 +263,30 @@ export function OrdenesClient({ ordenes }: Props) {
           </div>
         </div>
       )}
+
+      {/* Confirmar eliminación de la OP */}
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar orden de producción?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará la orden con TODOS sus lotes y todas sus operaciones
+              asociadas (curva, materiales, corte, estampación, confección, conteo,
+              empaque, costos y diseño). Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleEliminarOrden}
+              disabled={isPendingDelete}
+              className="rounded-xl bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isPendingDelete ? "Eliminando…" : "Eliminar todo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-lg rounded-2xl">

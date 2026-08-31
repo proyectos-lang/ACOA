@@ -145,6 +145,29 @@ export async function upsertLoteDesdeGrid(
   }
 }
 
+// Elimina un lote y TODOS sus registros asociados en los procesos
+// (estampación, confección + insumos, conteo, empaque, novedades),
+// sin importar el estado del lote.
+export async function deleteLoteCascada(loteId: number): Promise<void> {
+  const db = createVanessaClient()
+
+  // Insumos de confección (dependen de confeccion.id)
+  const { data: confs } = await db.from("confeccion").select("id").eq("lote_id", loteId)
+  const confIds = ((confs ?? []) as { id: number }[]).map((c) => c.id)
+  if (confIds.length > 0) {
+    const { error } = await db.from("confeccion_insumo").delete().in("confeccion_id", confIds)
+    if (error) throw new Error(`confeccion_insumo: ${error.message}`)
+  }
+
+  for (const tabla of ["empaque_registro", "conteo", "confeccion", "estampacion", "novedad_proceso"]) {
+    const { error } = await db.from(tabla).delete().eq("lote_id", loteId)
+    if (error) throw new Error(`${tabla}: ${error.message}`)
+  }
+
+  const { error } = await db.from("lote").delete().eq("id", loteId)
+  if (error) throw new Error(error.message)
+}
+
 // ── Diseño por lote ───────────────────────────────────────────────────────────
 
 export async function updateLoteDiseno(

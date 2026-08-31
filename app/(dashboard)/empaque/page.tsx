@@ -57,7 +57,7 @@ export default async function EmpaquePage() {
                       className="border-b border-stone-100 last:border-0 hover:bg-stone-50 transition-colors"
                     >
                       <td className="px-4 py-3 font-mono font-semibold text-stone-700">
-                        {padLote(lote.numero_lote)}
+                        {lote.descripcion ?? padLote(lote.numero_lote)}
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-stone-800">{lote.orden.referencia}</p>

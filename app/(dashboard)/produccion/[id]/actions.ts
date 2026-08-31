@@ -13,7 +13,7 @@ import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import { insertOpTelas, deleteOpTela, getOpTelas } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
-import { createLoteDesdeOP, upsertLoteDesdeGrid } from "@/lib/db/lote"
+import { createLoteDesdeOP, upsertLoteDesdeGrid, deleteLoteCascada } from "@/lib/db/lote"
 import { createCategoria } from "@/lib/db/categoria"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
@@ -385,14 +385,11 @@ export async function eliminarLoteAction(
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
   try {
-    const db = createVanessaClient()
-    const { data: lote } = await db.from("lote").select("estado").eq("id", loteId).maybeSingle()
-    if (!lote) return { error: "Lote no encontrado" }
-    if ((lote as { estado: string }).estado !== "cortado")
-      return { error: "Solo se pueden eliminar lotes en estado 'cortado'" }
-    const { error } = await db.from("lote").delete().eq("id", loteId)
-    if (error) throw new Error(error.message)
+    // Elimina el lote y todos sus registros en los procesos (cascada)
+    await deleteLoteCascada(loteId)
     revalidatePath(`/produccion/${ordenId}`)
+    revalidatePath("/estampacion")
+    revalidatePath("/confeccion")
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error eliminando lote" }

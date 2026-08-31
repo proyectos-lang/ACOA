@@ -48,7 +48,7 @@ export default async function ConfeccionFichaPage({
         </Link>
         <span className="text-stone-300">/</span>
         <span className="text-sm font-medium text-stone-700">
-          LOTE-{String(lote.numero_lote).padStart(4, "0")} — {lote.color}
+          {lote.descripcion ?? `LOTE-${String(lote.numero_lote).padStart(4, "0")}`} — {orden.referencia}
         </span>
       </div>
 

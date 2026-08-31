@@ -277,7 +277,7 @@ export function ConfeccionFichaClient({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
           <div>
             <p className="text-xs text-stone-500">Lote</p>
-            <p className="font-mono font-bold text-stone-800 text-lg">{padLote(lote.numero_lote)}</p>
+            <p className="font-bold text-stone-800 text-lg">{lote.descripcion ?? padLote(lote.numero_lote)}</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">OP</p>
@@ -486,7 +486,7 @@ export function ConfeccionFichaClient({
                     <AlertDialogHeader>
                       <AlertDialogTitle>¿Enviar a conteo?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        El lote <strong>{padLote(lote.numero_lote)}</strong> pasará a estado{" "}
+                        El lote <strong>{lote.descripcion ?? padLote(lote.numero_lote)}</strong> pasará a estado{" "}
                         <strong>Conteo</strong>. Asegúrese de haber guardado todos los datos de
                         confección e insumos.
                       </AlertDialogDescription>

@@ -139,8 +139,8 @@ export function EstampacionFichaClient({
           <div className="space-y-3 flex-1">
             <div>
               <p className="text-xs text-stone-500">Lote</p>
-              <p className="text-2xl font-bold font-mono text-stone-900">
-                {padLote(lote.numero_lote)}
+              <p className="text-2xl font-bold text-stone-900">
+                {lote.descripcion ?? padLote(lote.numero_lote)}
               </p>
             </div>
             <div className="grid grid-cols-3 gap-6 text-sm">
@@ -306,7 +306,7 @@ export function EstampacionFichaClient({
                     <AlertDialogHeader>
                       <AlertDialogTitle>¿Enviar a confección?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        El lote <strong>{padLote(lote.numero_lote)}</strong> pasará a estado{" "}
+                        El lote <strong>{lote.descripcion ?? padLote(lote.numero_lote)}</strong> pasará a estado{" "}
                         <strong>Confección</strong>. Asegúrese de haber guardado todos los datos.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -357,7 +357,7 @@ export function EstampacionFichaClient({
               Ficha de Estampación
             </h1>
             <p style={{ margin: "4px 0 0", fontSize: 12 }}>
-              {padLote(lote.numero_lote)} · {padOP(orden.numero_op)} — {orden.referencia}
+              {lote.descripcion ?? padLote(lote.numero_lote)} · {padOP(orden.numero_op)} — {orden.referencia}
             </p>
           </div>
           <div style={{ textAlign: "right" }}>

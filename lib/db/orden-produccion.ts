@@ -1,4 +1,5 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
+import { deleteLoteCascada } from "@/lib/db/lote"
 
 export type EstadoOP =
   | "programada"
@@ -149,4 +150,39 @@ export async function uploadMolde(file: File, ordenId: number): Promise<string> 
   if (error) throw new Error(error.message)
   const { data } = db.storage.from("moldes").getPublicUrl(path)
   return data.publicUrl
+}
+
+// Elimina una orden de producción completa: todos sus lotes (con sus
+// operaciones de estampación/confección/conteo/empaque), el corte y sus
+// fichas de tela, la curva, materiales, hoja de costos y diseño.
+export async function deleteOrdenCascada(ordenId: number): Promise<void> {
+  const db = createVanessaClient()
+
+  const { data: lotes, error: lotesErr } = await db
+    .from("lote")
+    .select("id")
+    .eq("orden_id", ordenId)
+  if (lotesErr) throw new Error(lotesErr.message)
+  for (const l of (lotes ?? []) as { id: number }[]) {
+    await deleteLoteCascada(l.id)
+  }
+
+  // Fichas de tela del corte (dependen de corte.id)
+  const { data: cortes } = await db.from("corte").select("id").eq("orden_id", ordenId)
+  const corteIds = ((cortes ?? []) as { id: number }[]).map((c) => c.id)
+  if (corteIds.length > 0) {
+    const { error } = await db.from("corte_tela").delete().in("corte_id", corteIds)
+    if (error) throw new Error(`corte_tela: ${error.message}`)
+  }
+
+  for (const tabla of [
+    "corte_capa_real", "corte", "op_tela_lote", "op_tela",
+    "op_material", "curva_talla", "hoja_costos", "diseno",
+  ]) {
+    const { error } = await db.from(tabla).delete().eq("orden_id", ordenId)
+    if (error) throw new Error(`${tabla}: ${error.message}`)
+  }
+
+  const { error } = await db.from("orden_produccion").delete().eq("id", ordenId)
+  if (error) throw new Error(error.message)
 }

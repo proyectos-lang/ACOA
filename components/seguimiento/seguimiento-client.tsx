@@ -315,7 +315,7 @@ function AlertasSection({ lotes, pipeline }: AlertasProps) {
             titulo="Diferencias en conteo"
             items={diffConteo.map((l) => {
               const diff = (l.total_contado ?? 0) - l.cantidad_programada
-              return `${padLote(l.numero_lote)} (${l.referencia}): ${diff > 0 ? "+" : ""}${diff} ud.`
+              return `${l.lote_descripcion ?? padLote(l.numero_lote)} (${l.referencia}): ${diff > 0 ? "+" : ""}${diff} ud.`
             })}
           />
         )}
@@ -389,7 +389,7 @@ function OPDetailSheet({ lote, open, onClose, detalle, loading, verCostos }: She
             <p className="text-sm text-stone-500 mt-1">{lote.op_descripcion}</p>
           )}
           <p className="text-xs text-stone-400 mt-0.5">
-            {padLote(lote.numero_lote)}{lote.lote_descripcion ? ` — ${lote.lote_descripcion}` : ""}
+            {lote.lote_descripcion ?? padLote(lote.numero_lote)}
           </p>
         </SheetHeader>
 
@@ -419,7 +419,7 @@ function OPDetailSheet({ lote, open, onClose, detalle, loading, verCostos }: She
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-xs text-stone-400 mb-0.5">Lote</p>
-                  <p className="font-mono font-semibold">{padLote(lote.numero_lote)}</p>
+                  <p className="font-semibold">{lote.lote_descripcion ?? padLote(lote.numero_lote)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-stone-400 mb-0.5">Estado lote</p>
@@ -474,8 +474,7 @@ function OPDetailSheet({ lote, open, onClose, detalle, loading, verCostos }: She
                     {detalle.lotes.map(({ lote }) => (
                       <div key={lote.id} className="flex items-center justify-between rounded-lg border border-stone-100 px-3 py-2 text-sm">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-stone-500 text-xs">{padLote(lote.numero_lote)}</span>
-                          {lote.descripcion && <span className="text-stone-600 text-xs truncate max-w-[120px]">{lote.descripcion}</span>}
+                          <span className="text-stone-600 text-xs font-medium truncate max-w-[160px]">{lote.descripcion ?? padLote(lote.numero_lote)}</span>
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-stone-500 text-xs">{lote.cantidad_programada.toLocaleString("es-CO")} ud.</span>
@@ -908,8 +907,8 @@ export default function SeguimientoClient({ lotes, pipeline, verCostos }: Props)
                           {padOP(lote.numero_op)}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-stone-700 whitespace-nowrap">
-                        {padLote(lote.numero_lote)}
+                      <td className="px-4 py-3 font-semibold text-stone-700 whitespace-nowrap">
+                        {lote.lote_descripcion ?? padLote(lote.numero_lote)}
                       </td>
                       <td className="px-4 py-3 text-stone-500 max-w-[160px]">
                         <span className="truncate block">{lote.lote_descripcion ?? "—"}</span>

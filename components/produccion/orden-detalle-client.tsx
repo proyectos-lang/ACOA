@@ -1520,7 +1520,7 @@ function LotesSection({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-stone-100 bg-stone-50">
-                {["Imagen", "Lote", "Descripción", "Cantidad", "Estado", ""].map((h) => (
+                {["Imagen", "Lote", "Cantidad", "Estado", ""].map((h) => (
                   <th key={h} className="px-3 py-2 text-left font-semibold text-stone-500">{h}</th>
                 ))}
               </tr>
@@ -1544,11 +1544,8 @@ function LotesSection({
                         <div className="h-10 w-10 rounded-lg border border-dashed border-stone-200 bg-stone-50" />
                       )}
                     </td>
-                    <td className="px-3 py-2 font-mono font-semibold text-stone-700">
-                      LOTE-{String(lote.numero_lote).padStart(4, "0")}
-                    </td>
-                    <td className="px-3 py-2 text-stone-500 max-w-[180px] truncate">
-                      {lote.descripcion ?? <span className="text-stone-300">—</span>}
+                    <td className="px-3 py-2 font-semibold text-stone-700">
+                      {lote.descripcion ?? `LOTE-${String(lote.numero_lote).padStart(4, "0")}`}
                     </td>
                     <td className="px-3 py-2 font-mono text-stone-700">
                       {lote.cantidad_programada.toLocaleString("es-CO")} ud.
@@ -1569,15 +1566,13 @@ function LotesSection({
                             <ExternalLink className="h-3.5 w-3.5" />
                           </a>
                         )}
-                        {lote.estado === "cortado" && (
-                          <button
-                            onClick={() => setDeleteId(lote.id)}
-                            className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
-                            title="Eliminar lote"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => setDeleteId(lote.id)}
+                          className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
+                          title="Eliminar lote (borra sus registros en todos los procesos)"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1634,7 +1629,10 @@ function LotesSection({
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar lote?</AlertDialogTitle>
-            <AlertDialogDescription>Esta acción no se puede deshacer.</AlertDialogDescription>
+            <AlertDialogDescription>
+              Se eliminarán también todos sus registros de estampación, confección,
+              conteo y empaque. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>

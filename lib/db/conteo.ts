@@ -138,7 +138,7 @@ export async function getLotesEnConteo(): Promise<LoteConConteo[]> {
   const db = createVanessaClient()
   const { data: lotes, error } = await db
     .from("lote")
-    .select("id, corte_id, orden_id, numero_lote, color, cantidad_programada, precio_empaque_unidad, estado")
+    .select("id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado, url_imagen, notas_diseno")
     .eq("estado", "conteo")
     .order("numero_lote", { ascending: false })
   if (error) throw new Error(error.message)
