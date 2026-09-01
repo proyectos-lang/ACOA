@@ -95,13 +95,29 @@ export async function replaceConteoDetalle(
     .eq("conteo_id", conteoId)
   if (delErr) throw new Error(delErr.message)
 
-  const totalContado = filas.reduce((s, f) => s + (f.cantidad_contada || 0), 0)
+  // Agrupar filas repetidas (misma talla y color) sumando cantidades:
+  // conteo_detalle tiene unicidad por (conteo_id, color, talla)
+  const agrupadas = new Map<
+    string,
+    { color: string; talla: string; cantidad_contada: number }
+  >()
+  for (const f of filas) {
+    const color = f.color.trim()
+    const talla = f.talla.trim()
+    const key = `${color.toLowerCase()}|${talla.toLowerCase()}`
+    const prev = agrupadas.get(key)
+    if (prev) prev.cantidad_contada += f.cantidad_contada || 0
+    else agrupadas.set(key, { color, talla, cantidad_contada: f.cantidad_contada || 0 })
+  }
+  const filasUnicas = [...agrupadas.values()]
 
-  if (filas.length > 0) {
-    const rows = filas.map((f) => ({
+  const totalContado = filasUnicas.reduce((s, f) => s + (f.cantidad_contada || 0), 0)
+
+  if (filasUnicas.length > 0) {
+    const rows = filasUnicas.map((f) => ({
       conteo_id: conteoId,
-      color: f.color.trim(),
-      talla: f.talla.trim(),
+      color: f.color,
+      talla: f.talla,
       cantidad_contada: f.cantidad_contada,
       creado_por: creadoPor,
     }))
