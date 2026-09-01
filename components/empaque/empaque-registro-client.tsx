@@ -101,7 +101,9 @@ export function EmpaqueRegistroClient({
   )
   const [talla, setTalla] = React.useState("")
   const [cantidad, setCantidad] = React.useState("")
+  const [imperfectos, setImperfectos] = React.useState("")
   const [fecha, setFecha] = React.useState(fechaHoyDefault)
+  const [justificacion, setJustificacion] = React.useState("")
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -119,10 +121,18 @@ export function EmpaqueRegistroClient({
       else map.set(k, { talla: d.talla.trim(), contado: d.cantidad_contada })
     }
     return [...map.values()].map((p) => {
-      const empacado = registros
-        .filter((r) => r.talla.trim().toLowerCase() === p.talla.toLowerCase())
-        .reduce((s, r) => s + r.cantidad, 0)
-      return { talla: p.talla, contado: p.contado, empacado, pendiente: p.contado - empacado }
+      const delTalla = registros.filter(
+        (r) => r.talla.trim().toLowerCase() === p.talla.toLowerCase()
+      )
+      const empacado = delTalla.reduce((s, r) => s + r.cantidad, 0)
+      const imperfectosTalla = delTalla.reduce((s, r) => s + (r.imperfectos ?? 0), 0)
+      return {
+        talla: p.talla,
+        contado: p.contado,
+        empacado,
+        imperfectos: imperfectosTalla,
+        pendiente: p.contado - empacado - imperfectosTalla,
+      }
     })
   })()
 
@@ -130,8 +140,13 @@ export function EmpaqueRegistroClient({
   const todoEmpacado = progreso.length > 0 && progreso.every((p) => p.pendiente <= 0)
 
   const totalEmpacado = registros.reduce((s, r) => s + r.cantidad, 0)
+  const totalImperfectos = registros.reduce((s, r) => s + (r.imperfectos ?? 0), 0)
   const totalContado = conteo?.total_contado ?? 0
   const pct = totalContado > 0 ? Math.min(100, Math.round((totalEmpacado / totalContado) * 100)) : 0
+
+  // Diferencia frente al conteo: si lo empacado + imperfectos es menor,
+  // hay que justificarla antes de finalizar el lote
+  const pendienteTotal = Math.max(0, totalContado - totalEmpacado - totalImperfectos)
 
   // Disponible por talla (conteo - ya empacado)
   function disponibleParaTalla(t: string): number {
@@ -142,8 +157,10 @@ export function EmpaqueRegistroClient({
   // ── Registrar empaque ──────────────────────────────────────────
   function handleAdd(e: React.FormEvent) {
     e.preventDefault()
-    const cant = parseInt(cantidad, 10)
-    if (!cant || cant <= 0) return showToast("error", "Ingrese una cantidad válida")
+    const cant = parseInt(cantidad, 10) || 0
+    const imperf = parseInt(imperfectos, 10) || 0
+    if (cant <= 0 && imperf <= 0)
+      return showToast("error", "Ingrese la cantidad empacada o los imperfectos encontrados")
     if (!personaId) return showToast("error", "Seleccione la empacadora")
     if (!talla) return showToast("error", "Seleccione la talla")
 
@@ -154,12 +171,14 @@ export function EmpaqueRegistroClient({
         color: "",
         talla,
         cantidad: cant,
+        imperfectos: imperf,
         fecha: fecha || undefined,
       })
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", "Registro de empaque guardado")
         setCantidad("")
+        setImperfectos("")
         router.refresh()
       }
     })
@@ -180,7 +199,7 @@ export function EmpaqueRegistroClient({
   // ── Finalizar lote ─────────────────────────────────────────────
   function handleFinalizar() {
     startFin(async () => {
-      const res = await finalizarLoteAction(lote.id)
+      const res = await finalizarLoteAction(lote.id, justificacion.trim() || undefined)
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", "Lote finalizado correctamente")
@@ -239,6 +258,12 @@ export function EmpaqueRegistroClient({
             <p className="text-xs text-stone-500">Total empacado</p>
             <p className="font-mono font-semibold text-teal-700">
               {totalEmpacado.toLocaleString("es-CO")} uds
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-500">Imperfectos</p>
+            <p className="font-mono font-semibold text-red-700">
+              {totalImperfectos.toLocaleString("es-CO")} uds
             </p>
           </div>
           <div>
@@ -341,18 +366,33 @@ export function EmpaqueRegistroClient({
                 </p>
               )}
 
-              <div className="space-y-1">
-                <label className="text-sm font-medium text-stone-700">Cantidad *</label>
-                <input
-                  type="number"
-                  value={cantidad}
-                  onChange={(e) => setCantidad(e.target.value)}
-                  min="1"
-                  max={talla ? disponibleParaTalla(talla) : undefined}
-                  required
-                  className={fieldCls}
-                  placeholder="0"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-stone-700">Cantidad empacada</label>
+                  <input
+                    type="number"
+                    value={cantidad}
+                    onChange={(e) => setCantidad(e.target.value)}
+                    min="0"
+                    max={talla ? disponibleParaTalla(talla) : undefined}
+                    className={fieldCls}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-stone-700">Imperfectos</label>
+                  <input
+                    type="number"
+                    value={imperfectos}
+                    onChange={(e) => setImperfectos(e.target.value)}
+                    min="0"
+                    className={fieldCls}
+                    placeholder="0"
+                  />
+                  <p className="text-xs text-stone-400">
+                    Problemas de calidad encontrados en esta talla
+                  </p>
+                </div>
               </div>
 
               <button
@@ -369,7 +409,7 @@ export function EmpaqueRegistroClient({
         )}
 
         {/* ── Finalizar lote (fuera del form) ──────────────────── */}
-        {loteActivo && todoEmpacado && (
+        {loteActivo && conteo?.validado && progreso.length > 0 && (todoEmpacado || totalEmpacado + totalImperfectos > 0) && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
@@ -391,10 +431,33 @@ export function EmpaqueRegistroClient({
                   marcará como <strong>Terminada</strong>. Esta acción no se puede revertir.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              {pendienteTotal > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>
+                      Se registraron{" "}
+                      <strong>{(totalEmpacado + totalImperfectos).toLocaleString("es-CO")}</strong>{" "}
+                      unidades (empacadas + imperfectos) de{" "}
+                      <strong>{totalContado.toLocaleString("es-CO")}</strong> contadas. Debes
+                      justificar la diferencia de{" "}
+                      <strong>{pendienteTotal.toLocaleString("es-CO")}</strong> unidades.
+                    </span>
+                  </div>
+                  <textarea
+                    value={justificacion}
+                    onChange={(e) => setJustificacion(e.target.value)}
+                    rows={3}
+                    className={`${fieldCls} resize-none`}
+                    placeholder="Justificación de la diferencia (obligatoria)…"
+                  />
+                </div>
+              )}
               <AlertDialogFooter>
                 <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={handleFinalizar}
+                  disabled={isPendingFin || (pendienteTotal > 0 && !justificacion.trim())}
                   className="rounded-xl"
                   style={{ backgroundColor: "#065f46" }}
                 >
@@ -419,6 +482,7 @@ export function EmpaqueRegistroClient({
                   <th className="text-left py-2 text-xs text-stone-500 font-medium">Talla</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Contado</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Empacado</th>
+                  <th className="text-right py-2 text-xs text-stone-500 font-medium">Imperfectos</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Pendiente</th>
                 </tr>
               </thead>
@@ -435,6 +499,9 @@ export function EmpaqueRegistroClient({
                     <td className="py-2 text-right font-mono text-teal-700 font-semibold">
                       {p.empacado.toLocaleString("es-CO")}
                     </td>
+                    <td className="py-2 text-right font-mono text-red-700">
+                      {p.imperfectos.toLocaleString("es-CO")}
+                    </td>
                     <td className={`py-2 text-right font-mono font-semibold ${p.pendiente <= 0 ? "text-green-600" : "text-stone-700"}`}>
                       {p.pendiente <= 0 ? "✓" : p.pendiente.toLocaleString("es-CO")}
                     </td>
@@ -447,6 +514,9 @@ export function EmpaqueRegistroClient({
                   </td>
                   <td className="py-2 text-right font-mono font-semibold text-teal-700 text-xs">
                     {progreso.reduce((s, p) => s + p.empacado, 0).toLocaleString("es-CO")}
+                  </td>
+                  <td className="py-2 text-right font-mono font-semibold text-red-700 text-xs">
+                    {progreso.reduce((s, p) => s + p.imperfectos, 0).toLocaleString("es-CO")}
                   </td>
                   <td className="py-2 text-right font-mono font-semibold text-stone-800 text-xs">
                     {Math.max(0, progreso.reduce((s, p) => s + p.pendiente, 0)).toLocaleString("es-CO")}
@@ -470,7 +540,7 @@ export function EmpaqueRegistroClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Fecha", "Empacadora", "Talla", "Cantidad", "Precio/ud", "Valor", ""].map(
+                  {["Fecha", "Empacadora", "Talla", "Cantidad", "Imperfectos", "Precio/ud", "Valor", ""].map(
                     (h) => (
                       <th
                         key={h}
@@ -494,6 +564,9 @@ export function EmpaqueRegistroClient({
                       <td className="px-3 py-2 font-medium text-stone-800">{r.talla}</td>
                       <td className="px-3 py-2 font-mono text-stone-700">
                         {r.cantidad.toLocaleString("es-CO")}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-red-700">
+                        {(r.imperfectos ?? 0).toLocaleString("es-CO")}
                       </td>
                       <td className="px-3 py-2 font-mono text-stone-600 text-xs">
                         {cop(Number(r.precio_unidad))}

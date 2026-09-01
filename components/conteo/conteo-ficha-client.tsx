@@ -33,6 +33,7 @@ interface DetallaFila {
   color: string
   talla: string
   cantidad_contada: number
+  imperfectos: number
 }
 
 interface Props {
@@ -89,18 +90,24 @@ export function ConteoFichaClient({
   const [filas, setFilas] = React.useState<DetallaFila[]>(() => {
     if (conteoDetalle.length > 0) {
       // El conteo se registra solo por talla: agrupar detalle existente
-      const porTalla = new Map<string, number>()
+      const porTalla = new Map<string, { cantidad: number; imperfectos: number }>()
       const ordenTallas: string[] = []
       for (const d of conteoDetalle) {
         const t = d.talla.trim()
-        if (!porTalla.has(t)) ordenTallas.push(t)
-        porTalla.set(t, (porTalla.get(t) ?? 0) + d.cantidad_contada)
+        if (!porTalla.has(t)) {
+          ordenTallas.push(t)
+          porTalla.set(t, { cantidad: 0, imperfectos: 0 })
+        }
+        const acc = porTalla.get(t) as { cantidad: number; imperfectos: number }
+        acc.cantidad += d.cantidad_contada
+        acc.imperfectos += d.imperfectos ?? 0
       }
       return ordenTallas.map((t) => ({
         key: `t_${t}`,
         color: "",
         talla: t,
-        cantidad_contada: porTalla.get(t) ?? 0,
+        cantidad_contada: porTalla.get(t)?.cantidad ?? 0,
+        imperfectos: porTalla.get(t)?.imperfectos ?? 0,
       }))
     }
     // Pre-llenar con tallas de la OP
@@ -109,6 +116,7 @@ export function ConteoFichaClient({
       color: "",
       talla: ct.talla,
       cantidad_contada: 0,
+      imperfectos: 0,
     }))
   })
 
@@ -120,7 +128,7 @@ export function ConteoFichaClient({
   function addFila() {
     setFilas((prev) => [
       ...prev,
-      { key: `new_${Date.now()}`, color: "", talla: "", cantidad_contada: 0 },
+      { key: `new_${Date.now()}`, color: "", talla: "", cantidad_contada: 0, imperfectos: 0 },
     ])
   }
 
@@ -135,7 +143,9 @@ export function ConteoFichaClient({
           ? {
               ...f,
               [field]:
-                field === "cantidad_contada" ? parseInt(value, 10) || 0 : value,
+                field === "cantidad_contada" || field === "imperfectos"
+                  ? parseInt(value, 10) || 0
+                  : value,
             }
           : f
       )
@@ -143,6 +153,13 @@ export function ConteoFichaClient({
   }
 
   const totalContado = filas.reduce((s, f) => s + (f.cantidad_contada || 0), 0)
+  const totalImperfectos = filas.reduce((s, f) => s + (f.imperfectos || 0), 0)
+
+  // Diferencia frente a lo programado: si lo registrado (contadas +
+  // imperfectos) es menor, hay que justificarla antes de validar
+  const registrado = totalContado + totalImperfectos
+  const diferencia = lote.cantidad_programada - registrado
+  const [justificacion, setJustificacion] = React.useState("")
 
   // Comparación tallas de OP vs conteo
   const comparacion = curvaDeLote.map((ct) => {
@@ -152,6 +169,7 @@ export function ConteoFichaClient({
     return {
       talla: ct.talla,
       contado: conteoFila?.cantidad_contada ?? 0,
+      imperfectos: conteoFila?.imperfectos ?? 0,
     }
   })
 
@@ -164,6 +182,7 @@ export function ConteoFichaClient({
         color: f.color.trim(),
         talla: f.talla.trim(),
         cantidad_contada: f.cantidad_contada,
+        imperfectos: f.imperfectos,
       }))
     startGuardar(async () => {
       const res = await guardarConteoAction(lote.id, fd, filasLimpias)
@@ -179,9 +198,14 @@ export function ConteoFichaClient({
     const fd = formRef.current ? new FormData(formRef.current) : new FormData()
     const filasLimpias = filas
       .filter((f) => f.talla.trim())
-      .map((f) => ({ color: f.color.trim(), talla: f.talla.trim(), cantidad_contada: f.cantidad_contada }))
+      .map((f) => ({
+        color: f.color.trim(),
+        talla: f.talla.trim(),
+        cantidad_contada: f.cantidad_contada,
+        imperfectos: f.imperfectos,
+      }))
     startValidar(async () => {
-      const res = await validarConteoAction(lote.id, fd, filasLimpias)
+      const res = await validarConteoAction(lote.id, fd, filasLimpias, justificacion.trim() || undefined)
       if (res.error) showToast("error", res.error)
       else {
         showToast(
@@ -239,6 +263,12 @@ export function ConteoFichaClient({
             <p className="text-xs text-stone-500">Total contado</p>
             <p className="font-mono font-semibold text-teal-700">
               {(conteo?.total_contado ?? totalContado).toLocaleString("es-CO")} uds
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-stone-500">Imperfectos</p>
+            <p className="font-mono font-semibold text-red-700">
+              {totalImperfectos.toLocaleString("es-CO")} uds
             </p>
           </div>
           <div>
@@ -329,6 +359,7 @@ export function ConteoFichaClient({
                     <tr className="bg-stone-50 border-b border-stone-100">
                       <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Talla</th>
                       <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Contado</th>
+                      <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Imperfectos</th>
                       {!yaValidado && !yaEnEmpaque && <th className="w-8" />}
                     </tr>
                   </thead>
@@ -364,6 +395,24 @@ export function ConteoFichaClient({
                             />
                           )}
                         </td>
+                        <td className="px-3 py-1.5 text-right">
+                          {yaValidado || yaEnEmpaque ? (
+                            <span className="font-mono text-red-700">
+                              {f.imperfectos.toLocaleString("es-CO")}
+                            </span>
+                          ) : (
+                            <input
+                              type="number"
+                              min="0"
+                              value={f.imperfectos || ""}
+                              onChange={(e) =>
+                                updateFila(f.key, "imperfectos", e.target.value)
+                              }
+                              className="w-20 rounded-lg border border-stone-200 px-2 py-1 text-xs text-right font-mono outline-none focus:ring-1 focus:ring-red-300"
+                              placeholder="0"
+                            />
+                          )}
+                        </td>
                         {!yaValidado && !yaEnEmpaque && (
                           <td className="px-3 py-1.5">
                             <button
@@ -383,6 +432,9 @@ export function ConteoFichaClient({
                       </td>
                       <td className="px-3 py-2 text-right font-mono font-semibold text-stone-800 text-xs">
                         {totalContado.toLocaleString("es-CO")}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold text-red-700 text-xs">
+                        {totalImperfectos.toLocaleString("es-CO")}
                       </td>
                       {!yaValidado && !yaEnEmpaque && <td />}
                     </tr>
@@ -420,17 +472,48 @@ export function ConteoFichaClient({
                       <AlertDialogTitle>¿Validar conteo?</AlertDialogTitle>
                       <AlertDialogDescription>
                         Se validarán{" "}
-                        <strong className="text-stone-800">{totalContado.toLocaleString("es-CO")} unidades</strong>{" "}
+                        <strong className="text-stone-800">{totalContado.toLocaleString("es-CO")} unidades</strong>
+                        {totalImperfectos > 0 && (
+                          <>
+                            {" "}(+{" "}
+                            <strong className="text-red-700">
+                              {totalImperfectos.toLocaleString("es-CO")} imperfectos
+                            </strong>
+                            )
+                          </>
+                        )}{" "}
                         para el lote <strong className="text-stone-800">{lote.descripcion ?? padLote(lote.numero_lote)}</strong>.
                         El lote pasará a <strong className="text-stone-800">Empaque</strong>.
                         Esta acción no se puede revertir.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
+                    {diferencia > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <span>
+                            Se registraron{" "}
+                            <strong>{registrado.toLocaleString("es-CO")}</strong> unidades
+                            (contadas + imperfectos) de{" "}
+                            <strong>{lote.cantidad_programada.toLocaleString("es-CO")}</strong>{" "}
+                            programadas. Debes justificar la diferencia de{" "}
+                            <strong>{diferencia.toLocaleString("es-CO")}</strong> unidades.
+                          </span>
+                        </div>
+                        <textarea
+                          value={justificacion}
+                          onChange={(e) => setJustificacion(e.target.value)}
+                          rows={3}
+                          className={`${fieldCls} resize-none`}
+                          placeholder="Justificación de la diferencia (obligatoria)…"
+                        />
+                      </div>
+                    )}
                     <AlertDialogFooter>
                       <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                       <AlertDialogAction
                         onClick={handleValidar}
-                        disabled={isPendingValidar}
+                        disabled={isPendingValidar || (diferencia > 0 && !justificacion.trim())}
                         className="rounded-xl"
                         style={{ backgroundColor: "#0f766e" }}
                       >
@@ -448,6 +531,13 @@ export function ConteoFichaClient({
                 Conteo validado — lote enviado a empaque
               </div>
             )}
+
+            {conteo?.justificacion_diferencia && (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+                <p className="text-xs font-semibold mb-0.5">Justificación de la diferencia</p>
+                {conteo.justificacion_diferencia}
+              </div>
+            )}
           </div>
         </form>
 
@@ -463,6 +553,7 @@ export function ConteoFichaClient({
                   <tr className="border-b border-stone-100">
                     <th className="text-left py-2 text-xs text-stone-500 font-medium">Talla</th>
                     <th className="text-right py-2 text-xs text-stone-500 font-medium">Contado</th>
+                    <th className="text-right py-2 text-xs text-stone-500 font-medium">Imperfectos</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -472,12 +563,18 @@ export function ConteoFichaClient({
                       <td className="py-2 text-right font-mono text-stone-700">
                         {row.contado.toLocaleString("es-CO")}
                       </td>
+                      <td className="py-2 text-right font-mono text-red-700">
+                        {row.imperfectos.toLocaleString("es-CO")}
+                      </td>
                     </tr>
                   ))}
                   <tr className="bg-stone-50">
                     <td className="py-2 text-xs font-semibold text-stone-700">Total</td>
                     <td className="py-2 text-right font-mono font-semibold text-stone-800 text-xs">
                       {comparacion.reduce((s, r) => s + r.contado, 0).toLocaleString("es-CO")}
+                    </td>
+                    <td className="py-2 text-right font-mono font-semibold text-red-700 text-xs">
+                      {comparacion.reduce((s, r) => s + r.imperfectos, 0).toLocaleString("es-CO")}
                     </td>
                   </tr>
                 </tbody>

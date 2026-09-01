@@ -17,7 +17,7 @@ type ActionResult = {
 export async function guardarConteoAction(
   loteId: number,
   formData: FormData,
-  filas: Array<{ color: string; talla: string; cantidad_contada: number }>
+  filas: Array<{ color: string; talla: string; cantidad_contada: number; imperfectos?: number }>
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
@@ -41,7 +41,8 @@ export async function guardarConteoAction(
 export async function validarConteoAction(
   loteId: number,
   formData: FormData,
-  filas: Array<{ color: string; talla: string; cantidad_contada: number }>
+  filas: Array<{ color: string; talla: string; cantidad_contada: number; imperfectos?: number }>,
+  justificacion?: string
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
@@ -64,8 +65,22 @@ export async function validarConteoAction(
       return { error: "El total contado es 0. Ingrese las cantidades antes de validar." }
     }
 
+    // Si lo registrado (contadas + imperfectos) es menor a lo programado,
+    // la diferencia debe justificarse antes de validar
+    const totalImperfectos = filas.reduce((s, f) => s + (f.imperfectos || 0), 0)
+    const registrado = total + totalImperfectos
+    if (registrado < lote.cantidad_programada && !justificacion?.trim()) {
+      const falta = lote.cantidad_programada - registrado
+      return {
+        error: `Se registraron ${registrado.toLocaleString("es-CO")} unidades (contadas + imperfectos) de ${lote.cantidad_programada.toLocaleString("es-CO")} programadas. Debes justificar la diferencia de ${falta.toLocaleString("es-CO")} unidades antes de validar.`,
+      }
+    }
+
     // Marcar como validado y avanzar el lote
-    await validarConteo(loteId)
+    await validarConteo(
+      loteId,
+      registrado < lote.cantidad_programada ? justificacion : null
+    )
     await updateLoteEstado(loteId, "empaque")
 
     // Si todos los lotes de la OP están en empaque, avanzar la OP

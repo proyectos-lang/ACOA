@@ -8,7 +8,12 @@ import {
   getEmpaquePorLote,
 } from "@/lib/db/empaque-registro"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
-import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
+import {
+  getLoteById,
+  getLotesByOrden,
+  updateLoteEstado,
+  updateLoteJustificacionEmpaque,
+} from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -19,12 +24,19 @@ export async function crearEmpaqueRegistroAction(input: {
   color: string
   talla: string
   cantidad: number
+  imperfectos?: number
   fecha?: string
 }): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
-  if (input.cantidad <= 0) return { error: "La cantidad debe ser mayor a 0" }
+  const imperfectos = input.imperfectos ?? 0
+  if (input.cantidad < 0 || imperfectos < 0) {
+    return { error: "Las cantidades no pueden ser negativas" }
+  }
+  if (input.cantidad <= 0 && imperfectos <= 0) {
+    return { error: "Ingrese la cantidad empacada o los imperfectos encontrados" }
+  }
 
   try {
     // Verificar conteo validado
@@ -48,14 +60,15 @@ export async function crearEmpaqueRegistroAction(input: {
     }
     const contadoTalla = filasTalla.reduce((s, d) => s + d.cantidad_contada, 0)
 
-    const yaEmpacado = registros
+    // Lo empacado + imperfectos encontrados no puede exceder lo contado
+    const yaRegistrado = registros
       .filter((r) => r.talla.trim().toLowerCase() === tallaKey)
-      .reduce((s, r) => s + r.cantidad, 0)
+      .reduce((s, r) => s + r.cantidad + (r.imperfectos ?? 0), 0)
 
-    if (yaEmpacado + input.cantidad > contadoTalla) {
-      const disponible = contadoTalla - yaEmpacado
+    if (yaRegistrado + input.cantidad + imperfectos > contadoTalla) {
+      const disponible = Math.max(0, contadoTalla - yaRegistrado)
       return {
-        error: `Excede el conteo: disponible ${disponible} ud. para la talla ${input.talla}`,
+        error: `Excede el conteo: disponible ${disponible} ud. para la talla ${input.talla} (empacado + imperfectos)`,
       }
     }
 
@@ -71,6 +84,7 @@ export async function crearEmpaqueRegistroAction(input: {
       color: input.color,
       talla: input.talla,
       cantidad: input.cantidad,
+      imperfectos,
       precio_unidad: lote.precio_empaque_unidad,
       fecha: input.fecha || fechaHoy,
       creado_por: session.userId,
@@ -99,7 +113,10 @@ export async function eliminarEmpaqueRegistroAction(
   }
 }
 
-export async function finalizarLoteAction(loteId: number): Promise<ActionResult> {
+export async function finalizarLoteAction(
+  loteId: number,
+  justificacion?: string
+): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
@@ -113,10 +130,20 @@ export async function finalizarLoteAction(loteId: number): Promise<ActionResult>
     if (!lote) return { error: "Lote no encontrado" }
     if (!conteo || !conteo.validado) return { error: "El conteo no está validado" }
 
-    const totalEmpacado = registros.reduce((s, r) => s + r.cantidad, 0)
-    if (totalEmpacado < conteo.total_contado) {
-      const falta = conteo.total_contado - totalEmpacado
-      return { error: `Faltan ${falta} unidades por empacar (conteo: ${conteo.total_contado})` }
+    // Si lo empacado + imperfectos es menor a lo contado, la diferencia
+    // debe justificarse antes de finalizar
+    const totalRegistrado = registros.reduce(
+      (s, r) => s + r.cantidad + (r.imperfectos ?? 0),
+      0
+    )
+    if (totalRegistrado < conteo.total_contado) {
+      const falta = conteo.total_contado - totalRegistrado
+      if (!justificacion?.trim()) {
+        return {
+          error: `Se registraron ${totalRegistrado.toLocaleString("es-CO")} unidades (empacadas + imperfectos) de ${conteo.total_contado.toLocaleString("es-CO")} contadas. Debes justificar la diferencia de ${falta.toLocaleString("es-CO")} unidades antes de finalizar.`,
+        }
+      }
+      await updateLoteJustificacionEmpaque(loteId, justificacion)
     }
 
     await updateLoteEstado(loteId, "finalizado")

@@ -9,6 +9,7 @@ export interface EmpaqueRegistroRow {
   color: string
   talla: string
   cantidad: number
+  imperfectos: number
   precio_unidad: number
   valor_total: number
   fecha: string
@@ -22,7 +23,7 @@ export interface AcumuladoTalla {
 }
 
 const SELECT_COLS =
-  "id, lote_id, persona_id, color, talla, cantidad, precio_unidad, valor_total, fecha"
+  "id, lote_id, persona_id, color, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha"
 
 export async function getEmpaquePorLote(loteId: number): Promise<EmpaqueRegistroRow[]> {
   const db = createVanessaClient()
@@ -65,6 +66,7 @@ export async function createEmpaqueRegistro(input: {
   color: string
   talla: string
   cantidad: number
+  imperfectos?: number
   precio_unidad: number
   fecha: string
   creado_por: number
@@ -77,6 +79,7 @@ export async function createEmpaqueRegistro(input: {
     color: input.color.trim(),
     talla: input.talla.trim(),
     cantidad: input.cantidad,
+    imperfectos: input.imperfectos ?? 0,
     precio_unidad: input.precio_unidad,
     fecha: input.fecha,
     creado_por: input.creado_por,

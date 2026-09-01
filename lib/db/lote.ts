@@ -206,6 +206,20 @@ export async function updateLoteEstado(id: number, estado: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
+// Justificación registrada al finalizar el lote en empaque cuando lo
+// empacado + imperfectos quedó por debajo de lo contado
+export async function updateLoteJustificacionEmpaque(
+  id: number,
+  justificacion: string | null
+): Promise<void> {
+  const db = createVanessaClient()
+  const { error } = await db
+    .from("lote")
+    .update({ justificacion_empaque: justificacion?.trim() || null })
+    .eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
 export type LoteConInfo = LoteRow & {
   orden: { numero_op: number; referencia: string; gama_color: string | null }
   estampacion: {

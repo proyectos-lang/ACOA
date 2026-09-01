@@ -9,6 +9,7 @@ export interface ConteoRow {
   total_contado: number
   validado: boolean
   observacion: string | null
+  justificacion_diferencia: string | null
 }
 
 export interface ConteoDetalleRow {
@@ -17,12 +18,13 @@ export interface ConteoDetalleRow {
   color: string
   talla: string
   cantidad_contada: number
+  imperfectos: number
 }
 
 const SELECT_COLS_CONTEO =
-  "id, lote_id, fecha_conteo, total_contado, validado, observacion"
+  "id, lote_id, fecha_conteo, total_contado, validado, observacion, justificacion_diferencia"
 const SELECT_COLS_DETALLE =
-  "id, conteo_id, color, talla, cantidad_contada"
+  "id, conteo_id, color, talla, cantidad_contada, imperfectos"
 
 export async function getConteoByLote(loteId: number): Promise<ConteoRow | null> {
   const db = createVanessaClient()
@@ -85,7 +87,7 @@ export async function upsertConteo(input: {
 
 export async function replaceConteoDetalle(
   conteoId: number,
-  filas: Array<{ color: string; talla: string; cantidad_contada: number }>,
+  filas: Array<{ color: string; talla: string; cantidad_contada: number; imperfectos?: number }>,
   creadoPor: number
 ): Promise<number> {
   const db = createVanessaClient()
@@ -99,15 +101,24 @@ export async function replaceConteoDetalle(
   // conteo_detalle tiene unicidad por (conteo_id, color, talla)
   const agrupadas = new Map<
     string,
-    { color: string; talla: string; cantidad_contada: number }
+    { color: string; talla: string; cantidad_contada: number; imperfectos: number }
   >()
   for (const f of filas) {
     const color = f.color.trim()
     const talla = f.talla.trim()
     const key = `${color.toLowerCase()}|${talla.toLowerCase()}`
     const prev = agrupadas.get(key)
-    if (prev) prev.cantidad_contada += f.cantidad_contada || 0
-    else agrupadas.set(key, { color, talla, cantidad_contada: f.cantidad_contada || 0 })
+    if (prev) {
+      prev.cantidad_contada += f.cantidad_contada || 0
+      prev.imperfectos += f.imperfectos || 0
+    } else {
+      agrupadas.set(key, {
+        color,
+        talla,
+        cantidad_contada: f.cantidad_contada || 0,
+        imperfectos: f.imperfectos || 0,
+      })
+    }
   }
   const filasUnicas = [...agrupadas.values()]
 
@@ -119,6 +130,7 @@ export async function replaceConteoDetalle(
       color: f.color,
       talla: f.talla,
       cantidad_contada: f.cantidad_contada,
+      imperfectos: f.imperfectos,
       creado_por: creadoPor,
     }))
     const { error: insErr } = await db.from("conteo_detalle").insert(rows)
@@ -134,11 +146,14 @@ export async function replaceConteoDetalle(
   return totalContado
 }
 
-export async function validarConteo(loteId: number): Promise<void> {
+export async function validarConteo(
+  loteId: number,
+  justificacion?: string | null
+): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db
     .from("conteo")
-    .update({ validado: true })
+    .update({ validado: true, justificacion_diferencia: justificacion?.trim() || null })
     .eq("lote_id", loteId)
   if (error) throw new Error(error.message)
 }
