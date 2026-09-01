@@ -39,21 +39,23 @@ export async function crearEmpaqueRegistroAction(input: {
       getEmpaquePorLote(input.lote_id),
     ])
 
-    const filaTalla = detalle.find(
-      (d) => d.color === input.color && d.talla === input.talla
-    )
-    if (!filaTalla) {
-      return { error: `No existe conteo para color "${input.color}" talla "${input.talla}"` }
+    // El empaque se controla solo por talla (los conteos viejos podían
+    // tener la misma talla repartida en varios colores: se suman)
+    const tallaKey = input.talla.trim().toLowerCase()
+    const filasTalla = detalle.filter((d) => d.talla.trim().toLowerCase() === tallaKey)
+    if (filasTalla.length === 0) {
+      return { error: `No existe conteo para la talla "${input.talla}"` }
     }
+    const contadoTalla = filasTalla.reduce((s, d) => s + d.cantidad_contada, 0)
 
     const yaEmpacado = registros
-      .filter((r) => r.color === input.color && r.talla === input.talla)
+      .filter((r) => r.talla.trim().toLowerCase() === tallaKey)
       .reduce((s, r) => s + r.cantidad, 0)
 
-    if (yaEmpacado + input.cantidad > filaTalla.cantidad_contada) {
-      const disponible = filaTalla.cantidad_contada - yaEmpacado
+    if (yaEmpacado + input.cantidad > contadoTalla) {
+      const disponible = contadoTalla - yaEmpacado
       return {
-        error: `Excede el conteo: disponible ${disponible} ud. para ${input.color} / ${input.talla}`,
+        error: `Excede el conteo: disponible ${disponible} ud. para la talla ${input.talla}`,
       }
     }
 

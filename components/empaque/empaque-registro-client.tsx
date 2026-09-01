@@ -94,13 +94,11 @@ export function EmpaqueRegistroClient({
   const [isPendingDel, startDel] = useTransition()
   const [isPendingFin, startFin] = useTransition()
 
-  const coloresConteo = [...new Set(conteoDetalle.map((d) => d.color))]
   const fechaHoyDefault = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
 
   const [personaId, setPersonaId] = React.useState<string>(
     empacadoras[0] ? String(empacadoras[0].id) : ""
   )
-  const [color, setColor] = React.useState(coloresConteo[0] ?? lote.color)
   const [talla, setTalla] = React.useState("")
   const [cantidad, setCantidad] = React.useState("")
   const [fecha, setFecha] = React.useState(fechaHoyDefault)
@@ -110,17 +108,25 @@ export function EmpaqueRegistroClient({
     setTimeout(() => setToast(null), 4000)
   }
 
-  const tallasDisponibles = conteoDetalle
-    .filter((d) => d.color.toLowerCase() === color.toLowerCase())
-    .map((d) => d.talla)
+  // El empaque se maneja solo por talla: agrupar el conteo por talla
+  // (los conteos viejos podían tener la misma talla en varios colores)
+  const progreso = (() => {
+    const map = new Map<string, { talla: string; contado: number }>()
+    for (const d of conteoDetalle) {
+      const k = d.talla.trim().toLowerCase()
+      const prev = map.get(k)
+      if (prev) prev.contado += d.cantidad_contada
+      else map.set(k, { talla: d.talla.trim(), contado: d.cantidad_contada })
+    }
+    return [...map.values()].map((p) => {
+      const empacado = registros
+        .filter((r) => r.talla.trim().toLowerCase() === p.talla.toLowerCase())
+        .reduce((s, r) => s + r.cantidad, 0)
+      return { talla: p.talla, contado: p.contado, empacado, pendiente: p.contado - empacado }
+    })
+  })()
 
-  // Progreso: todas las filas del conteo con lo empacado calculado
-  const progreso = conteoDetalle.map((d) => {
-    const empacado = registros
-      .filter((r) => r.color === d.color && r.talla === d.talla)
-      .reduce((s, r) => s + r.cantidad, 0)
-    return { color: d.color, talla: d.talla, contado: d.cantidad_contada, empacado, pendiente: d.cantidad_contada - empacado }
-  })
+  const tallasDisponibles = progreso.map((p) => p.talla)
   const todoEmpacado = progreso.length > 0 && progreso.every((p) => p.pendiente <= 0)
 
   const totalEmpacado = registros.reduce((s, r) => s + r.cantidad, 0)
@@ -128,15 +134,9 @@ export function EmpaqueRegistroClient({
   const pct = totalContado > 0 ? Math.min(100, Math.round((totalEmpacado / totalContado) * 100)) : 0
 
   // Disponible por talla (conteo - ya empacado)
-  function disponibleParaTalla(c: string, t: string): number {
-    const det = conteoDetalle.find(
-      (d) => d.color.toLowerCase() === c.toLowerCase() && d.talla.toLowerCase() === t.toLowerCase()
-    )
-    if (!det) return 0
-    const empacado = registros
-      .filter((r) => r.color === c && r.talla === t)
-      .reduce((s, r) => s + r.cantidad, 0)
-    return Math.max(0, det.cantidad_contada - empacado)
+  function disponibleParaTalla(t: string): number {
+    const p = progreso.find((x) => x.talla.toLowerCase() === t.trim().toLowerCase())
+    return p ? Math.max(0, p.pendiente) : 0
   }
 
   // ── Registrar empaque ──────────────────────────────────────────
@@ -151,7 +151,7 @@ export function EmpaqueRegistroClient({
       const res = await crearEmpaqueRegistroAction({
         lote_id: lote.id,
         persona_id: parseInt(personaId, 10),
-        color,
+        color: "",
         talla,
         cantidad: cant,
         fecha: fecha || undefined,
@@ -301,49 +301,24 @@ export function EmpaqueRegistroClient({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-stone-700">Color *</label>
-                  {coloresConteo.length > 0 ? (
-                    <select
-                      value={color}
-                      onChange={(e) => { setColor(e.target.value); setTalla("") }}
-                      required
-                      className={fieldCls}
-                    >
-                      {coloresConteo.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type="text"
-                      value={color}
-                      onChange={(e) => setColor(e.target.value)}
-                      className={fieldCls}
-                      placeholder="Color"
-                    />
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <label className="text-sm font-medium text-stone-700">Talla *</label>
-                  <select
-                    value={talla}
-                    onChange={(e) => setTalla(e.target.value)}
-                    required
-                    className={fieldCls}
-                  >
-                    <option value="">Seleccionar talla…</option>
-                    {tallasDisponibles.map((t) => {
-                      const disp = disponibleParaTalla(color, t)
-                      return (
-                        <option key={t} value={t} disabled={disp === 0}>
-                          {t} (disp: {disp.toLocaleString("es-CO")})
-                        </option>
-                      )
-                    })}
-                  </select>
-                </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-stone-700">Talla *</label>
+                <select
+                  value={talla}
+                  onChange={(e) => setTalla(e.target.value)}
+                  required
+                  className={fieldCls}
+                >
+                  <option value="">Seleccionar talla…</option>
+                  {tallasDisponibles.map((t) => {
+                    const disp = disponibleParaTalla(t)
+                    return (
+                      <option key={t} value={t} disabled={disp === 0}>
+                        {t} (disp: {disp.toLocaleString("es-CO")})
+                      </option>
+                    )
+                  })}
+                </select>
               </div>
 
               <div className="space-y-1">
@@ -359,9 +334,9 @@ export function EmpaqueRegistroClient({
 
               {talla && (
                 <p className="text-xs text-stone-500">
-                  Disponible para <strong>{color} / {talla}</strong>:{" "}
+                  Disponible para talla <strong>{talla}</strong>:{" "}
                   <strong className="text-teal-700">
-                    {disponibleParaTalla(color, talla).toLocaleString("es-CO")} uds
+                    {disponibleParaTalla(talla).toLocaleString("es-CO")} uds
                   </strong>
                 </p>
               )}
@@ -373,7 +348,7 @@ export function EmpaqueRegistroClient({
                   value={cantidad}
                   onChange={(e) => setCantidad(e.target.value)}
                   min="1"
-                  max={talla ? disponibleParaTalla(color, talla) : undefined}
+                  max={talla ? disponibleParaTalla(talla) : undefined}
                   required
                   className={fieldCls}
                   placeholder="0"
@@ -441,7 +416,6 @@ export function EmpaqueRegistroClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  <th className="text-left py-2 text-xs text-stone-500 font-medium">Color</th>
                   <th className="text-left py-2 text-xs text-stone-500 font-medium">Talla</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Contado</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Empacado</th>
@@ -451,10 +425,9 @@ export function EmpaqueRegistroClient({
               <tbody>
                 {progreso.map((p) => (
                   <tr
-                    key={`${p.color}||${p.talla}`}
+                    key={p.talla}
                     className={`border-b border-stone-100 last:border-0 ${p.pendiente <= 0 ? "bg-green-50" : ""}`}
                   >
-                    <td className="py-2 text-stone-700">{p.color}</td>
                     <td className="py-2 font-medium text-stone-800">{p.talla}</td>
                     <td className="py-2 text-right font-mono text-stone-600">
                       {p.contado.toLocaleString("es-CO")}
@@ -468,7 +441,7 @@ export function EmpaqueRegistroClient({
                   </tr>
                 ))}
                 <tr className="bg-stone-50">
-                  <td colSpan={2} className="py-2 text-xs font-semibold text-stone-700">Total</td>
+                  <td className="py-2 text-xs font-semibold text-stone-700">Total</td>
                   <td className="py-2 text-right font-mono font-semibold text-stone-800 text-xs">
                     {progreso.reduce((s, p) => s + p.contado, 0).toLocaleString("es-CO")}
                   </td>
@@ -497,7 +470,7 @@ export function EmpaqueRegistroClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Fecha", "Empacadora", "Color", "Talla", "Cantidad", "Precio/ud", "Valor", ""].map(
+                  {["Fecha", "Empacadora", "Talla", "Cantidad", "Precio/ud", "Valor", ""].map(
                     (h) => (
                       <th
                         key={h}
@@ -518,7 +491,6 @@ export function EmpaqueRegistroClient({
                       <td className="px-3 py-2 text-stone-700">
                         {empacadora?.nombre ?? `#${r.persona_id}`}
                       </td>
-                      <td className="px-3 py-2 text-stone-600">{r.color}</td>
                       <td className="px-3 py-2 font-medium text-stone-800">{r.talla}</td>
                       <td className="px-3 py-2 font-mono text-stone-700">
                         {r.cantidad.toLocaleString("es-CO")}
