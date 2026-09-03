@@ -15,22 +15,35 @@ export interface UsuarioConPersona extends UsuarioRow {
   persona: { nombre: string; documento: string } | null
 }
 
+type UsuarioLogin = {
+  id: number
+  nombre_usuario: string
+  contrasena_hash: string
+  nombre_completo: string | null
+  activo: boolean
+}
+
 export async function getUsuarioPorNombre(nombreUsuario: string) {
   const db = createVanessaClient()
-  const { data, error } = await db
-    .from("usuario")
-    .select("id, nombre_usuario, contrasena_hash, nombre_completo, activo")
-    .eq("nombre_usuario", nombreUsuario.trim().toLowerCase())
-    .single()
+  const buscado = nombreUsuario.trim().toLowerCase()
+  const COLS = "id, nombre_usuario, contrasena_hash, nombre_completo, activo"
 
-  if (error || !data) return null
-  return data as {
-    id: number
-    nombre_usuario: string
-    contrasena_hash: string
-    nombre_completo: string | null
-    activo: boolean
-  }
+  // Coincidencia exacta (los usuarios se crean en minúsculas)
+  const { data } = await db
+    .from("usuario")
+    .select(COLS)
+    .eq("nombre_usuario", buscado)
+    .maybeSingle()
+  if (data) return data as UsuarioLogin
+
+  // Respaldo sin distinguir mayúsculas: usuarios cargados manualmente en la
+  // base de datos pueden tener el nombre con mayúsculas o espacios
+  const { data: alt } = await db
+    .from("usuario")
+    .select(COLS)
+    .ilike("nombre_usuario", buscado)
+    .limit(1)
+  return (alt?.[0] as UsuarioLogin | undefined) ?? null
 }
 
 export async function listUsuarios(): Promise<UsuarioConPersona[]> {
@@ -71,8 +84,9 @@ export async function createUsuario(input: {
     .insert({
       nombre_usuario: input.nombre_usuario.trim().toLowerCase(),
       // Decisión del negocio: la contraseña se guarda en texto plano
-      // (el login compara texto plano; ver app/login/actions.ts)
-      contrasena_hash: input.contrasena,
+      // (el login compara texto plano; ver app/login/actions.ts).
+      // Se recortan espacios accidentales para que coincida con el login.
+      contrasena_hash: input.contrasena.trim(),
       nombre_completo: input.nombre_completo.trim(),
       activo: input.activo,
       persona_id: input.persona_id ?? null,
@@ -104,9 +118,9 @@ export async function updateUsuario(
   if (input.nombre_completo !== undefined) updates.nombre_completo = input.nombre_completo.trim()
   if (input.activo !== undefined) updates.activo = input.activo
   if (input.persona_id !== undefined) updates.persona_id = input.persona_id
-  if (input.contrasena && input.contrasena.length >= 6) {
+  if (input.contrasena && input.contrasena.trim().length >= 6) {
     // Texto plano, igual que en createUsuario
-    updates.contrasena_hash = input.contrasena
+    updates.contrasena_hash = input.contrasena.trim()
   }
 
   if (Object.keys(updates).length === 0) return

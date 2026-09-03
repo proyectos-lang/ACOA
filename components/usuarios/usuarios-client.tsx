@@ -32,15 +32,23 @@ import type { UsuarioConPersona } from "@/lib/db/usuario"
 // Schemas
 // ---------------------------------------------------------------------------
 const crearSchema = z.object({
-  nombre_usuario: z.string().min(3, "Mínimo 3 caracteres").max(50),
+  // El usuario se guarda en minúsculas y sin espacios: se normaliza aquí para
+  // que sea exactamente lo que se escribe luego al iniciar sesión
+  nombre_usuario: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3, "Mínimo 3 caracteres")
+    .max(50)
+    .regex(/^\S+$/, "El usuario no puede tener espacios"),
   nombre_completo: z.string().min(1, "Requerido"),
-  contrasena: z.string().min(6, "Mínimo 6 caracteres"),
+  contrasena: z.string().trim().min(6, "Mínimo 6 caracteres"),
   activo: z.boolean(),
 })
 
 const editarSchema = z.object({
   nombre_completo: z.string().min(1, "Requerido"),
-  contrasena: z.string().min(6, "Mínimo 6 caracteres").optional().or(z.literal("")),
+  contrasena: z.string().trim().min(6, "Mínimo 6 caracteres").optional().or(z.literal("")),
   activo: z.boolean(),
 })
 

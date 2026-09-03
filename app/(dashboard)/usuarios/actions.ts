@@ -7,15 +7,21 @@ import { createUsuario, updateUsuario, deleteUsuario } from "@/lib/db/usuario"
 import { updatePermiso, type PermisoKey } from "@/lib/db/permiso"
 
 const crearSchema = z.object({
-  nombre_usuario: z.string().min(3, "Mínimo 3 caracteres").max(50),
+  nombre_usuario: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(3, "Mínimo 3 caracteres")
+    .max(50)
+    .regex(/^\S+$/, "El usuario no puede tener espacios"),
   nombre_completo: z.string().min(1, "Requerido"),
-  contrasena: z.string().min(6, "Mínimo 6 caracteres"),
+  contrasena: z.string().trim().min(6, "Mínimo 6 caracteres"),
   activo: z.boolean(),
 })
 
 const editarSchema = z.object({
   nombre_completo: z.string().min(1, "Requerido"),
-  contrasena: z.string().optional(),
+  contrasena: z.string().trim().optional(),
   activo: z.boolean(),
 })
 

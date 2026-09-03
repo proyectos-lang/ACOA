@@ -14,7 +14,9 @@ export async function loginAction(
   formData: FormData
 ): Promise<LoginState> {
   const nombreUsuario = (formData.get("nombre_usuario") as string | null)?.trim() ?? ""
-  const contrasena = (formData.get("contrasena") as string | null) ?? ""
+  // Se recortan espacios accidentales (autocompletado, copiar/pegar, teclado
+  // móvil): la contraseña se guarda igualmente recortada al crear el usuario
+  const contrasena = ((formData.get("contrasena") as string | null) ?? "").trim()
 
   if (!nombreUsuario || !contrasena) {
     return { error: "Completa todos los campos" }
@@ -32,11 +34,11 @@ export async function loginAction(
 
   // Comparación en texto plano (esquema actual). Fallback bcrypt para los
   // usuarios creados cuando el módulo guardaba hash, para no bloquearlos.
-  const almacenada = usuario.contrasena_hash
+  const almacenada = usuario.contrasena_hash ?? ""
   const esHashBcrypt = /^\$2[aby]\$/.test(almacenada)
   const valida = esHashBcrypt
     ? await bcrypt.compare(contrasena, almacenada)
-    : contrasena === almacenada
+    : contrasena === almacenada.trim()
   if (!valida) {
     return { error: "Usuario o contraseña incorrectos" }
   }
