@@ -33,6 +33,7 @@ export interface PagoAbonoRow {
   valor: number
   fecha: string
   observacion: string | null
+  url_recibo: string | null
   creado_en: string
 }
 
@@ -239,7 +240,7 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
       : Promise.resolve({ data: [] as Array<{ id: number; nombre: string }> }),
     db
       .from("pago_abono")
-      .select("id, pago_id, valor, fecha, observacion, creado_en")
+      .select("id, pago_id, valor, fecha, observacion, url_recibo, creado_en")
       .in("pago_id", pagoIds)
       .order("fecha", { ascending: false })
       .order("id", { ascending: false }),
@@ -346,7 +347,7 @@ export async function updatePago(
 // Edita un abono existente y recalcula el estado del pago
 export async function updateAbono(
   abonoId: number,
-  campos: { valor?: number; fecha?: string; observacion?: string | null }
+  campos: { valor?: number; fecha?: string; observacion?: string | null; url_recibo?: string }
 ): Promise<void> {
   const db = createVanessaClient()
   const { data: abono, error: selErr } = await db
@@ -363,6 +364,7 @@ export async function updateAbono(
   if (campos.valor != null) upd.valor = campos.valor
   if (campos.fecha) upd.fecha = campos.fecha
   if (campos.observacion !== undefined) upd.observacion = campos.observacion?.trim() || null
+  if (campos.url_recibo) upd.url_recibo = campos.url_recibo
   if (Object.keys(upd).length > 0) {
     const { error } = await db.from("pago_abono").update(upd).eq("id", abonoId)
     if (error) throw new Error(error.message)
@@ -370,11 +372,26 @@ export async function updateAbono(
   await recomputarPago(abono.pago_id)
 }
 
+// Sube el recibo de un abono al bucket "documentos" y devuelve su URL
+export async function uploadReciboPago(file: File, ref: string): Promise<string> {
+  const db = createVanessaClient()
+  const ext = file.name.split(".").pop() ?? "jpg"
+  const path = `recibos/${ref}_${Date.now()}.${ext}`
+  const buffer = await file.arrayBuffer()
+  const { error } = await db.storage
+    .from("documentos")
+    .upload(path, buffer, { contentType: file.type, upsert: true })
+  if (error) throw new Error(error.message)
+  const { data } = db.storage.from("documentos").getPublicUrl(path)
+  return data.publicUrl
+}
+
 export async function registrarAbono(input: {
   pago_id: number
   valor: number
   fecha: string
   observacion?: string | null
+  url_recibo?: string | null
   creado_por: number
 }): Promise<void> {
   if (!(input.valor > 0)) throw new Error("El valor del abono debe ser mayor que 0")
@@ -384,6 +401,7 @@ export async function registrarAbono(input: {
     valor: input.valor,
     fecha: input.fecha,
     observacion: input.observacion?.trim() || null,
+    url_recibo: input.url_recibo ?? null,
     creado_por: input.creado_por,
   })
   if (error) throw new Error(error.message)

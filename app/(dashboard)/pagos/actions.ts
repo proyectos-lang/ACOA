@@ -9,6 +9,7 @@ import {
   eliminarPago,
   updatePago,
   updateAbono,
+  uploadReciboPago,
 } from "@/lib/db/pago"
 
 type ActionResult = { error?: string; success?: boolean; count?: number }
@@ -31,17 +32,28 @@ export async function habilitarPagoEstampacionAction(
 
 export async function registrarAbonoAction(
   pagoId: number,
-  input: { valor: number; fecha: string; observacion?: string }
+  formData: FormData
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
+    const valor = parseFloat(formData.get("valor") as string)
+    if (isNaN(valor) || valor <= 0) return { error: "Ingresa el valor del abono" }
+
+    // Recibo adjunto (imagen o PDF), opcional
+    let urlRecibo: string | null = null
+    const recibo = formData.get("recibo") as File | null
+    if (recibo && recibo.size > 0) {
+      urlRecibo = await uploadReciboPago(recibo, `pago_${pagoId}`)
+    }
+
     await registrarAbono({
       pago_id: pagoId,
-      valor: input.valor,
-      fecha: input.fecha,
-      observacion: input.observacion ?? null,
+      valor,
+      fecha: (formData.get("fecha") as string) || new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" }),
+      observacion: (formData.get("observacion") as string)?.trim() || null,
+      url_recibo: urlRecibo,
       creado_por: session.userId,
     })
     revalidatePath("/pagos")
@@ -69,13 +81,29 @@ export async function editarPagoAction(
 
 export async function editarAbonoAction(
   abonoId: number,
-  campos: { valor?: number; fecha?: string; observacion?: string | null }
+  formData: FormData
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    await updateAbono(abonoId, campos)
+    const valorRaw = formData.get("valor") as string
+    const valor = valorRaw ? parseFloat(valorRaw) : NaN
+    if (isNaN(valor) || valor <= 0) return { error: "Ingresa un valor válido para el abono" }
+
+    // Recibo adjunto: si viene archivo, reemplaza el anterior
+    let urlRecibo: string | undefined
+    const recibo = formData.get("recibo") as File | null
+    if (recibo && recibo.size > 0) {
+      urlRecibo = await uploadReciboPago(recibo, `abono_${abonoId}`)
+    }
+
+    await updateAbono(abonoId, {
+      valor,
+      fecha: (formData.get("fecha") as string) || undefined,
+      observacion: (formData.get("observacion") as string) ?? null,
+      ...(urlRecibo ? { url_recibo: urlRecibo } : {}),
+    })
     revalidatePath("/pagos")
     return { success: true }
   } catch (err) {

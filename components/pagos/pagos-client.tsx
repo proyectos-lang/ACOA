@@ -16,6 +16,9 @@ import {
   Pencil,
   Save,
   X,
+  Paperclip,
+  FileDown,
+  FileSpreadsheet,
 } from "lucide-react"
 import {
   type PagoConContexto,
@@ -88,20 +91,23 @@ function AbonoItem({
   const [valor, setValor] = React.useState(String(abono.valor))
   const [fecha, setFecha] = React.useState(abono.fecha)
   const [obs, setObs] = React.useState(abono.observacion ?? "")
+  const [recibo, setRecibo] = React.useState<File | null>(null)
 
   function guardar() {
     const v = parseFloat(valor)
     if (!(v > 0)) return onMsg("error", "Ingresa un valor válido para el abono")
     startTransition(async () => {
-      const res = await editarAbonoAction(abono.id, {
-        valor: v,
-        fecha: fecha || undefined,
-        observacion: obs,
-      })
+      const fd = new FormData()
+      fd.set("valor", valor)
+      fd.set("fecha", fecha)
+      fd.set("observacion", obs)
+      if (recibo) fd.set("recibo", recibo)
+      const res = await editarAbonoAction(abono.id, fd)
       if (res.error) onMsg("error", res.error)
       else {
         onMsg("ok", "Abono actualizado")
         setEditando(false)
+        setRecibo(null)
         router.refresh()
       }
     })
@@ -142,6 +148,19 @@ function AbonoItem({
           className={`${filtroCls} flex-1 min-w-32 text-xs py-1`}
           placeholder="Observación"
         />
+        <label
+          className="flex items-center gap-1 text-[11px] text-stone-500 cursor-pointer hover:text-stone-700"
+          title="Adjuntar/reemplazar recibo"
+        >
+          <Paperclip className="h-3.5 w-3.5" />
+          {recibo ? recibo.name : "Recibo"}
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={(e) => setRecibo(e.target.files?.[0] ?? null)}
+            className="hidden"
+          />
+        </label>
         <button
           type="button"
           onClick={guardar}
@@ -168,6 +187,17 @@ function AbonoItem({
       <span className="font-mono text-stone-600">{abono.fecha}</span>
       <span className="font-mono font-semibold text-emerald-700">{cop(abono.valor)}</span>
       <span className="flex-1 text-stone-500 truncate">{abono.observacion ?? ""}</span>
+      {abono.url_recibo && (
+        <a
+          href={abono.url_recibo}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-0.5 text-teal-700 hover:underline shrink-0"
+          title="Ver recibo adjunto"
+        >
+          <Paperclip className="h-3 w-3" /> Recibo
+        </a>
+      )}
       <button
         type="button"
         onClick={() => setEditando(true)}
@@ -203,6 +233,8 @@ function PagoFila({
   const [valor, setValor] = React.useState("")
   const [fecha, setFecha] = React.useState(hoyBogota())
   const [obs, setObs] = React.useState("")
+  const [recibo, setRecibo] = React.useState<File | null>(null)
+  const fileRef = React.useRef<HTMLInputElement>(null)
 
   const saldo = Number(pago.total) - Number(pago.pagado)
 
@@ -213,16 +245,19 @@ function PagoFila({
       return
     }
     startTransition(async () => {
-      const res = await registrarAbonoAction(pago.id, {
-        valor: v,
-        fecha: fecha || hoyBogota(),
-        observacion: obs.trim() || undefined,
-      })
+      const fd = new FormData()
+      fd.set("valor", valor)
+      fd.set("fecha", fecha || hoyBogota())
+      fd.set("observacion", obs.trim())
+      if (recibo) fd.set("recibo", recibo)
+      const res = await registrarAbonoAction(pago.id, fd)
       if (res.error) onMsg("error", res.error)
       else {
         onMsg("ok", `Abono de ${cop(v)} registrado a ${pago.beneficiario}`)
         setValor("")
         setObs("")
+        setRecibo(null)
+        if (fileRef.current) fileRef.current.value = ""
         router.refresh()
       }
     })
@@ -415,6 +450,20 @@ function PagoFila({
                       placeholder="Transferencia, efectivo…"
                     />
                   </div>
+                  <label
+                    className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-2 text-xs text-stone-500 cursor-pointer hover:bg-stone-100"
+                    title="Adjuntar recibo de pago (imagen o PDF)"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {recibo ? recibo.name.slice(0, 18) : "Recibo"}
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/*,application/pdf"
+                      onChange={(e) => setRecibo(e.target.files?.[0] ?? null)}
+                      className="hidden"
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={abonar}
@@ -478,13 +527,16 @@ function PagoFila({
 
 export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
-  const [vista, setVista] = React.useState<"pagos" | "resumen">("pagos")
+  const [vista, setVista] = React.useState<"pagos" | "resumen" | "historial">("pagos")
 
   const [fOP, setFOP] = React.useState("")
   const [fLote, setFLote] = React.useState("")
   const [fProceso, setFProceso] = React.useState("")
   const [fPersona, setFPersona] = React.useState("")
   const [fEstado, setFEstado] = React.useState("")
+  // Rango de fechas de los pagos realizados (vista Historial)
+  const [hDesde, setHDesde] = React.useState("")
+  const [hHasta, setHHasta] = React.useState("")
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -532,6 +584,163 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
 
   const resumenEst = resumenPorPersona("estampacion")
   const resumenConf = resumenPorPersona("confeccion")
+
+  // ── Historial: cada abono es un pago realizado (día, persona, valor) ──
+  const movimientos = filtrados
+    .flatMap((p) =>
+      p.abonos.map((a) => ({
+        fecha: a.fecha,
+        beneficiario: p.beneficiario,
+        proceso: p.proceso,
+        numero_op: p.numero_op,
+        lote: p.lote_nombre,
+        prenda: p.prenda_nombre,
+        valor: Number(a.valor),
+        observacion: a.observacion,
+        url_recibo: a.url_recibo,
+      }))
+    )
+    .filter((m) => (!hDesde || m.fecha >= hDesde) && (!hHasta || m.fecha <= hHasta))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha) || a.beneficiario.localeCompare(b.beneficiario))
+
+  const dias: Array<{ fecha: string; movs: typeof movimientos; total: number }> = []
+  for (const m of movimientos) {
+    const ultimo = dias[dias.length - 1]
+    if (ultimo && ultimo.fecha === m.fecha) {
+      ultimo.movs.push(m)
+      ultimo.total += m.valor
+    } else {
+      dias.push({ fecha: m.fecha, movs: [m], total: m.valor })
+    }
+  }
+  const totalHistorial = movimientos.reduce((s, m) => s + m.valor, 0)
+
+  // ── Exportaciones (PDF impreso / Excel) ─────────────────────
+  const esc = (s: string | null | undefined) =>
+    (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+  function filtrosTexto() {
+    const partes: string[] = []
+    if (fOP) partes.push(`OP: ${fOP}`)
+    if (fLote) partes.push(`Lote: ${fLote}`)
+    if (fProceso) partes.push(`Proceso: ${fProceso === "estampacion" ? "Estampación" : "Confección"}`)
+    if (fPersona) partes.push(`Persona: ${fPersona}`)
+    if (fEstado) partes.push(`Estado: ${fEstado}`)
+    if (hDesde) partes.push(`Desde: ${hDesde}`)
+    if (hHasta) partes.push(`Hasta: ${hHasta}`)
+    return partes.length ? partes.join("  ·  ") : "Sin filtros"
+  }
+
+  function abrirPdf(titulo: string, cuerpo: string) {
+    const w = window.open("", "_blank")
+    if (!w) return
+    w.document.write(`<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>${esc(titulo)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: letter; margin: 10mm; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; padding: 16px; }
+  .encabezado { border: 1.5px solid #111; margin-bottom: 8px; }
+  .titulo { background: #f2e14c; font-weight: bold; font-size: 12px; padding: 4px 8px; display: flex; justify-content: space-between; }
+  .sub { padding: 3px 8px; color: #444; border-top: 1px solid #111; font-size: 9px; }
+  .totales { border: 1.5px solid #111; background: #dcefe4; display: flex; justify-content: space-between; padding: 5px 8px; font-weight: bold; margin-bottom: 8px; }
+  h2 { font-size: 10px; margin: 8px 0 3px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; table-layout: fixed; }
+  th, td { border: 1px solid #111; padding: 2px 3px; font-size: 8.5px; text-align: center; word-wrap: break-word; overflow-wrap: break-word; }
+  th { background: #eee; text-transform: uppercase; font-size: 8px; }
+  td.izq, th.izq { text-align: left; }
+  td.num { text-align: right; }
+  tr.dia td { background: #eee; font-weight: bold; text-align: left; }
+  tr.dia td.num, tr.gran td.num { text-align: right; }
+  tr.gran td { background: #dcefe4; font-weight: bold; text-align: left; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  @media print { body { padding: 0; } }
+</style></head><body>${cuerpo}</body></html>`)
+    w.document.close()
+    w.focus()
+    setTimeout(() => w.print(), 300)
+  }
+
+  function tablaResumenPdf(titulo: string, rows: typeof resumenEst) {
+    if (rows.length === 0) return ""
+    const filas = rows
+      .map(
+        (r) =>
+          `<tr><td class="izq">${esc(r.nombre)}</td><td class="num">${r.pagos}</td><td class="num">${cop(r.total)}</td><td class="num">${cop(r.pagado)}</td><td class="num">${cop(r.saldo)}</td></tr>`
+      )
+      .join("")
+    return `<h2>${titulo}</h2><table><thead><tr><th class="izq">Nombre</th><th>Pagos</th><th>Total</th><th>Pagado</th><th>Se debe</th></tr></thead><tbody>${filas}</tbody></table>`
+  }
+
+  function exportarPdfPagos() {
+    const filas = filtrados
+      .map(
+        (p) => `<tr>
+      <td>${p.proceso === "estampacion" ? "Estampación" : "Confección"}</td>
+      <td>${padOP(p.numero_op)}</td>
+      <td class="izq">${esc(p.lote_nombre)}${p.prenda_nombre ? " · " + esc(p.prenda_nombre) : ""}</td>
+      <td class="izq">${esc(p.beneficiario)}</td>
+      <td class="num">${p.cantidad.toLocaleString("es-CO")}</td>
+      <td class="num">${cop(p.precio_unitario)}</td>
+      <td class="num">${cop(p.total)}</td>
+      <td class="num">${cop(p.pagado)}</td>
+      <td class="num">${cop(Number(p.total) - Number(p.pagado))}</td>
+      <td>${PAGO_ESTADO_LABEL[p.estado]}</td>
+    </tr>`
+      )
+      .join("")
+    abrirPdf(
+      `Pagos consolidado ${hoyBogota()}`,
+      `<div class="encabezado">
+        <div class="titulo"><span>PAGOS — CONSOLIDADO</span><span>${hoyBogota()}</span></div>
+        <div class="sub">Filtros: ${esc(filtrosTexto())}</div>
+      </div>
+      <div class="totales"><span>TOTAL A PAGAR: ${cop(totalAPagar)}</span><span>PAGADO: ${cop(totalPagado)}</span><span>SE DEBE: ${cop(saldoPendiente)}</span></div>
+      <table><thead><tr><th>Proceso</th><th>OP</th><th class="izq">Lote</th><th class="izq">Beneficiario</th><th>Cant.</th><th>Precio</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table>
+      ${tablaResumenPdf("Relación por estampador", resumenEst)}
+      ${tablaResumenPdf("Relación por confeccionista", resumenConf)}`
+    )
+  }
+
+  function exportarPdfHistorial() {
+    const cuerpo = dias
+      .map(
+        (d) =>
+          `<tr class="dia"><td colspan="4">${d.fecha}</td><td class="num">${cop(d.total)}</td><td></td></tr>` +
+          d.movs
+            .map(
+              (m) =>
+                `<tr><td></td><td class="izq">${esc(m.beneficiario)}</td><td>${m.proceso === "estampacion" ? "Estampación" : "Confección"}</td><td class="izq">${padOP(m.numero_op)} · ${esc(m.lote)}${m.prenda ? " · " + esc(m.prenda) : ""}</td><td class="num">${cop(m.valor)}</td><td class="izq">${esc(m.observacion)}</td></tr>`
+            )
+            .join("")
+      )
+      .join("")
+    abrirPdf(
+      `Historial de pagos ${hoyBogota()}`,
+      `<div class="encabezado">
+        <div class="titulo"><span>HISTORIAL DE PAGOS</span><span>${hoyBogota()}</span></div>
+        <div class="sub">Filtros: ${esc(filtrosTexto())}</div>
+      </div>
+      <table><thead><tr><th>Fecha</th><th class="izq">Persona</th><th>Proceso</th><th class="izq">OP / Lote</th><th>Valor</th><th class="izq">Observación</th></tr></thead><tbody>${cuerpo}<tr class="gran"><td colspan="4">TOTAL PAGADO</td><td class="num">${cop(totalHistorial)}</td><td></td></tr></tbody></table>`
+    )
+  }
+
+  function exportarExcelHistorial() {
+    const filas = movimientos
+      .map(
+        (m) =>
+          `<tr><td>${esc(m.fecha)}</td><td>${esc(m.beneficiario)}</td><td>${m.proceso === "estampacion" ? "Estampación" : "Confección"}</td><td>${padOP(m.numero_op)}</td><td>${esc(m.lote)}${m.prenda ? " - " + esc(m.prenda) : ""}</td><td>${m.valor}</td><td>${esc(m.observacion)}</td></tr>`
+      )
+      .join("")
+    const tabla = `<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>Fecha</th><th>Persona</th><th>Proceso</th><th>OP</th><th>Lote</th><th>Valor</th><th>Observación</th></tr>${filas}<tr><td colspan="5"><b>TOTAL PAGADO</b></td><td><b>${totalHistorial}</b></td><td></td></tr></table></body></html>`
+    const blob = new Blob(["﻿" + tabla], { type: "application/vnd.ms-excel" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `historial-pagos-${hoyBogota()}.xls`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
 
   const cardCls = "rounded-2xl border border-stone-200 bg-white p-5 flex items-center gap-4"
 
@@ -644,7 +853,25 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
             <option value="pagado">Pagado</option>
           </select>
         </div>
-        {(fOP || fLote || fProceso || fPersona || fEstado) && (
+        <div className="space-y-0.5">
+          <label className="text-[11px] font-medium text-stone-500">Pagos desde</label>
+          <input
+            type="date"
+            value={hDesde}
+            onChange={(e) => setHDesde(e.target.value)}
+            className={filtroCls}
+          />
+        </div>
+        <div className="space-y-0.5">
+          <label className="text-[11px] font-medium text-stone-500">Hasta</label>
+          <input
+            type="date"
+            value={hHasta}
+            onChange={(e) => setHHasta(e.target.value)}
+            className={filtroCls}
+          />
+        </div>
+        {(fOP || fLote || fProceso || fPersona || fEstado || hDesde || hHasta) && (
           <button
             type="button"
             onClick={() => {
@@ -653,10 +880,34 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               setFProceso("")
               setFPersona("")
               setFEstado("")
+              setHDesde("")
+              setHHasta("")
             }}
             className="rounded-xl px-3 py-2 text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-50"
           >
             Limpiar filtros
+          </button>
+        )}
+
+        {/* Exportaciones de la información filtrada */}
+        <button
+          type="button"
+          onClick={vista === "historial" ? exportarPdfHistorial : exportarPdfPagos}
+          className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white"
+          style={{ backgroundColor: "#344966" }}
+          title="PDF consolidado de la información filtrada"
+        >
+          <FileDown className="h-3.5 w-3.5" /> PDF
+        </button>
+        {vista === "historial" && (
+          <button
+            type="button"
+            onClick={exportarExcelHistorial}
+            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white"
+            style={{ backgroundColor: "#0f766e" }}
+            title="Exportar el historial filtrado a Excel"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
           </button>
         )}
 
@@ -679,6 +930,15 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
             }`}
           >
             Resumen
+          </button>
+          <button
+            type="button"
+            onClick={() => setVista("historial")}
+            className={`px-4 py-2 text-xs font-semibold ${
+              vista === "historial" ? "bg-[#344966] text-white" : "bg-white text-stone-600"
+            }`}
+          >
+            Historial
           </button>
         </div>
       </div>
@@ -712,6 +972,103 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
                   </tr>
                 ) : (
                   filtrados.map((p) => <PagoFila key={p.id} pago={p} onMsg={showToast} />)
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vista historial: día por día, qué se pagó a quién ── */}
+      {vista === "historial" && (
+        <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+          <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-stone-700">
+              Historial de pagos realizados ({movimientos.length})
+            </h2>
+            <span className="text-sm font-mono font-bold text-emerald-700">
+              Total pagado: {cop(totalHistorial)}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-stone-50 border-b border-stone-100">
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Fecha</th>
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Persona</th>
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Proceso</th>
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">OP / Lote</th>
+                  <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Valor</th>
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Observación</th>
+                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Recibo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dias.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-stone-400">
+                      No hay pagos realizados con los filtros actuales.
+                    </td>
+                  </tr>
+                ) : (
+                  dias.map((d) => (
+                    <React.Fragment key={d.fecha}>
+                      <tr className="bg-stone-100/70 border-b border-stone-200">
+                        <td colSpan={4} className="px-3 py-1.5 text-xs font-bold text-stone-700">
+                          {d.fecha}
+                          <span className="ml-2 font-normal text-stone-500">
+                            ({d.movs.length} {d.movs.length === 1 ? "pago" : "pagos"})
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-mono text-xs font-bold text-stone-800">
+                          {cop(d.total)}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                      {d.movs.map((m, i) => (
+                        <tr
+                          key={`${d.fecha}_${i}`}
+                          className="border-b border-stone-100 hover:bg-stone-50"
+                        >
+                          <td className="px-3 py-2 font-mono text-xs text-stone-400">{m.fecha}</td>
+                          <td className="px-3 py-2 font-medium text-stone-800">{m.beneficiario}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                                m.proceso === "estampacion"
+                                  ? "bg-pink-100 text-pink-800"
+                                  : "bg-teal-100 text-teal-800"
+                              }`}
+                            >
+                              {m.proceso === "estampacion" ? "Estampación" : "Confección"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-stone-600">
+                            <span className="font-mono">{padOP(m.numero_op)}</span> · {m.lote}
+                            {m.prenda && <span className="text-stone-400"> · {m.prenda}</span>}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-semibold text-emerald-700">
+                            {cop(m.valor)}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-stone-500">{m.observacion ?? ""}</td>
+                          <td className="px-3 py-2">
+                            {m.url_recibo ? (
+                              <a
+                                href={m.url_recibo}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-0.5 text-xs text-teal-700 hover:underline"
+                              >
+                                <Paperclip className="h-3 w-3" /> Ver
+                              </a>
+                            ) : (
+                              <span className="text-xs text-stone-300">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  ))
                 )}
               </tbody>
             </table>
