@@ -13,9 +13,13 @@ import {
   Wallet,
   Banknote,
   CircleDollarSign,
+  Pencil,
+  Save,
+  X,
 } from "lucide-react"
 import {
   type PagoConContexto,
+  type PagoAbonoRow,
   PAGO_ESTADO_LABEL,
   PAGO_ESTADO_COLOR,
 } from "@/lib/db/pago"
@@ -23,6 +27,8 @@ import {
   registrarAbonoAction,
   eliminarAbonoAction,
   eliminarPagoAction,
+  editarPagoAction,
+  editarAbonoAction,
 } from "@/app/(dashboard)/pagos/actions"
 import {
   AlertDialog,
@@ -68,6 +74,121 @@ function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
 const filtroCls =
   "rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
 
+// Abono individual: vista, edición inline y eliminación
+function AbonoItem({
+  abono,
+  onMsg,
+}: {
+  abono: PagoAbonoRow
+  onMsg: (tipo: "ok" | "error", msg: string) => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [editando, setEditando] = React.useState(false)
+  const [valor, setValor] = React.useState(String(abono.valor))
+  const [fecha, setFecha] = React.useState(abono.fecha)
+  const [obs, setObs] = React.useState(abono.observacion ?? "")
+
+  function guardar() {
+    const v = parseFloat(valor)
+    if (!(v > 0)) return onMsg("error", "Ingresa un valor válido para el abono")
+    startTransition(async () => {
+      const res = await editarAbonoAction(abono.id, {
+        valor: v,
+        fecha: fecha || undefined,
+        observacion: obs,
+      })
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", "Abono actualizado")
+        setEditando(false)
+        router.refresh()
+      }
+    })
+  }
+
+  function eliminar() {
+    startTransition(async () => {
+      const res = await eliminarAbonoAction(abono.id)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", "Abono eliminado")
+        router.refresh()
+      }
+    })
+  }
+
+  if (editando) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 rounded-lg bg-white border border-[#344966] px-3 py-1.5 text-xs">
+        <input
+          type="date"
+          value={fecha}
+          onChange={(e) => setFecha(e.target.value)}
+          className={`${filtroCls} text-xs py-1`}
+        />
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          className={`${filtroCls} w-28 text-xs py-1`}
+        />
+        <input
+          type="text"
+          value={obs}
+          onChange={(e) => setObs(e.target.value)}
+          className={`${filtroCls} flex-1 min-w-32 text-xs py-1`}
+          placeholder="Observación"
+        />
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={isPending}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-white disabled:opacity-50"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-3 w-3" /> Guardar
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditando(false)}
+          className="p-1 rounded hover:bg-stone-100 text-stone-400"
+          title="Cancelar"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-white border border-stone-200 px-3 py-1.5 text-xs">
+      <span className="font-mono text-stone-600">{abono.fecha}</span>
+      <span className="font-mono font-semibold text-emerald-700">{cop(abono.valor)}</span>
+      <span className="flex-1 text-stone-500 truncate">{abono.observacion ?? ""}</span>
+      <button
+        type="button"
+        onClick={() => setEditando(true)}
+        className="p-0.5 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600"
+        title="Editar abono"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={eliminar}
+        disabled={isPending}
+        className="p-0.5 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
+        title="Eliminar abono"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
+}
+
 // Fila expandible de un pago: historial de abonos + registrar abono
 function PagoFila({
   pago,
@@ -107,12 +228,26 @@ function PagoFila({
     })
   }
 
-  function quitarAbono(abonoId: number) {
+  // Edición de los datos del pago
+  const [editBenef, setEditBenef] = React.useState(pago.beneficiario)
+  const [editCant, setEditCant] = React.useState(String(pago.cantidad))
+  const [editPrecio, setEditPrecio] = React.useState(String(pago.precio_unitario))
+
+  function guardarPago() {
+    const cant = parseInt(editCant, 10)
+    const precio = parseFloat(editPrecio)
+    if (isNaN(cant) || cant < 0 || isNaN(precio) || precio < 0) {
+      return onMsg("error", "Cantidad y precio deben ser válidos")
+    }
     startTransition(async () => {
-      const res = await eliminarAbonoAction(abonoId)
+      const res = await editarPagoAction(pago.id, {
+        beneficiario: editBenef,
+        cantidad: cant,
+        precio_unitario: precio,
+      })
       if (res.error) onMsg("error", res.error)
       else {
-        onMsg("ok", "Abono eliminado")
+        onMsg("ok", "Pago actualizado")
         router.refresh()
       }
     })
@@ -181,6 +316,53 @@ function PagoFila({
       {abierto && (
         <tr className="border-b border-stone-100 bg-stone-50/60">
           <td colSpan={11} className="px-6 py-3">
+            <div className="space-y-3">
+            {/* Editar datos del pago */}
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-stone-500">Beneficiario</label>
+                <input
+                  type="text"
+                  value={editBenef}
+                  onChange={(e) => setEditBenef(e.target.value)}
+                  className={`${filtroCls} w-48 text-xs py-1.5`}
+                />
+              </div>
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-stone-500">Cantidad</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editCant}
+                  onChange={(e) => setEditCant(e.target.value)}
+                  className={`${filtroCls} w-24 text-xs py-1.5`}
+                />
+              </div>
+              <div className="space-y-0.5">
+                <label className="text-[11px] font-medium text-stone-500">Precio unit. (COP)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editPrecio}
+                  onChange={(e) => setEditPrecio(e.target.value)}
+                  className={`${filtroCls} w-32 text-xs py-1.5`}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={guardarPago}
+                disabled={isPending}
+                className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: "#344966" }}
+              >
+                <Pencil className="h-3 w-3" /> Guardar cambios
+              </button>
+              <span className="text-[11px] text-stone-400">
+                Total = cantidad × precio; el estado se recalcula con los abonos
+              </span>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Historial de abonos */}
               <div className="space-y-1.5">
@@ -192,30 +374,7 @@ function PagoFila({
                 ) : (
                   <div className="space-y-1">
                     {pago.abonos.map((a) => (
-                      <div
-                        key={a.id}
-                        className="flex items-center justify-between gap-2 rounded-lg bg-white border border-stone-200 px-3 py-1.5 text-xs"
-                      >
-                        <span className="font-mono text-stone-600">{a.fecha}</span>
-                        <span className="font-mono font-semibold text-emerald-700">
-                          {cop(a.valor)}
-                        </span>
-                        <span className="flex-1 text-stone-500 truncate">
-                          {a.observacion ?? ""}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            quitarAbono(a.id)
-                          }}
-                          disabled={isPending}
-                          className="p-0.5 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
-                          title="Eliminar abono"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      <AbonoItem key={a.id} abono={a} onMsg={onMsg} />
                     ))}
                   </div>
                 )}
@@ -308,6 +467,7 @@ function PagoFila({
                   </AlertDialog>
                 </div>
               </div>
+            </div>
             </div>
           </td>
         </tr>

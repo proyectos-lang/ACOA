@@ -7,6 +7,8 @@ import {
   registrarAbono,
   eliminarAbono,
   eliminarPago,
+  updatePago,
+  updateAbono,
 } from "@/lib/db/pago"
 
 type ActionResult = { error?: string; success?: boolean; count?: number }
@@ -46,6 +48,38 @@ export async function registrarAbonoAction(
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error registrando el abono" }
+  }
+}
+
+export async function editarPagoAction(
+  pagoId: number,
+  campos: { beneficiario?: string; cantidad?: number; precio_unitario?: number }
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    await updatePago(pagoId, campos)
+    revalidatePath("/pagos")
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error editando el pago" }
+  }
+}
+
+export async function editarAbonoAction(
+  abonoId: number,
+  campos: { valor?: number; fecha?: string; observacion?: string | null }
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    await updateAbono(abonoId, campos)
+    revalidatePath("/pagos")
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error editando el abono" }
   }
 }
 

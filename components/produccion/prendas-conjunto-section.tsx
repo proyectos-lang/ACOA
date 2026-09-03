@@ -31,6 +31,9 @@ const SIGUIENTE_LABEL: Record<PrendaEstado, string> = {
   completado: "",
 }
 
+// Tipos de prenda al dividir un lote de conjunto
+const OPCIONES_PRENDA = ["Superior", "Inferior", "Conjunto completo"]
+
 const inputCls =
   "w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
 const lblCls = "text-[11px] font-medium text-stone-500"
@@ -317,7 +320,7 @@ export function PrendasConjuntoSection({
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
-  const [nuevaPrenda, setNuevaPrenda] = React.useState("")
+  const [nuevaPrenda, setNuevaPrenda] = React.useState(OPCIONES_PRENDA[0])
 
   function crear() {
     const nombre = nuevaPrenda.trim()
@@ -327,7 +330,6 @@ export function PrendasConjuntoSection({
       if (res.error) onMsg("error", res.error)
       else {
         onMsg("ok", `Prenda "${nombre}" agregada`)
-        setNuevaPrenda("")
         router.refresh()
       }
     })
@@ -345,14 +347,15 @@ export function PrendasConjuntoSection({
       </div>
 
       <div className="flex items-center gap-2">
-        <input
-          type="text"
+        <select
           value={nuevaPrenda}
           onChange={(e) => setNuevaPrenda(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); crear() } }}
-          placeholder="Nombre de la prenda (ej: Camiseta, Pantalón, Chaqueta)…"
-          className="flex-1 rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
-        />
+          className="flex-1 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+        >
+          {OPCIONES_PRENDA.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
         <button
           type="button"
           onClick={crear}
@@ -366,7 +369,7 @@ export function PrendasConjuntoSection({
 
       {prendas.length === 0 ? (
         <p className="text-sm text-stone-400 text-center py-3">
-          Sin prendas registradas. Agrega cada prenda del conjunto (ej: Camiseta, Pantalón).
+          Sin prendas registradas. Agrega las prendas del conjunto (Superior, Inferior o Conjunto completo).
         </p>
       ) : (
         <div className="space-y-2">

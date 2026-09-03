@@ -310,6 +310,66 @@ async function recomputarPago(pagoId: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// Edita los datos de un pago habilitado (beneficiario, cantidad, precio);
+// recalcula total y estado conservando los abonos
+export async function updatePago(
+  pagoId: number,
+  campos: { beneficiario?: string; cantidad?: number; precio_unitario?: number }
+): Promise<void> {
+  const db = createVanessaClient()
+  const { data: pago, error: selErr } = await db
+    .from("pago_produccion")
+    .select("id, cantidad, precio_unitario, pagado")
+    .eq("id", pagoId)
+    .single()
+  if (selErr || !pago) throw new Error(selErr?.message ?? "Pago no encontrado")
+
+  const cantidad = campos.cantidad ?? pago.cantidad
+  const precio = campos.precio_unitario ?? Number(pago.precio_unitario)
+  if (cantidad < 0 || precio < 0) throw new Error("Cantidad y precio no pueden ser negativos")
+  const total = cantidad * precio
+  const pagado = Number(pago.pagado) || 0
+
+  const { error } = await db
+    .from("pago_produccion")
+    .update({
+      ...(campos.beneficiario?.trim() ? { beneficiario: campos.beneficiario.trim() } : {}),
+      cantidad,
+      precio_unitario: precio,
+      total,
+      estado: calcEstado(total, pagado),
+    })
+    .eq("id", pagoId)
+  if (error) throw new Error(error.message)
+}
+
+// Edita un abono existente y recalcula el estado del pago
+export async function updateAbono(
+  abonoId: number,
+  campos: { valor?: number; fecha?: string; observacion?: string | null }
+): Promise<void> {
+  const db = createVanessaClient()
+  const { data: abono, error: selErr } = await db
+    .from("pago_abono")
+    .select("id, pago_id")
+    .eq("id", abonoId)
+    .single()
+  if (selErr || !abono) throw new Error(selErr?.message ?? "Abono no encontrado")
+  if (campos.valor != null && !(campos.valor > 0)) {
+    throw new Error("El valor del abono debe ser mayor que 0")
+  }
+
+  const upd: Record<string, unknown> = {}
+  if (campos.valor != null) upd.valor = campos.valor
+  if (campos.fecha) upd.fecha = campos.fecha
+  if (campos.observacion !== undefined) upd.observacion = campos.observacion?.trim() || null
+  if (Object.keys(upd).length > 0) {
+    const { error } = await db.from("pago_abono").update(upd).eq("id", abonoId)
+    if (error) throw new Error(error.message)
+  }
+  await recomputarPago(abono.pago_id)
+}
+
 export async function registrarAbono(input: {
   pago_id: number
   valor: number
