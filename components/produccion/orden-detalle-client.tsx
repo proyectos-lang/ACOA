@@ -810,6 +810,7 @@ function generarImpresionOP(
 
   let totalCapasOP = 0
   let totalUnidadesOP = 0
+  let maxLotes = 0
 
   const secciones = slots.map((slot) => {
     const telas = opTelas
@@ -833,6 +834,7 @@ function generarImpresionOP(
 
     // Orden de inserción (el mismo de la grilla), no alfabético
     const lotes = [...new Set(filas.map((r) => r.lote_nombre))]
+    maxLotes = Math.max(maxLotes, lotes.length)
     const capa = (fila: number, lote: string) =>
       filas.find((r) => (r.fila ?? 0) === fila && r.lote_nombre === lote)?.capas ?? 0
 
@@ -891,28 +893,35 @@ function generarImpresionOP(
 <title>${padOP(orden.numero_op)} — ${esc(orden.referencia)}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #111; padding: 24px; }
-  .encabezado { border: 2px solid #111; margin-bottom: 14px; }
-  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 14px; padding: 6px 10px; display: flex; justify-content: space-between; border-bottom: 2px solid #111; }
+  @page { size: letter; margin: 10mm; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; padding: 16px; }
+  .encabezado { border: 1.5px solid #111; margin-bottom: 8px; }
+  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 12px; padding: 4px 8px; display: flex; justify-content: space-between; border-bottom: 1.5px solid #111; }
   .encabezado table { width: 100%; border-collapse: collapse; }
-  .encabezado td { border: 1px solid #111; padding: 5px 8px; }
-  .encabezado td.label { font-weight: bold; background: #eee; width: 160px; text-transform: uppercase; }
-  .tallas-box { border: 2px solid #111; padding: 6px 10px; margin-bottom: 14px; display: flex; gap: 16px; align-items: center; }
+  .encabezado td { border: 1px solid #111; padding: 3px 6px; }
+  .encabezado td.label { font-weight: bold; background: #eee; width: 120px; text-transform: uppercase; }
+  .tallas-box { border: 1.5px solid #111; padding: 4px 8px; margin-bottom: 8px; display: flex; gap: 10px; align-items: center; }
   .tallas-box .label { font-weight: bold; text-transform: uppercase; }
-  h2 { font-size: 12px; margin: 14px 0 5px; text-transform: uppercase; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-  th, td { border: 1px solid #111; padding: 4px 6px; }
-  th { background: #eee; text-transform: uppercase; font-size: 10px; }
-  td.color, th.color { text-align: left; font-weight: bold; width: 140px; }
+  h2 { font-size: 10px; margin: 8px 0 3px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; table-layout: fixed; }
+  th, td { border: 1px solid #111; padding: 2px 3px; font-size: 9px; word-wrap: break-word; overflow-wrap: break-word; }
+  th { background: #eee; text-transform: uppercase; font-size: 8px; }
+  td.color, th.color { text-align: left; font-weight: bold; width: 90px; }
   td.num { text-align: center; }
   .total-col { background: #dcefe4; font-weight: bold; }
   tr.capas td { background: #dcefe4; font-weight: bold; }
   tr.unidades td { font-weight: bold; }
-  .gran-total { border: 2px solid #111; margin-top: 14px; padding: 8px 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 13px; background: #dcefe4; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  .gran-total { border: 1.5px solid #111; margin-top: 8px; padding: 5px 8px; display: flex; justify-content: space-between; font-weight: bold; font-size: 11px; background: #dcefe4; page-break-inside: avoid; }
+  /* Con muchos lotes las celdas se reducen para caber en la hoja carta */
+  body.xcompacta th, body.xcompacta td { padding: 1px 2px; font-size: 7.5px; }
+  body.xcompacta th { font-size: 7px; }
+  body.xcompacta td.color, body.xcompacta th.color { width: 70px; }
   @media print { body { padding: 0; } }
 </style>
 </head>
-<body>
+<body class="${maxLotes > 12 ? "xcompacta" : ""}">
   <div class="encabezado">
     <div class="titulo"><span>ORDEN DE PRODUCCIÓN</span><span>${padOP(orden.numero_op)}</span></div>
     <table>
