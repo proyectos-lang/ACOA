@@ -119,6 +119,7 @@ export type LoteConEmpaque = LoteRow & {
   orden: Pick<OrdenProduccionRow, "numero_op" | "referencia">
   total_empacado: number
   total_contado: number
+  ultima_fecha_empaque: string | null
 }
 
 export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
@@ -137,7 +138,7 @@ export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
 
   const [{ data: ops }, { data: registros }, { data: conteos }] = await Promise.all([
     db.from("orden_produccion").select("id, numero_op, referencia").in("id", ordenIds),
-    db.from("empaque_registro").select("lote_id, cantidad").in("lote_id", loteIds),
+    db.from("empaque_registro").select("lote_id, cantidad, fecha").in("lote_id", loteIds),
     db.from("conteo").select("lote_id, total_contado").in("lote_id", loteIds),
   ])
 
@@ -148,8 +149,11 @@ export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
     ])
   )
   const empMap = new Map<number, number>()
-  for (const r of (registros ?? []) as Array<{ lote_id: number; cantidad: number }>) {
+  const fechaMap = new Map<number, string>()
+  for (const r of (registros ?? []) as Array<{ lote_id: number; cantidad: number; fecha: string }>) {
     empMap.set(r.lote_id, (empMap.get(r.lote_id) ?? 0) + r.cantidad)
+    const prev = fechaMap.get(r.lote_id)
+    if (!prev || r.fecha > prev) fechaMap.set(r.lote_id, r.fecha)
   }
   const conteoMap = new Map(
     ((conteos ?? []) as Array<{ lote_id: number; total_contado: number }>).map((c) => [
@@ -163,5 +167,6 @@ export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
     orden: opMap.get(l.orden_id) ?? { numero_op: 0, referencia: "—" },
     total_empacado: empMap.get(l.id) ?? 0,
     total_contado: conteoMap.get(l.id) ?? 0,
+    ultima_fecha_empaque: fechaMap.get(l.id) ?? null,
   }))
 }
