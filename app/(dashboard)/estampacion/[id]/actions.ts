@@ -2,6 +2,7 @@
 
 import { getSession } from "@/lib/auth/session"
 import { guardarEstampacion, getEstampacionByLote } from "@/lib/db/estampacion"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 import { createNovedadProceso, deleteNovedadProceso } from "@/lib/db/novedad-proceso"
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
@@ -18,10 +19,17 @@ export async function guardarEstampacionAction(
 
   try {
     const precio = parseFloat(formData.get("precio_estampacion") as string)
+    // El precio del lote nunca queda null: si el formulario no lo trae
+    // (OPs tipo conjunto), se usa la suma de los precios de sus prendas
+    let precioFinal = isNaN(precio) ? null : precio
+    if (precioFinal == null) {
+      const prendas = await listPrendasByLote(loteId)
+      precioFinal = prendas.reduce((s, p) => s + (Number(p.est_precio) || 0), 0)
+    }
     await guardarEstampacion({
       lote_id: loteId,
       nombre_estampador: (formData.get("nombre_estampador") as string)?.trim() || null,
-      precio_estampacion: isNaN(precio) ? null : precio,
+      precio_estampacion: precioFinal,
       fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
       fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,

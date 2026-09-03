@@ -1,4 +1,6 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
+import { upsertEstampacionParcial } from "@/lib/db/estampacion"
+import { upsertConfeccionParcial } from "@/lib/db/confeccion"
 
 // Prendas de un conjunto dentro de un lote (OPs tipo "conjunto").
 // Cada prenda avanza por estampación → confección → conteo → completado
@@ -85,4 +87,24 @@ export async function deletePrenda(id: number): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db.from("lote_prenda").delete().eq("id", id)
   if (error) throw new Error(error.message)
+}
+
+// El costo de cada prenda viaja al registro del lote: el precio de
+// estampación/confección del lote (conjunto) queda registrado como la
+// suma de los precios de sus prendas. Se llama tras crear, editar o
+// eliminar una prenda.
+export async function sincronizarPreciosProcesoLote(
+  loteId: number,
+  userId: number
+): Promise<void> {
+  const prendas = await listPrendasByLote(loteId)
+  if (prendas.length === 0) return
+
+  const sumEst = prendas.reduce((s, p) => s + (Number(p.est_precio) || 0), 0)
+  const sumConf = prendas.reduce((s, p) => s + (Number(p.conf_precio) || 0), 0)
+
+  await Promise.all([
+    upsertEstampacionParcial(loteId, { precio_estampacion: sumEst }, userId),
+    upsertConfeccionParcial(loteId, { precio_confeccion: sumConf }, userId),
+  ])
 }

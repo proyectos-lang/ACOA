@@ -6,6 +6,7 @@ import {
   createPrenda,
   updatePrenda,
   deletePrenda,
+  sincronizarPreciosProcesoLote,
   type PrendaEstado,
 } from "@/lib/db/lote-prenda"
 
@@ -30,6 +31,7 @@ export async function crearPrendaAction(
 
   try {
     const id = await createPrenda(loteId, nombre, estadoInicial, session.userId)
+    await sincronizarPreciosProcesoLote(loteId, session.userId)
     revalidarFichas(loteId)
     return { success: true, id }
   } catch (err) {
@@ -60,6 +62,10 @@ export async function actualizarPrendaAction(
 
   try {
     await updatePrenda(prendaId, campos)
+    // El precio de cada prenda viaja al registro del lote (suma por proceso)
+    if (campos.est_precio !== undefined || campos.conf_precio !== undefined) {
+      await sincronizarPreciosProcesoLote(loteId, session.userId)
+    }
     revalidarFichas(loteId)
     return { success: true }
   } catch (err) {
@@ -93,6 +99,7 @@ export async function eliminarPrendaAction(
 
   try {
     await deletePrenda(prendaId)
+    await sincronizarPreciosProcesoLote(loteId, session.userId)
     revalidarFichas(loteId)
     return { success: true }
   } catch (err) {

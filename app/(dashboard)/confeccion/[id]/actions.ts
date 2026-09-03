@@ -6,6 +6,7 @@ import { guardarConfeccion, uploadImagenConfeccion, replaceInsumos, getConfeccio
 import { createNovedadProceso, deleteNovedadProceso } from "@/lib/db/novedad-proceso"
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 
 type ActionResult = { error?: string; success?: boolean }
 
@@ -19,6 +20,13 @@ export async function guardarConfeccionAction(
   try {
     const cantidadRaw = formData.get("cantidad_reconfirmada") as string
     const precioRaw = formData.get("precio_confeccion") as string
+    // El precio del lote nunca queda null: si el formulario no lo trae
+    // (OPs tipo conjunto), se usa la suma de los precios de sus prendas
+    let precioFinal = precioRaw ? parseFloat(precioRaw) : null
+    if (precioFinal == null || isNaN(precioFinal)) {
+      const prendas = await listPrendasByLote(loteId)
+      precioFinal = prendas.reduce((s, p) => s + (Number(p.conf_precio) || 0), 0)
+    }
 
     let urlImagen: string | undefined
     const file = formData.get("imagen") as File | null
@@ -30,7 +38,7 @@ export async function guardarConfeccionAction(
       lote_id: loteId,
       cantidad_reconfirmada: cantidadRaw ? parseInt(cantidadRaw, 10) : null,
       nombre_confeccionista: (formData.get("nombre_confeccionista") as string)?.trim() || null,
-      precio_confeccion: precioRaw ? parseFloat(precioRaw) : null,
+      precio_confeccion: precioFinal,
       fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
       fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,
