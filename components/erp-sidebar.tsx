@@ -25,6 +25,7 @@ import {
   Shirt,
   Wallet,
   History,
+  Radar,
 } from "lucide-react"
 import {
   Sidebar,
@@ -75,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Operación",
     items: [
+      { nombre: "Trazabilidad",     href: "/trazabilidad",  icon: Radar,         permisoKey: "mod_seguimiento"      },
       { nombre: "Seguimiento",      href: "/seguimiento",   icon: BarChart3,     permisoKey: "mod_seguimiento"      },
       { nombre: "Orden Producción", href: "/produccion",    icon: ClipboardList, permisoKey: "mod_orden_produccion" },
       { nombre: "Materiales",       href: "/materiales",    icon: Database,      permisoKey: "mod_orden_produccion" },
