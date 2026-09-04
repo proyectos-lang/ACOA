@@ -5,9 +5,35 @@ import { getSession } from "@/lib/auth/session"
 import { getConfeccionByLote, upsertConfeccionParcial } from "@/lib/db/confeccion"
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
-import { cambiarEstado } from "@/lib/db/orden-produccion"
+import { cambiarEstado, getOrdenById } from "@/lib/db/orden-produccion"
+import { listPrendasByLote, updatePrenda } from "@/lib/db/lote-prenda"
 
 type ActionResult = { error?: string; success?: boolean; procesados?: number }
+
+// En OPs tipo conjunto las prendas del lote se gestionan por separado: la
+// fecha se escribe SOLO en las prendas que aún no tienen la suya, para que
+// cada prenda conserve sus propias fechas.
+// Devuelve true si el lote es de conjunto (ya quedó gestionado por prenda).
+async function aplicarFechaPorPrenda(
+  loteId: number,
+  campo: "conf_fecha_entrega" | "conf_fecha_estimada" | "conf_fecha_retorno",
+  fecha: string,
+  soloVacias: boolean
+): Promise<boolean> {
+  const lote = await getLoteById(loteId)
+  if (!lote) return false
+  const orden = await getOrdenById(lote.orden_id)
+  if (orden?.tipo_prenda !== "conjunto") return false
+
+  const prendas = await listPrendasByLote(loteId)
+  if (prendas.length === 0) return false
+
+  for (const prenda of prendas) {
+    if (soloVacias && prenda[campo]) continue
+    await updatePrenda(prenda.id, { [campo]: fecha })
+  }
+  return true
+}
 
 function hoyBogota(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
@@ -76,7 +102,12 @@ export async function marcarEntregaConfeccionMasivaAction(
   try {
     let procesados = 0
     for (const loteId of loteIds) {
-      await upsertConfeccionParcial(loteId, { fecha_entrega_lote: fecha }, session.userId)
+      // En conjuntos la entrega se marca por prenda, sin pisar las que ya
+      // tienen su propia fecha
+      const porPrenda = await aplicarFechaPorPrenda(loteId, "conf_fecha_entrega", fecha, true)
+      if (!porPrenda) {
+        await upsertConfeccionParcial(loteId, { fecha_entrega_lote: fecha }, session.userId)
+      }
       procesados++
     }
     revalidatePath("/confeccion")
@@ -99,7 +130,10 @@ export async function marcarFechaEstimadaConfeccionMasivaAction(
   try {
     let procesados = 0
     for (const loteId of loteIds) {
-      await upsertConfeccionParcial(loteId, { fecha_estimada_entrega: fecha }, session.userId)
+      const porPrenda = await aplicarFechaPorPrenda(loteId, "conf_fecha_estimada", fecha, true)
+      if (!porPrenda) {
+        await upsertConfeccionParcial(loteId, { fecha_estimada_entrega: fecha }, session.userId)
+      }
       procesados++
     }
     revalidatePath("/confeccion")
@@ -126,6 +160,7 @@ export async function recepcionConfeccionMasivaAction(
       const lote = await getLoteById(loteId)
       if (!lote || lote.estado !== "confeccion") continue
 
+      await aplicarFechaPorPrenda(loteId, "conf_fecha_retorno", hoyBogota(), true)
       const actual = await getConfeccionByLote(loteId)
       await upsertConfeccionParcial(
         loteId,
