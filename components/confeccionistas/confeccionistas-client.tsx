@@ -124,6 +124,71 @@ function ConfeccionistaForm({
         <p className="text-xs text-stone-400">Se usará para las alertas de cumpleaños</p>
       </div>
 
+      {/* ── Datos bancarios: para pagar directamente a su cuenta ── */}
+      <div className="rounded-xl border border-stone-200 bg-stone-50/60 p-3 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">
+          Datos bancarios
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-stone-700">Banco</label>
+            <input
+              type="text"
+              name="banco"
+              defaultValue={inicial?.banco ?? ""}
+              className={fieldCls}
+              placeholder="Bancolombia, Nequi…"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-stone-700">Tipo de cuenta</label>
+            <select
+              name="tipo_cuenta"
+              defaultValue={inicial?.tipo_cuenta ?? ""}
+              className={fieldCls}
+            >
+              <option value="">— Seleccionar —</option>
+              <option value="Ahorros">Ahorros</option>
+              <option value="Corriente">Corriente</option>
+              <option value="Nequi">Nequi</option>
+              <option value="Daviplata">Daviplata</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Número de cuenta</label>
+          <input
+            type="text"
+            name="numero_cuenta"
+            defaultValue={inicial?.numero_cuenta ?? ""}
+            className={fieldCls}
+            placeholder="000-000000-00"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-stone-700">Certificación bancaria</label>
+          {inicial?.url_certificacion_bancaria && (
+            <a
+              href={inicial.url_certificacion_bancaria}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mb-1 flex items-center gap-1.5 text-xs text-blue-600 hover:underline"
+            >
+              <ExternalLink className="h-3 w-3" /> Ver certificación actual
+            </a>
+          )}
+          <input
+            type="file"
+            name="certificacion_bancaria"
+            accept="image/*,.pdf"
+            className="w-full text-sm text-stone-500 file:mr-3 file:rounded-lg file:border-0 file:px-3 file:py-1.5 file:text-xs file:font-medium file:bg-stone-100 file:text-stone-600 hover:file:bg-stone-200"
+          />
+        </div>
+      </div>
+
       <div className="space-y-1">
         <label className="text-sm font-medium text-stone-700">Foto de la cédula</label>
         {inicial?.url_foto_cedula && (

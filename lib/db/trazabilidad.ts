@@ -33,6 +33,14 @@ export interface PrendaTraza {
   estampador: string | null
   confeccionista: string | null
   contadas: number | null
+  // Fechas y tiempos propios de cada pieza
+  est_entrega: string | null
+  est_retorno: string | null
+  est_dias: number | null
+  conf_entrega: string | null
+  conf_retorno: string | null
+  conf_dias: number | null
+  dias_total: number | null
 }
 
 export interface LoteTraza {
@@ -49,6 +57,10 @@ export interface LoteTraza {
   fecha_conteo: string | null
   total_contado: number | null
   total_empacado: number
+  // Tiempos de proceso del lote (días)
+  est_dias: number | null
+  conf_dias: number | null
+  dias_total: number | null
   prendas: PrendaTraza[]
 }
 
@@ -177,7 +189,9 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
     loteIds.length
       ? db
           .from("lote_prenda")
-          .select("id, lote_id, nombre, estado, nombre_estampador, nombre_confeccionista, cantidad_contada")
+          .select(
+            "id, lote_id, nombre, estado, nombre_estampador, nombre_confeccionista, cantidad_contada, est_fecha_entrega, est_fecha_retorno, conf_fecha_entrega, conf_fecha_retorno"
+          )
           .in("lote_id", loteIds)
       : Promise.resolve(vacio),
   ])
@@ -214,8 +228,14 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
     nombre_estampador: string | null
     nombre_confeccionista: string | null
     cantidad_contada: number | null
+    est_fecha_entrega: string | null
+    est_fecha_retorno: string | null
+    conf_fecha_entrega: string | null
+    conf_fecha_retorno: string | null
   }>) {
     const arr = prendasMap.get(p.lote_id) ?? []
+    const inicio = minFecha([p.est_fecha_entrega, p.conf_fecha_entrega])
+    const fin = maxFecha([p.est_fecha_retorno, p.conf_fecha_retorno])
     arr.push({
       id: p.id,
       nombre: p.nombre,
@@ -223,6 +243,13 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
       estampador: p.nombre_estampador,
       confeccionista: p.nombre_confeccionista,
       contadas: p.cantidad_contada,
+      est_entrega: p.est_fecha_entrega,
+      est_retorno: p.est_fecha_retorno,
+      est_dias: diasEntre(p.est_fecha_entrega, p.est_fecha_retorno),
+      conf_entrega: p.conf_fecha_entrega,
+      conf_retorno: p.conf_fecha_retorno,
+      conf_dias: diasEntre(p.conf_fecha_entrega, p.conf_fecha_retorno),
+      dias_total: diasEntre(inicio, fin),
     })
     prendasMap.set(p.lote_id, arr)
   }
@@ -270,6 +297,17 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
         fecha_conteo: cnt?.fecha_conteo ?? null,
         total_contado: cnt?.total_contado ?? null,
         total_empacado: emp?.total ?? 0,
+        est_dias: diasEntre(est?.fecha_entrega_lote ?? null, est?.fecha_retorno_lote ?? null),
+        conf_dias: diasEntre(conf?.fecha_entrega_lote ?? null, conf?.fecha_retorno_lote ?? null),
+        dias_total: diasEntre(
+          minFecha([est?.fecha_entrega_lote ?? null, conf?.fecha_entrega_lote ?? null]),
+          maxFecha([
+            est?.fecha_retorno_lote ?? null,
+            conf?.fecha_retorno_lote ?? null,
+            cnt?.fecha_conteo ?? null,
+            ...(emp?.fechas ?? []),
+          ])
+        ),
         prendas: prendasMap.get(l.id) ?? [],
       }
     })

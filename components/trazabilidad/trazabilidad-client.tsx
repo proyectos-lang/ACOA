@@ -126,6 +126,11 @@ function LoteDetalle({ lote }: { lote: LoteTraza }) {
           <Badge className={`${LOTE_ESTADO_COLOR[lote.estado] ?? "bg-stone-100 text-stone-700"} border-0`}>
             {LOTE_ESTADO_LABEL[lote.estado] ?? lote.estado}
           </Badge>
+          {lote.dias_total != null && (
+            <Badge variant="outline" className="border-stone-300 text-stone-600 text-[10px] gap-1">
+              <Timer className="h-3 w-3" /> {lote.dias_total} d en proceso
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-3 text-xs text-stone-600">
           <span className="font-mono">{lote.cantidad_programada.toLocaleString("es-CO")} prog.</span>
@@ -148,12 +153,18 @@ function LoteDetalle({ lote }: { lote: LoteTraza }) {
           <span>
             Estampación: <strong className="font-mono">{lote.est_entrega}</strong>
             {lote.est_retorno && <span className="font-mono"> → {lote.est_retorno}</span>}
+            {lote.est_dias != null && (
+              <strong className="text-pink-700"> ({lote.est_dias} d)</strong>
+            )}
           </span>
         )}
         {lote.conf_entrega && (
           <span>
             Confección: <strong className="font-mono">{lote.conf_entrega}</strong>
             {lote.conf_retorno && <span className="font-mono"> → {lote.conf_retorno}</span>}
+            {lote.conf_dias != null && (
+              <strong className="text-teal-700"> ({lote.conf_dias} d)</strong>
+            )}
           </span>
         )}
         {lote.fecha_conteo && (
@@ -169,29 +180,70 @@ function LoteDetalle({ lote }: { lote: LoteTraza }) {
           <p className="text-[11px] font-semibold text-stone-500">
             Piezas del lote ({lote.prendas.length})
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {lote.prendas.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-2.5 py-1.5"
+                className="rounded-lg border border-stone-200 bg-white px-2.5 py-2 space-y-1"
               >
-                <span className="text-xs font-medium text-stone-800">{p.nombre}</span>
-                <Badge
-                  className={`${PRENDA_COLOR[p.estado] ?? "bg-stone-100 text-stone-700"} border-0 text-[10px] px-1.5 py-0`}
-                >
-                  {p.estado}
-                </Badge>
-                {p.estampador && (
-                  <span className="text-[10px] text-stone-500">Est: {p.estampador}</span>
-                )}
-                {p.confeccionista && (
-                  <span className="text-[10px] text-stone-500">Conf: {p.confeccionista}</span>
-                )}
-                {p.contadas != null && (
-                  <span className="text-[10px] font-mono text-stone-600">
-                    {p.contadas.toLocaleString("es-CO")} ud
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-stone-800">{p.nombre}</span>
+                  <Badge
+                    className={`${PRENDA_COLOR[p.estado] ?? "bg-stone-100 text-stone-700"} border-0 text-[10px] px-1.5 py-0`}
+                  >
+                    {p.estado}
+                  </Badge>
+                  {p.dias_total != null && (
+                    <Badge
+                      variant="outline"
+                      className="border-stone-300 text-stone-600 text-[10px] px-1.5 py-0 gap-1"
+                    >
+                      <Timer className="h-2.5 w-2.5" /> {p.dias_total} d
+                    </Badge>
+                  )}
+                  {p.contadas != null && (
+                    <span className="text-[10px] font-mono text-stone-600">
+                      {p.contadas.toLocaleString("es-CO")} ud
+                    </span>
+                  )}
+                </div>
+
+                {/* Tiempos de cada pieza por etapa */}
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-stone-500">
+                  {p.estampador && (
+                    <span>
+                      Est: <strong className="text-stone-700">{p.estampador}</strong>
+                      {p.est_entrega && (
+                        <span className="font-mono">
+                          {" "}
+                          {p.est_entrega}
+                          {p.est_retorno ? ` → ${p.est_retorno}` : ""}
+                        </span>
+                      )}
+                      {p.est_dias != null && (
+                        <strong className="text-pink-700"> ({p.est_dias} d)</strong>
+                      )}
+                    </span>
+                  )}
+                  {p.confeccionista && (
+                    <span>
+                      Conf: <strong className="text-stone-700">{p.confeccionista}</strong>
+                      {p.conf_entrega && (
+                        <span className="font-mono">
+                          {" "}
+                          {p.conf_entrega}
+                          {p.conf_retorno ? ` → ${p.conf_retorno}` : ""}
+                        </span>
+                      )}
+                      {p.conf_dias != null && (
+                        <strong className="text-teal-700"> ({p.conf_dias} d)</strong>
+                      )}
+                    </span>
+                  )}
+                  {!p.estampador && !p.confeccionista && (
+                    <span className="text-stone-400">Sin asignaciones registradas</span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -350,9 +402,10 @@ export function TrazabilidadClient({
 
   return (
     <div className="space-y-5">
-      {/* ── Indicadores ──────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-5 flex items-center gap-4">
+      {/* ── Indicadores: un solo contenedor con divisiones ───── */}
+      <Card className="p-0 overflow-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-stone-200">
+        <div className="p-5 flex items-center gap-4">
           <div className="rounded-xl bg-blue-50 p-3">
             <Layers className="h-6 w-6 text-blue-600" />
           </div>
@@ -361,8 +414,8 @@ export function TrazabilidadClient({
             <p className="text-2xl font-bold text-stone-900">{abiertas.length}</p>
             <p className="text-[11px] text-stone-400">{cerradas.length} terminadas</p>
           </div>
-        </Card>
-        <Card className="p-5 flex items-center gap-4">
+        </div>
+        <div className="p-5 flex items-center gap-4">
           <div className="rounded-xl bg-teal-50 p-3">
             <Package className="h-6 w-6 text-teal-600" />
           </div>
@@ -375,8 +428,8 @@ export function TrazabilidadClient({
               {filtradas.reduce((s, o) => s + o.total_lotes, 0)} lotes
             </p>
           </div>
-        </Card>
-        <Card className="p-5 flex items-center gap-4">
+        </div>
+        <div className="p-5 flex items-center gap-4">
           <div className="rounded-xl bg-emerald-50 p-3">
             <Timer className="h-6 w-6 text-emerald-600" />
           </div>
@@ -385,8 +438,8 @@ export function TrazabilidadClient({
             <p className="text-2xl font-bold text-emerald-700 font-mono">{leadPromedio} d</p>
             <p className="text-[11px] text-stone-400">órdenes terminadas</p>
           </div>
-        </Card>
-        <Card className="p-5 flex items-center gap-4">
+        </div>
+        <div className="p-5 flex items-center gap-4">
           <div className={`rounded-xl p-3 ${demoradas.length > 0 ? "bg-red-50" : "bg-stone-100"}`}>
             <Clock className={`h-6 w-6 ${demoradas.length > 0 ? "text-red-600" : "text-stone-500"}`} />
           </div>
@@ -403,8 +456,9 @@ export function TrazabilidadClient({
               {demoradas.length > 0 ? `${demoradas.length} con más de 30 días` : "dentro del rango"}
             </p>
           </div>
-        </Card>
-      </div>
+        </div>
+        </div>
+      </Card>
 
       {/* ── Gráficos: lead time por etapa y distribución ──────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -494,20 +548,25 @@ export function TrazabilidadClient({
       )}
 
       {/* ── Filtros ──────────────────────────────────────────── */}
-      <Card className="p-4 flex flex-wrap items-end gap-3">
+      <Card className="p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
         <div className="space-y-0.5">
           <label className="text-[11px] font-medium text-stone-500">OP / Referencia</label>
           <input
             type="text"
             value={fOP}
             onChange={(e) => setFOP(e.target.value)}
-            className={`${filtroCls} w-44`}
+            className={`${filtroCls} w-full`}
             placeholder="OP-0001"
           />
         </div>
         <div className="space-y-0.5">
           <label className="text-[11px] font-medium text-stone-500">Etapa</label>
-          <select value={fEstado} onChange={(e) => setFEstado(e.target.value)} className={filtroCls}>
+          <select
+            value={fEstado}
+            onChange={(e) => setFEstado(e.target.value)}
+            className={`${filtroCls} w-full`}
+          >
             <option value="">Todas</option>
             {estadosUnicos.map((e) => (
               <option key={e} value={e} className="capitalize">
@@ -518,35 +577,42 @@ export function TrazabilidadClient({
         </div>
         <div className="space-y-0.5">
           <label className="text-[11px] font-medium text-stone-500">Tipo</label>
-          <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} className={filtroCls}>
+          <select
+            value={fTipo}
+            onChange={(e) => setFTipo(e.target.value)}
+            className={`${filtroCls} w-full`}
+          >
             <option value="">Todos</option>
             <option value="prenda">Prenda</option>
             <option value="conjunto">Conjunto</option>
           </select>
         </div>
-        {(fOP || fEstado || fTipo) && (
-          <button
-            type="button"
-            onClick={() => {
-              setFOP("")
-              setFEstado("")
-              setFTipo("")
-            }}
-            className="rounded-xl px-3 py-2 text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-50"
-          >
-            Limpiar filtros
-          </button>
-        )}
-        <span className="ml-auto text-xs text-stone-400">
-          {filtradas.length} de {ordenes.length} órdenes
-        </span>
+        <div className="flex items-center gap-3">
+          {(fOP || fEstado || fTipo) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFOP("")
+                setFEstado("")
+                setFTipo("")
+              }}
+              className="rounded-xl px-3 py-2 text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-50 whitespace-nowrap"
+            >
+              Limpiar filtros
+            </button>
+          )}
+          <span className="text-xs text-stone-400 whitespace-nowrap">
+            {filtradas.length} de {ordenes.length} órdenes
+          </span>
+        </div>
+        </div>
       </Card>
 
       {/* ── Tabla de órdenes ─────────────────────────────────── */}
       <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[600px]">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10">
               <tr className="bg-stone-50 border-b border-stone-100">
                 <th className="w-8" />
                 <th className="px-3 py-3 text-left text-xs font-semibold text-stone-500 uppercase tracking-wide">

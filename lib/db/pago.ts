@@ -37,12 +37,21 @@ export interface PagoAbonoRow {
   creado_en: string
 }
 
+export interface DatosBancarios {
+  banco: string | null
+  tipo_cuenta: string | null
+  numero_cuenta: string | null
+  url_certificacion_bancaria: string | null
+}
+
 export type PagoConContexto = PagoProduccionRow & {
   numero_op: number
   referencia: string
   lote_nombre: string
   prenda_nombre: string | null
   abonos: PagoAbonoRow[]
+  // Cuenta a la que se le paga al estampador / confeccionista
+  bancarios: DatosBancarios | null
 }
 
 export const PAGO_ESTADO_LABEL: Record<PagoEstado, string> = {
@@ -275,6 +284,22 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
     abonosMap.set(a.pago_id, arr)
   }
 
+  // Datos bancarios por nombre (estampadores y confeccionistas)
+  const COLS_BANCO = "nombre_completo, banco, tipo_cuenta, numero_cuenta, url_certificacion_bancaria"
+  const [{ data: ests }, { data: confs }] = await Promise.all([
+    db.from("estampador").select(COLS_BANCO),
+    db.from("confeccionista").select(COLS_BANCO),
+  ])
+  type FilaBanco = DatosBancarios & { nombre_completo: string }
+  const bancoEst = new Map<string, DatosBancarios>()
+  for (const e of (ests ?? []) as FilaBanco[]) {
+    bancoEst.set(e.nombre_completo.trim().toLowerCase(), e)
+  }
+  const bancoConf = new Map<string, DatosBancarios>()
+  for (const c of (confs ?? []) as FilaBanco[]) {
+    bancoConf.set(c.nombre_completo.trim().toLowerCase(), c)
+  }
+
   return rows.map((p) => {
     const lote = loteMap.get(p.lote_id)
     const op = lote ? opMap.get(lote.orden_id) : undefined
@@ -285,6 +310,10 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
       lote_nombre: lote?.descripcion ?? `LOTE-${String(lote?.numero_lote ?? 0).padStart(4, "0")}`,
       prenda_nombre: p.prenda_id != null ? (prendaMap.get(p.prenda_id) ?? null) : null,
       abonos: abonosMap.get(p.id) ?? [],
+      bancarios:
+        (p.proceso === "estampacion" ? bancoEst : bancoConf).get(
+          p.beneficiario.trim().toLowerCase()
+        ) ?? null,
     }
   })
 }

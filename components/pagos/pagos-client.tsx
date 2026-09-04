@@ -19,6 +19,7 @@ import {
   Paperclip,
   FileDown,
   FileSpreadsheet,
+  Landmark,
 } from "lucide-react"
 import {
   type PagoConContexto,
@@ -326,7 +327,17 @@ function PagoFila({
             <span className="ml-1 text-xs text-stone-500">· {pago.prenda_nombre}</span>
           )}
         </td>
-        <td className="px-3 py-2 text-stone-800">{pago.beneficiario}</td>
+        <td className="px-3 py-2 text-stone-800">
+          {pago.beneficiario}
+          {pago.bancarios?.numero_cuenta ? (
+            <span className="block text-[11px] text-stone-500 font-mono">
+              {pago.bancarios.banco ? `${pago.bancarios.banco} · ` : ""}
+              {pago.bancarios.numero_cuenta}
+            </span>
+          ) : (
+            <span className="block text-[11px] text-amber-600">Sin cuenta registrada</span>
+          )}
+        </td>
         <td className="px-3 py-2 text-right font-mono text-stone-700">
           {pago.cantidad.toLocaleString("es-CO")}
         </td>
@@ -352,6 +363,44 @@ function PagoFila({
         <tr className="border-b border-stone-100 bg-stone-50/60">
           <td colSpan={11} className="px-6 py-3">
             <div className="space-y-3">
+            {/* Cuenta a la que se le paga */}
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs">
+              <span className="flex items-center gap-1.5 font-semibold text-stone-600">
+                <Landmark className="h-3.5 w-3.5" /> Cuenta para el pago
+              </span>
+              {pago.bancarios?.numero_cuenta ? (
+                <>
+                  <span className="text-stone-600">
+                    Banco: <strong className="text-stone-800">{pago.bancarios.banco ?? "—"}</strong>
+                  </span>
+                  <span className="text-stone-600">
+                    Tipo: <strong className="text-stone-800">{pago.bancarios.tipo_cuenta ?? "—"}</strong>
+                  </span>
+                  <span className="text-stone-600">
+                    N°:{" "}
+                    <strong className="text-stone-800 font-mono">
+                      {pago.bancarios.numero_cuenta}
+                    </strong>
+                  </span>
+                  {pago.bancarios.url_certificacion_bancaria && (
+                    <a
+                      href={pago.bancarios.url_certificacion_bancaria}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1 text-teal-700 hover:underline"
+                    >
+                      <Paperclip className="h-3 w-3" /> Certificación bancaria
+                    </a>
+                  )}
+                </>
+              ) : (
+                <span className="text-amber-700">
+                  {pago.beneficiario} no tiene cuenta registrada. Agrégala en el módulo{" "}
+                  {pago.proceso === "estampacion" ? "Estampadores" : "Confeccionistas"}.
+                </span>
+              )}
+            </div>
+
             {/* Editar datos del pago */}
             <div className="flex flex-wrap items-end gap-2">
               <div className="space-y-0.5">

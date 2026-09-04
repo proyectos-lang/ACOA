@@ -9,12 +9,16 @@ export interface ConfeccionistaRow {
   barrio: string | null
   fecha_nacimiento: string | null
   url_foto_cedula: string | null
+  banco: string | null
+  tipo_cuenta: string | null
+  numero_cuenta: string | null
+  url_certificacion_bancaria: string | null
   activo: boolean
   creado_en: string
 }
 
 const SELECT_COLS =
-  "id, nombre_completo, telefono, celular, direccion, barrio, fecha_nacimiento, url_foto_cedula, activo, creado_en"
+  "id, nombre_completo, telefono, celular, direccion, barrio, fecha_nacimiento, url_foto_cedula, banco, tipo_cuenta, numero_cuenta, url_certificacion_bancaria, activo, creado_en"
 
 export async function listConfeccionistas(soloActivos = false): Promise<ConfeccionistaRow[]> {
   const db = createVanessaClient()
@@ -34,6 +38,10 @@ export async function createConfeccionista(
     barrio?: string | null
     fecha_nacimiento?: string | null
     url_foto_cedula?: string | null
+    banco?: string | null
+    tipo_cuenta?: string | null
+    numero_cuenta?: string | null
+    url_certificacion_bancaria?: string | null
   },
   creadoPor: number
 ): Promise<number> {
@@ -48,6 +56,10 @@ export async function createConfeccionista(
       barrio: input.barrio ?? null,
       fecha_nacimiento: input.fecha_nacimiento ?? null,
       url_foto_cedula: input.url_foto_cedula ?? null,
+      banco: input.banco ?? null,
+      tipo_cuenta: input.tipo_cuenta ?? null,
+      numero_cuenta: input.numero_cuenta ?? null,
+      url_certificacion_bancaria: input.url_certificacion_bancaria ?? null,
       creado_por: creadoPor,
     })
     .select("id")
@@ -66,6 +78,10 @@ export async function updateConfeccionista(
     barrio: string | null
     fecha_nacimiento: string | null
     url_foto_cedula: string | null
+    banco: string | null
+    tipo_cuenta: string | null
+    numero_cuenta: string | null
+    url_certificacion_bancaria: string | null
     activo: boolean
   }>
 ): Promise<void> {
@@ -78,6 +94,23 @@ export async function deleteConfeccionista(id: number): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db.from("confeccionista").delete().eq("id", id)
   if (error) throw new Error(error.message)
+}
+
+// Certificacion bancaria adjunta (imagen o PDF)
+export async function uploadCertificacionBancariaConfeccionista(
+  file: File,
+  confeccionistaId: number
+): Promise<string> {
+  const db = createVanessaClient()
+  const ext = file.name.split(".").pop() ?? "pdf"
+  const path = `confeccionistas/${confeccionistaId}/certificacion_${Date.now()}.${ext}`
+  const buffer = await file.arrayBuffer()
+  const { error } = await db.storage
+    .from("documentos")
+    .upload(path, buffer, { contentType: file.type, upsert: true })
+  if (error) throw new Error(error.message)
+  const { data } = db.storage.from("documentos").getPublicUrl(path)
+  return data.publicUrl
 }
 
 export async function uploadFotoCedulaConfeccionista(

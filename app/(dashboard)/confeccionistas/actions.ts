@@ -7,6 +7,7 @@ import {
   updateConfeccionista,
   deleteConfeccionista,
   uploadFotoCedulaConfeccionista,
+  uploadCertificacionBancariaConfeccionista,
 } from "@/lib/db/confeccionista"
 
 export interface ConfeccionistaActionResult {
@@ -22,6 +23,9 @@ function camposDesdeForm(formData: FormData) {
     direccion: ((formData.get("direccion") as string) ?? "").trim() || null,
     barrio: ((formData.get("barrio") as string) ?? "").trim() || null,
     fecha_nacimiento: ((formData.get("fecha_nacimiento") as string) ?? "") || null,
+    banco: ((formData.get("banco") as string) ?? "").trim() || null,
+    tipo_cuenta: ((formData.get("tipo_cuenta") as string) ?? "").trim() || null,
+    numero_cuenta: ((formData.get("numero_cuenta") as string) ?? "").trim() || null,
   }
 }
 
@@ -41,6 +45,12 @@ export async function crearConfeccionistaAction(
     if (foto && foto.size > 0) {
       const url = await uploadFotoCedulaConfeccionista(foto, id)
       await updateConfeccionista(id, { url_foto_cedula: url })
+    }
+
+    const certificacion = formData.get("certificacion_bancaria") as File | null
+    if (certificacion && certificacion.size > 0) {
+      const urlCert = await uploadCertificacionBancariaConfeccionista(certificacion, id)
+      await updateConfeccionista(id, { url_certificacion_bancaria: urlCert })
     }
 
     revalidatePath("/confeccionistas")
@@ -67,6 +77,12 @@ export async function editarConfeccionistaAction(
     if (foto && foto.size > 0) {
       const url = await uploadFotoCedulaConfeccionista(foto, id)
       await updateConfeccionista(id, { url_foto_cedula: url })
+    }
+
+    const certificacion = formData.get("certificacion_bancaria") as File | null
+    if (certificacion && certificacion.size > 0) {
+      const urlCert = await uploadCertificacionBancariaConfeccionista(certificacion, id)
+      await updateConfeccionista(id, { url_certificacion_bancaria: urlCert })
     }
 
     revalidatePath("/confeccionistas")

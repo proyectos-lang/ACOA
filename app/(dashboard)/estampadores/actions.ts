@@ -7,6 +7,7 @@ import {
   updateEstampador,
   deleteEstampador,
   uploadFotoCedula,
+  uploadCertificacionBancaria,
 } from "@/lib/db/estampador"
 
 export interface EstampadorActionResult {
@@ -22,6 +23,9 @@ function camposDesdeForm(formData: FormData) {
     direccion: ((formData.get("direccion") as string) ?? "").trim() || null,
     barrio: ((formData.get("barrio") as string) ?? "").trim() || null,
     fecha_nacimiento: ((formData.get("fecha_nacimiento") as string) ?? "") || null,
+    banco: ((formData.get("banco") as string) ?? "").trim() || null,
+    tipo_cuenta: ((formData.get("tipo_cuenta") as string) ?? "").trim() || null,
+    numero_cuenta: ((formData.get("numero_cuenta") as string) ?? "").trim() || null,
   }
 }
 
@@ -41,6 +45,12 @@ export async function crearEstampadorAction(
     if (foto && foto.size > 0) {
       const url = await uploadFotoCedula(foto, id)
       await updateEstampador(id, { url_foto_cedula: url })
+    }
+
+    const certificacion = formData.get("certificacion_bancaria") as File | null
+    if (certificacion && certificacion.size > 0) {
+      const urlCert = await uploadCertificacionBancaria(certificacion, id)
+      await updateEstampador(id, { url_certificacion_bancaria: urlCert })
     }
 
     revalidatePath("/estampadores")
@@ -67,6 +77,12 @@ export async function editarEstampadorAction(
     if (foto && foto.size > 0) {
       const url = await uploadFotoCedula(foto, id)
       await updateEstampador(id, { url_foto_cedula: url })
+    }
+
+    const certificacion = formData.get("certificacion_bancaria") as File | null
+    if (certificacion && certificacion.size > 0) {
+      const urlCert = await uploadCertificacionBancaria(certificacion, id)
+      await updateEstampador(id, { url_certificacion_bancaria: urlCert })
     }
 
     revalidatePath("/estampadores")
