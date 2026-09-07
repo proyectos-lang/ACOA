@@ -11,6 +11,7 @@ import {
   ImageIcon,
   ExternalLink,
   Printer,
+  Send,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { DisenoRow, DisenoConOP } from "@/lib/db/diseno"
@@ -22,6 +23,7 @@ import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   aprobarDisenoAction,
   guardarLoteDisenoAction,
+  aprobarYEnviarEstampacionAction,
 } from "@/app/(dashboard)/diseno/[id]/actions"
 import {
   AlertDialog,
@@ -304,6 +306,24 @@ export function DisenaFichaClient({
     w.focus()
   }
 
+  // Aprueba el diseño y manda los lotes directo a Estampación
+  const [isPendingEnvio, startEnvio] = useTransition()
+  function handleAprobarYEnviar() {
+    startEnvio(async () => {
+      const res = await aprobarYEnviarEstampacionAction(orden.id)
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast(
+          "ok",
+          `Diseño aprobado — ${res.lotesEnviados ?? 0} lote${
+            (res.lotesEnviados ?? 0) !== 1 ? "s" : ""
+          } enviado${(res.lotesEnviados ?? 0) !== 1 ? "s" : ""} a estampación`
+        )
+        router.refresh()
+      }
+    })
+  }
+
   function handleApprove() {
     startApprove(async () => {
       const res = await aprobarDisenoAction(orden.id)
@@ -516,6 +536,44 @@ export function DisenaFichaClient({
               {lotesSinImagen.length} lote{lotesSinImagen.length !== 1 ? "s" : ""} sin imagen de referencia
             </p>
           )}
+          {/* Aprobar y enviar directo a estampación (salta el paso por Corte) */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                type="button"
+                disabled={isPendingEnvio}
+                className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-40 transition-opacity"
+                style={{ backgroundColor: "#be185d" }}
+              >
+                <Send className="h-4 w-4" />
+                {isPendingEnvio ? "Enviando…" : "Aprobar y enviar a estampación"}
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Aprobar y enviar a estampación?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Se aprobará el diseño y los lotes de la orden{" "}
+                  <strong>{padOP(orden.numero_op)}</strong> pasarán directamente a{" "}
+                  <strong>Estampación</strong>, sin pasar por Corte. Empezarán a aparecer en la
+                  bandeja de ese módulo.
+                  {lotesSinImagen.length > 0 && (
+                    <> Hay {lotesSinImagen.length} lote{lotesSinImagen.length !== 1 ? "s" : ""} sin imagen de referencia.</>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleAprobarYEnviar}
+                  style={{ backgroundColor: "#be185d" }}
+                >
+                  Aprobar y enviar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button

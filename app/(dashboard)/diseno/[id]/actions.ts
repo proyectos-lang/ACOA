@@ -8,7 +8,7 @@ import {
   getDisenoByOrden,
 } from "@/lib/db/diseno"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
-import { updateLoteDiseno, uploadImagenLote } from "@/lib/db/lote"
+import { updateLoteDiseno, uploadImagenLote, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { upsertEstampacionParcial } from "@/lib/db/estampacion"
 import { revalidatePath } from "next/cache"
 
@@ -109,5 +109,50 @@ export async function aprobarDisenoAction(ordenId: number): Promise<ActionResult
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error aprobando diseño" }
+  }
+}
+
+// Aprueba el diseño y envía los lotes directamente a Estampación, saltando
+// el paso por Corte: los lotes ya existentes pasan a estado "estampacion"
+// y empiezan a aparecer en la bandeja de ese módulo.
+export async function aprobarYEnviarEstampacionAction(
+  ordenId: number
+): Promise<ActionResult & { lotesEnviados?: number }> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const lotes = await getLotesByOrden(ordenId)
+    if (lotes.length === 0) {
+      return {
+        error:
+          "Esta orden aún no tiene lotes. Créalos desde la pestaña Curva de la OP antes de enviar a estampación.",
+      }
+    }
+
+    // Solo avanzan los lotes que aún no han pasado de estampación
+    const porEnviar = lotes.filter((l) => l.estado === "cortado")
+    if (porEnviar.length === 0) {
+      return { error: "Los lotes de esta orden ya fueron enviados a estampación o están más adelante." }
+    }
+
+    const diseno = await getDisenoByOrden(ordenId)
+    if (!diseno) {
+      await guardarDiseno({ orden_id: ordenId, creado_por: session.userId })
+    }
+    await aprobarDiseno(ordenId)
+
+    for (const l of porEnviar) {
+      await updateLoteEstado(l.id, "estampacion")
+    }
+    await cambiarEstado(ordenId, "estampacion")
+
+    revalidatePath(`/diseno/${ordenId}`)
+    revalidatePath("/diseno")
+    revalidatePath("/estampacion")
+    revalidatePath(`/produccion/${ordenId}`)
+    return { success: true, lotesEnviados: porEnviar.length }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error enviando a estampación" }
   }
 }
