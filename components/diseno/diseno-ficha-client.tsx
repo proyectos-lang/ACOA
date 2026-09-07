@@ -10,12 +10,14 @@ import {
   AlertTriangle,
   ImageIcon,
   ExternalLink,
+  Printer,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { DisenoRow, DisenoConOP } from "@/lib/db/diseno"
 import type { LoteRow } from "@/lib/db/lote"
 import type { OpTelaRow } from "@/lib/db/op-tela"
 import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
+import type { EstampadorRow } from "@/lib/db/estampador"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   aprobarDisenoAction,
@@ -40,6 +42,8 @@ interface Props {
   lotes: LoteRow[]
   opTelas: OpTelaRow[]
   opTelaLotes: OpTelaLoteRow[]
+  estampadores: EstampadorRow[]
+  estampadorPorLote: Record<number, string | null>
 }
 
 function padOP(n: number) {
@@ -55,16 +59,21 @@ function padLote(n: number) {
 function LoteDisenoCard({
   lote,
   ordenId,
+  estampadores,
+  estampadorAsignado,
   onMsg,
 }: {
   lote: LoteRow
   ordenId: number
+  estampadores: EstampadorRow[]
+  estampadorAsignado: string | null
   onMsg: (tipo: "ok" | "error", msg: string) => void
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [preview, setPreview] = React.useState<string | null>(lote.url_imagen)
   const [notas, setNotas] = React.useState(lote.notas_diseno ?? "")
+  const [estampador, setEstampador] = React.useState(estampadorAsignado ?? "")
   const fileRef = React.useRef<HTMLInputElement>(null)
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -77,6 +86,7 @@ function LoteDisenoCard({
   function handleSave() {
     const fd = new FormData()
     fd.set("notas_diseno", notas)
+    fd.set("nombre_estampador", estampador)
     const file = fileRef.current?.files?.[0]
     if (file) fd.set("imagen_lote", file)
     startTransition(async () => {
@@ -138,6 +148,31 @@ function LoteDisenoCard({
         className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966] resize-none"
       />
 
+      {/* Estampador asignado desde Diseño (queda en el proceso de estampación) */}
+      <div className="space-y-1">
+        <label className="text-[11px] font-medium text-stone-500">Estampador asignado</label>
+        <select
+          value={estampador}
+          onChange={(e) => setEstampador(e.target.value)}
+          className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
+        >
+          <option value="">— Sin asignar —</option>
+          {estampador && !estampadores.some((e) => e.nombre_completo === estampador) && (
+            <option value={estampador}>{estampador} (no registrado)</option>
+          )}
+          {estampadores.map((e) => (
+            <option key={e.id} value={e.nombre_completo}>
+              {e.nombre_completo}
+            </option>
+          ))}
+        </select>
+        {estampadores.length === 0 && (
+          <p className="text-[11px] text-amber-600">
+            No hay estampadores registrados. Créalos en el módulo Estampadores.
+          </p>
+        )}
+      </div>
+
       <button
         type="button"
         onClick={handleSave}
@@ -184,6 +219,8 @@ export function DisenaFichaClient({
   lotes,
   opTelas,
   opTelaLotes,
+  estampadores,
+  estampadorPorLote,
 }: Props) {
   const router = useRouter()
   const [isPendingApprove, startApprove] = useTransition()
@@ -192,6 +229,79 @@ export function DisenaFichaClient({
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 4000)
+  }
+
+  // Rejilla 3x3 por hoja carta con la imagen de cada lote y su referencia.
+  // Se abre en una ventana nueva y se imprime cuando las imágenes cargan.
+  function imprimirRejilla() {
+    const esc = (t: string | null | undefined) =>
+      (t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+    const ordenados = [...lotes].sort((a, b) =>
+      (a.descripcion ?? "").localeCompare(b.descripcion ?? "", "es", { numeric: true })
+    )
+
+    const celdas = ordenados
+      .map((l) => {
+        const nombre = esc(l.descripcion ?? padLote(l.numero_lote))
+        const img = l.url_imagen
+          ? `<img src="${esc(l.url_imagen)}" alt="${nombre}">`
+          : `<div class="sin-img">Sin imagen</div>`
+        return `<div class="celda">
+          <div class="img">${img}</div>
+          <div class="pie">
+            <p class="lote">${nombre}</p>
+            <p class="ref">${esc(orden.referencia)}</p>
+          </div>
+        </div>`
+      })
+      .join("")
+
+    const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>Diseño ${padOP(orden.numero_op)} — ${esc(orden.referencia)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: letter; margin: 8mm; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111; padding: 10px; }
+  .encabezado { border: 1.5px solid #111; margin-bottom: 8px; }
+  .titulo { background: #f2e14c; font-weight: bold; font-size: 12px; padding: 4px 8px;
+            display: flex; justify-content: space-between; border-bottom: 1.5px solid #111; }
+  .sub { padding: 3px 8px; font-size: 9px; color: #444; display: flex; gap: 16px; }
+  .rejilla { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .celda { border: 1px solid #111; display: flex; flex-direction: column;
+           height: 78mm; page-break-inside: avoid; break-inside: avoid; }
+  .img { flex: 1; display: flex; align-items: center; justify-content: center;
+         padding: 3px; overflow: hidden; }
+  .img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .sin-img { color: #999; font-size: 9px; border: 1px dashed #ccc; padding: 20px 10px; }
+  .pie { border-top: 1px solid #111; padding: 3px 5px; background: #f7f7f7; }
+  .pie .lote { font-size: 10px; font-weight: bold; }
+  .pie .ref { font-size: 9px; color: #444; }
+  @media print { body { padding: 0; } }
+</style></head><body>
+  <div class="encabezado">
+    <div class="titulo"><span>DISEÑO — IMÁGENES POR LOTE</span><span>${padOP(orden.numero_op)}</span></div>
+    <div class="sub">
+      <span><strong>Referencia:</strong> ${esc(orden.referencia)}</span>
+      <span><strong>Lotes:</strong> ${ordenados.length}</span>
+      ${orden.descripcion ? `<span><strong>Descripción:</strong> ${esc(orden.descripcion)}</span>` : ""}
+    </div>
+  </div>
+  <div class="rejilla">${celdas}</div>
+  <script>
+    window.addEventListener("load", function () { setTimeout(function () { window.print() }, 250) })
+  <\/script>
+</body></html>`
+
+    const w = window.open("", "_blank")
+    if (!w) {
+      showToast("error", "Permite las ventanas emergentes para imprimir")
+      return
+    }
+    w.document.write(html)
+    w.document.close()
+    w.focus()
   }
 
   function handleApprove() {
@@ -359,9 +469,21 @@ export function DisenaFichaClient({
 
       {/* Diseño por lote: imagen de referencia + datos de cada lote */}
       <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
-          Lotes de la orden — imagen de referencia por lote
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2">
+          <h2 className="text-sm font-semibold text-stone-700">
+            Lotes de la orden — imagen de referencia por lote
+          </h2>
+          {lotes.length > 0 && (
+            <button
+              type="button"
+              onClick={imprimirRejilla}
+              className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Imprimir rejilla de imágenes
+            </button>
+          )}
+        </div>
         {lotes.length === 0 ? (
           <p className="text-sm text-stone-400 py-4 text-center">
             Esta orden aún no tiene lotes. Se crean desde la pestaña Curva de la OP.
@@ -373,7 +495,14 @@ export function DisenaFichaClient({
                 (a.descripcion ?? "").localeCompare(b.descripcion ?? "", "es", { numeric: true })
               )
               .map((l) => (
-                <LoteDisenoCard key={l.id} lote={l} ordenId={orden.id} onMsg={showToast} />
+                <LoteDisenoCard
+                  key={l.id}
+                  lote={l}
+                  ordenId={orden.id}
+                  estampadores={estampadores}
+                  estampadorAsignado={estampadorPorLote[l.id] ?? null}
+                  onMsg={showToast}
+                />
               ))}
           </div>
         )}

@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/diseno"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
 import { updateLoteDiseno, uploadImagenLote } from "@/lib/db/lote"
+import { upsertEstampacionParcial } from "@/lib/db/estampacion"
 import { revalidatePath } from "next/cache"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -68,8 +69,22 @@ export async function guardarLoteDisenoAction(
     }
 
     await updateLoteDiseno(loteId, input)
+
+    // El estampador se puede asignar ya desde Diseño: queda registrado en
+    // el proceso de estampación del lote (sin pisar sus otros datos)
+    const estampador = (formData.get("nombre_estampador") as string | null)?.trim()
+    if (estampador !== undefined && estampador !== null) {
+      await upsertEstampacionParcial(
+        loteId,
+        { nombre_estampador: estampador || null },
+        session.userId
+      )
+    }
+
     revalidatePath(`/diseno/${ordenId}`)
     revalidatePath(`/produccion/${ordenId}`)
+    revalidatePath(`/estampacion/${loteId}`)
+    revalidatePath("/estampacion")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error guardando diseño del lote" }

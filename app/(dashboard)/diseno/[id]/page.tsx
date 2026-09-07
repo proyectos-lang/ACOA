@@ -4,6 +4,8 @@ import { getDisenoByOrden, getDisenosByReferencia } from "@/lib/db/diseno"
 import { getLotesByOrden } from "@/lib/db/lote"
 import { getOpTelas } from "@/lib/db/op-tela"
 import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
+import { listEstampadores } from "@/lib/db/estampador"
+import { getEstampacionByLote } from "@/lib/db/estampacion"
 import { DisenaFichaClient } from "@/components/diseno/diseno-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -18,15 +20,26 @@ export default async function DisenaFichaPage({
   const { id } = await params
   const ordenId = parseInt(id, 10)
 
-  const [orden, diseno, lotes, opTelas, opTelaLotes] = await Promise.all([
+  const [orden, diseno, lotes, opTelas, opTelaLotes, estampadores] = await Promise.all([
     getOrdenById(ordenId),
     getDisenoByOrden(ordenId),
     getLotesByOrden(ordenId),
     getOpTelas(ordenId),
     getOpTelaLotes(ordenId),
+    listEstampadores(true),
   ])
 
   if (!orden) notFound()
+
+  // Estampador ya asignado a cada lote (se puede asignar desde Diseño)
+  const estampacionesLotes = await Promise.all(
+    lotes.map(async (l) => ({
+      loteId: l.id,
+      nombre: (await getEstampacionByLote(l.id))?.nombre_estampador ?? null,
+    }))
+  )
+  const estampadorPorLote: Record<number, string | null> = {}
+  for (const e of estampacionesLotes) estampadorPorLote[e.loteId] = e.nombre
 
   const disenosAnteriores = await getDisenosByReferencia(orden.referencia, orden.id)
 
@@ -53,6 +66,8 @@ export default async function DisenaFichaPage({
         lotes={lotes}
         opTelas={opTelas}
         opTelaLotes={opTelaLotes}
+        estampadores={estampadores}
+        estampadorPorLote={estampadorPorLote}
       />
     </div>
   )
