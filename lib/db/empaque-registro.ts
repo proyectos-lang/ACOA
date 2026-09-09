@@ -70,10 +70,10 @@ export async function createEmpaqueRegistro(input: {
   precio_unidad: number
   fecha: string
   creado_por: number
-}): Promise<void> {
+}): Promise<number> {
   const db = createVanessaClient()
   // valor_total is GENERATED — do not include
-  const { error } = await db.from("empaque_registro").insert({
+  const { data, error } = await db.from("empaque_registro").insert({
     lote_id: input.lote_id,
     persona_id: input.persona_id,
     color: input.color.trim(),
@@ -83,8 +83,9 @@ export async function createEmpaqueRegistro(input: {
     precio_unidad: input.precio_unidad,
     fecha: input.fecha,
     creado_por: input.creado_por,
-  })
-  if (error) throw new Error(error.message)
+  }).select("id").single()
+  if (error || !data) throw new Error(error?.message ?? "Error registrando empaque")
+  return (data as { id: number }).id
 }
 
 export async function deleteEmpaqueRegistro(id: number): Promise<void> {

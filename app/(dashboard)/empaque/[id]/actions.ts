@@ -7,6 +7,10 @@ import {
   deleteEmpaqueRegistro,
   getEmpaquePorLote,
 } from "@/lib/db/empaque-registro"
+import {
+  registrarEntradaPorEmpaque,
+  eliminarEntradaPorEmpaque,
+} from "@/lib/db/inventario-producto"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
 import {
   getLoteById,
@@ -78,7 +82,7 @@ export async function crearEmpaqueRegistroAction(input: {
 
     const fechaHoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
 
-    await createEmpaqueRegistro({
+    const registroId = await createEmpaqueRegistro({
       lote_id: input.lote_id,
       persona_id: input.persona_id,
       color: input.color,
@@ -90,7 +94,21 @@ export async function crearEmpaqueRegistroAction(input: {
       creado_por: session.userId,
     })
 
+    // El empaque carga el inventario de producto terminado con toda su
+    // trazabilidad (OP, referencia, lote, talla)
+    if (input.cantidad > 0) {
+      await registrarEntradaPorEmpaque({
+        empaque_registro_id: registroId,
+        lote_id: input.lote_id,
+        talla: input.talla,
+        cantidad: input.cantidad,
+        fecha: input.fecha || fechaHoy,
+        creado_por: session.userId,
+      })
+    }
+
     revalidatePath(`/empaque/${input.lote_id}`)
+    revalidatePath("/inventario")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error registrando empaque" }
@@ -105,8 +123,11 @@ export async function eliminarEmpaqueRegistroAction(
   if (!session) return { error: "No autorizado" }
 
   try {
+    // Al eliminar el registro se revierte su entrada de inventario
+    await eliminarEntradaPorEmpaque(registroId)
     await deleteEmpaqueRegistro(registroId)
     revalidatePath(`/empaque/${loteId}`)
+    revalidatePath("/inventario")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error eliminando registro" }
