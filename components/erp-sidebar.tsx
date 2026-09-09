@@ -26,6 +26,7 @@ import {
   Wallet,
   History,
   Radar,
+  ClipboardCheck,
 } from "lucide-react"
 import {
   Sidebar,
@@ -86,6 +87,7 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Confección",       href: "/confeccion",    icon: Layers,        permisoKey: "mod_confeccion"       },
       { nombre: "Conteo",           href: "/conteo",        icon: Hash,          permisoKey: "mod_conteo"           },
       { nombre: "Empaque",          href: "/empaque",       icon: Package,       permisoKey: "mod_empaque"          },
+      { nombre: "Liquidación Empaque", href: "/liquidacion-empaque", icon: ClipboardCheck, permisoKey: "mod_empaque"  },
       { nombre: "Pagos",            href: "/pagos",         icon: Wallet,        permisoKey: "ver_costos"           },
       { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
     ],
