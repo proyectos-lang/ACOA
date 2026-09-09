@@ -10,6 +10,8 @@ import {
   updatePago,
   updateAbono,
   uploadReciboPago,
+  agregarComprobantePago,
+  eliminarComprobantePago,
 } from "@/lib/db/pago"
 
 type ActionResult = { error?: string; success?: boolean; count?: number }
@@ -121,6 +123,55 @@ export async function eliminarAbonoAction(abonoId: number): Promise<ActionResult
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error eliminando el abono" }
+  }
+}
+
+// Sube uno o varios comprobantes de pago y los asocia al pago
+export async function subirComprobantesPagoAction(
+  pagoId: number,
+  formData: FormData
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const archivos = formData
+      .getAll("comprobantes")
+      .filter((f): f is File => f instanceof File && f.size > 0)
+    if (archivos.length === 0) return { error: "Selecciona al menos un comprobante" }
+
+    const descripcion = (formData.get("descripcion") as string)?.trim() || null
+
+    for (const archivo of archivos) {
+      const url = await uploadReciboPago(archivo, `comprobante_${pagoId}`)
+      await agregarComprobantePago({
+        pago_id: pagoId,
+        url,
+        nombre: archivo.name,
+        descripcion,
+        creado_por: session.userId,
+      })
+    }
+
+    revalidatePath("/pagos")
+    return { success: true, count: archivos.length }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error subiendo los comprobantes" }
+  }
+}
+
+export async function eliminarComprobantePagoAction(
+  comprobanteId: number
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    await eliminarComprobantePago(comprobanteId)
+    revalidatePath("/pagos")
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error eliminando el comprobante" }
   }
 }
 

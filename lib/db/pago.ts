@@ -37,6 +37,15 @@ export interface PagoAbonoRow {
   creado_en: string
 }
 
+export interface PagoComprobanteRow {
+  id: number
+  pago_id: number
+  url: string
+  nombre: string | null
+  descripcion: string | null
+  creado_en: string
+}
+
 export interface DatosBancarios {
   banco: string | null
   tipo_cuenta: string | null
@@ -50,6 +59,8 @@ export type PagoConContexto = PagoProduccionRow & {
   lote_nombre: string
   prenda_nombre: string | null
   abonos: PagoAbonoRow[]
+  // Comprobantes de pago adjuntos (uno o varios por pago)
+  comprobantes: PagoComprobanteRow[]
   // Cuenta a la que se le paga al estampador / confeccionista
   bancarios: DatosBancarios | null
 }
@@ -242,18 +253,24 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
   const prendaIds = [...new Set(rows.map((p) => p.prenda_id).filter((x): x is number => x != null))]
   const pagoIds = rows.map((p) => p.id)
 
-  const [{ data: lotes }, { data: prendas }, { data: abonos }] = await Promise.all([
-    db.from("lote").select("id, numero_lote, descripcion, orden_id").in("id", loteIds),
-    prendaIds.length
-      ? db.from("lote_prenda").select("id, nombre").in("id", prendaIds)
-      : Promise.resolve({ data: [] as Array<{ id: number; nombre: string }> }),
-    db
-      .from("pago_abono")
-      .select("id, pago_id, valor, fecha, observacion, url_recibo, creado_en")
-      .in("pago_id", pagoIds)
-      .order("fecha", { ascending: false })
-      .order("id", { ascending: false }),
-  ])
+  const [{ data: lotes }, { data: prendas }, { data: abonos }, { data: comprobantes }] =
+    await Promise.all([
+      db.from("lote").select("id, numero_lote, descripcion, orden_id").in("id", loteIds),
+      prendaIds.length
+        ? db.from("lote_prenda").select("id, nombre").in("id", prendaIds)
+        : Promise.resolve({ data: [] as Array<{ id: number; nombre: string }> }),
+      db
+        .from("pago_abono")
+        .select("id, pago_id, valor, fecha, observacion, url_recibo, creado_en")
+        .in("pago_id", pagoIds)
+        .order("fecha", { ascending: false })
+        .order("id", { ascending: false }),
+      db
+        .from("pago_comprobante")
+        .select("id, pago_id, url, nombre, descripcion, creado_en")
+        .in("pago_id", pagoIds)
+        .order("id", { ascending: false }),
+    ])
 
   const lotesRows = (lotes ?? []) as Array<{
     id: number
@@ -284,6 +301,13 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
     abonosMap.set(a.pago_id, arr)
   }
 
+  const comprobantesMap = new Map<number, PagoComprobanteRow[]>()
+  for (const c of (comprobantes ?? []) as PagoComprobanteRow[]) {
+    const arr = comprobantesMap.get(c.pago_id) ?? []
+    arr.push(c)
+    comprobantesMap.set(c.pago_id, arr)
+  }
+
   // Datos bancarios por nombre (estampadores y confeccionistas)
   const COLS_BANCO = "nombre_completo, banco, tipo_cuenta, numero_cuenta, url_certificacion_bancaria"
   const [{ data: ests }, { data: confs }] = await Promise.all([
@@ -310,6 +334,7 @@ export async function listPagosConContexto(): Promise<PagoConContexto[]> {
       lote_nombre: lote?.descripcion ?? `LOTE-${String(lote?.numero_lote ?? 0).padStart(4, "0")}`,
       prenda_nombre: p.prenda_id != null ? (prendaMap.get(p.prenda_id) ?? null) : null,
       abonos: abonosMap.get(p.id) ?? [],
+      comprobantes: comprobantesMap.get(p.id) ?? [],
       bancarios:
         (p.proceso === "estampacion" ? bancoEst : bancoConf).get(
           p.beneficiario.trim().toLowerCase()
@@ -448,6 +473,32 @@ export async function eliminarAbono(abonoId: number): Promise<void> {
   const { error } = await db.from("pago_abono").delete().eq("id", abonoId)
   if (error) throw new Error(error.message)
   await recomputarPago(abono.pago_id)
+}
+
+// ── Comprobantes de pago (varios por pago) ──────────────────────
+
+export async function agregarComprobantePago(input: {
+  pago_id: number
+  url: string
+  nombre?: string | null
+  descripcion?: string | null
+  creado_por: number
+}): Promise<void> {
+  const db = createVanessaClient()
+  const { error } = await db.from("pago_comprobante").insert({
+    pago_id: input.pago_id,
+    url: input.url,
+    nombre: input.nombre?.trim() || null,
+    descripcion: input.descripcion?.trim() || null,
+    creado_por: input.creado_por,
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function eliminarComprobantePago(comprobanteId: number): Promise<void> {
+  const db = createVanessaClient()
+  const { error } = await db.from("pago_comprobante").delete().eq("id", comprobanteId)
+  if (error) throw new Error(error.message)
 }
 
 export async function eliminarPago(pagoId: number): Promise<void> {

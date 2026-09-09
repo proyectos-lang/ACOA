@@ -20,6 +20,8 @@ import {
   FileDown,
   FileSpreadsheet,
   Landmark,
+  Upload,
+  FileCheck2,
 } from "lucide-react"
 import {
   type PagoConContexto,
@@ -33,6 +35,8 @@ import {
   eliminarPagoAction,
   editarPagoAction,
   editarAbonoAction,
+  subirComprobantesPagoAction,
+  eliminarComprobantePagoAction,
 } from "@/app/(dashboard)/pagos/actions"
 import {
   AlertDialog,
@@ -237,6 +241,48 @@ function PagoFila({
   const [recibo, setRecibo] = React.useState<File | null>(null)
   const fileRef = React.useRef<HTMLInputElement>(null)
 
+  // Comprobantes de pago (varios por pago)
+  const [comprobantes, setComprobantes] = React.useState<File[]>([])
+  const [descComprobante, setDescComprobante] = React.useState("")
+  const compRef = React.useRef<HTMLInputElement>(null)
+
+  function subirComprobantes() {
+    if (comprobantes.length === 0) {
+      onMsg("error", "Selecciona al menos un comprobante")
+      return
+    }
+    startTransition(async () => {
+      const fd = new FormData()
+      for (const f of comprobantes) fd.append("comprobantes", f)
+      fd.set("descripcion", descComprobante.trim())
+      const res = await subirComprobantesPagoAction(pago.id, fd)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg(
+          "ok",
+          `${res.count ?? 0} comprobante${(res.count ?? 0) !== 1 ? "s" : ""} adjuntado${
+            (res.count ?? 0) !== 1 ? "s" : ""
+          }`
+        )
+        setComprobantes([])
+        setDescComprobante("")
+        if (compRef.current) compRef.current.value = ""
+        router.refresh()
+      }
+    })
+  }
+
+  function quitarComprobante(id: number) {
+    startTransition(async () => {
+      const res = await eliminarComprobantePagoAction(id)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", "Comprobante eliminado")
+        router.refresh()
+      }
+    })
+  }
+
   const saldo = Number(pago.total) - Number(pago.pagado)
 
   function abonar() {
@@ -357,6 +403,14 @@ function PagoFila({
           >
             {PAGO_ESTADO_LABEL[pago.estado]}
           </span>
+          {pago.comprobantes.length > 0 && (
+            <span
+              className="mt-1 flex items-center gap-1 text-[11px] text-teal-700"
+              title={`${pago.comprobantes.length} comprobante(s) de pago`}
+            >
+              <FileCheck2 className="h-3 w-3" /> {pago.comprobantes.length}
+            </span>
+          )}
         </td>
       </tr>
       {abierto && (
@@ -399,6 +453,83 @@ function PagoFila({
                   {pago.proceso === "estampacion" ? "Estampadores" : "Confeccionistas"}.
                 </span>
               )}
+            </div>
+
+            {/* Comprobantes de pago: uno o varios por pago */}
+            <div className="rounded-xl border border-stone-200 bg-white px-3 py-2.5 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <FileCheck2 className="h-3.5 w-3.5 text-stone-500" />
+                <span className="text-xs font-semibold text-stone-600">
+                  Comprobantes de pago ({pago.comprobantes.length})
+                </span>
+              </div>
+
+              {pago.comprobantes.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {pago.comprobantes.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50 px-2 py-1 text-[11px]"
+                    >
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-teal-700 hover:underline max-w-48 truncate"
+                        title={c.descripcion ?? c.nombre ?? "Ver comprobante"}
+                      >
+                        <Paperclip className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{c.nombre ?? "Comprobante"}</span>
+                      </a>
+                      <span className="font-mono text-stone-400">
+                        {c.creado_en.slice(0, 10)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => quitarComprobante(c.id)}
+                        disabled={isPending}
+                        className="p-0.5 rounded hover:bg-red-50 text-stone-400 hover:text-red-500"
+                        title="Eliminar comprobante"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-2.5 py-2 text-xs text-stone-500 cursor-pointer hover:bg-stone-50">
+                  <Upload className="h-3.5 w-3.5" />
+                  {comprobantes.length > 0
+                    ? `${comprobantes.length} archivo${comprobantes.length !== 1 ? "s" : ""}`
+                    : "Elegir comprobantes"}
+                  <input
+                    ref={compRef}
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setComprobantes(Array.from(e.target.files ?? []))}
+                    className="hidden"
+                  />
+                </label>
+                <input
+                  type="text"
+                  value={descComprobante}
+                  onChange={(e) => setDescComprobante(e.target.value)}
+                  className={`${filtroCls} flex-1 min-w-40 text-xs py-1.5`}
+                  placeholder="Descripción (opcional): transferencia, consignación…"
+                />
+                <button
+                  type="button"
+                  onClick={subirComprobantes}
+                  disabled={isPending || comprobantes.length === 0}
+                  className="flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: "#0f766e" }}
+                >
+                  <Upload className="h-3.5 w-3.5" /> Subir
+                </button>
+              </div>
             </div>
 
             {/* Editar datos del pago */}
@@ -586,6 +717,8 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
   // Rango de fechas de los pagos realizados (vista Historial)
   const [hDesde, setHDesde] = React.useState("")
   const [hHasta, setHHasta] = React.useState("")
+  // Filtro por comprobante adjunto: "" todos, "con", "sin"
+  const [fComprobante, setFComprobante] = React.useState("")
 
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
@@ -606,6 +739,8 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
     if (fProceso && p.proceso !== fProceso) return false
     if (fPersona && p.beneficiario !== fPersona) return false
     if (fEstado && p.estado !== fEstado) return false
+    if (fComprobante === "con" && p.comprobantes.length === 0) return false
+    if (fComprobante === "sin" && p.comprobantes.length > 0) return false
     return true
   })
 
@@ -675,6 +810,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
     if (fProceso) partes.push(`Proceso: ${fProceso === "estampacion" ? "Estampación" : "Confección"}`)
     if (fPersona) partes.push(`Persona: ${fPersona}`)
     if (fEstado) partes.push(`Estado: ${fEstado}`)
+    if (fComprobante) partes.push(`Comprobante: ${fComprobante === "con" ? "con" : "sin"}`)
     if (hDesde) partes.push(`Desde: ${hDesde}`)
     if (hHasta) partes.push(`Hasta: ${hHasta}`)
     return partes.length ? partes.join("  ·  ") : "Sin filtros"
@@ -890,16 +1026,28 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
           </select>
         </div>
         <div className="space-y-0.5">
-          <label className="text-[11px] font-medium text-stone-500">Estado</label>
+          <label className="text-[11px] font-medium text-stone-500">Estado de pago</label>
           <select
             value={fEstado}
             onChange={(e) => setFEstado(e.target.value)}
             className={filtroCls}
           >
+            <option value="">Todos los estados</option>
+            <option value="pendiente">Pendiente (sin abonos)</option>
+            <option value="parcial">Parcial (abonado)</option>
+            <option value="pagado">Pagado (saldado)</option>
+          </select>
+        </div>
+        <div className="space-y-0.5">
+          <label className="text-[11px] font-medium text-stone-500">Comprobante</label>
+          <select
+            value={fComprobante}
+            onChange={(e) => setFComprobante(e.target.value)}
+            className={filtroCls}
+          >
             <option value="">Todos</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="parcial">Parcial</option>
-            <option value="pagado">Pagado</option>
+            <option value="con">Con comprobante</option>
+            <option value="sin">Sin comprobante</option>
           </select>
         </div>
         <div className="space-y-0.5">
@@ -920,7 +1068,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
             className={filtroCls}
           />
         </div>
-        {(fOP || fLote || fProceso || fPersona || fEstado || hDesde || hHasta) && (
+        {(fOP || fLote || fProceso || fPersona || fEstado || fComprobante || hDesde || hHasta) && (
           <button
             type="button"
             onClick={() => {
@@ -929,6 +1077,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               setFProceso("")
               setFPersona("")
               setFEstado("")
+              setFComprobante("")
               setHDesde("")
               setHHasta("")
             }}
