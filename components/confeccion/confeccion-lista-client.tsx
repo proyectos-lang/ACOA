@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck, X, Printer } from "lucide-react"
+import { sumarDiasSinDomingo, hoyBogota as hoyBog } from "@/lib/fechas-habiles"
 import type { LoteConConfeccion } from "@/lib/db/confeccion"
 import type { ConfeccionistaRow } from "@/lib/db/confeccionista"
 import {
@@ -183,6 +184,11 @@ export function ConfeccionListaClient({
   const [confeccionistaSel, setConfeccionistaSel] = React.useState("")
   const [fechaEntregaSel, setFechaEntregaSel] = React.useState("")
   const [fechaEstimadaSel, setFechaEstimadaSel] = React.useState("")
+  // Días de entrega para calcular la fecha estimada masiva (sin domingos)
+  const [diasEstimadaSel, setDiasEstimadaSel] = React.useState("")
+  const diasSelNum = parseInt(diasEstimadaSel, 10)
+  const fechaEstimadaEfectiva =
+    diasSelNum > 0 ? sumarDiasSinDomingo(hoyBog(), diasSelNum) : fechaEstimadaSel
 
   // ── Filtros ────────────────────────────────────────────────────
   const [fLote, setFLote] = React.useState("")
@@ -332,7 +338,7 @@ export function ConfeccionListaClient({
 
   function handleMarcarEstimada() {
     startTransition(async () => {
-      const res = await marcarFechaEstimadaConfeccionMasivaAction([...seleccion], fechaEstimadaSel)
+      const res = await marcarFechaEstimadaConfeccionMasivaAction([...seleccion], fechaEstimadaEfectiva)
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", `Fecha estimada marcada en ${res.procesados} lote(s)`)
@@ -506,16 +512,26 @@ export function ConfeccionListaClient({
             </div>
             <div className="flex items-center gap-1.5 border-l border-stone-200 pl-2">
               <input
+                type="number"
+                min="1"
+                value={diasEstimadaSel}
+                onChange={(e) => setDiasEstimadaSel(e.target.value)}
+                className="w-20 rounded-xl border border-stone-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+                placeholder="Días"
+                title="Días de entrega: calcula la fecha estimada sin contar domingos"
+              />
+              <input
                 type="date"
-                value={fechaEstimadaSel}
+                value={fechaEstimadaEfectiva}
                 onChange={(e) => setFechaEstimadaSel(e.target.value)}
+                readOnly={diasSelNum > 0}
                 className="rounded-xl border border-stone-200 px-2 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
                 title="Fecha estimada de entrega (devolución del confeccionista)"
               />
               <button
                 type="button"
                 onClick={handleMarcarEstimada}
-                disabled={isPending || !fechaEstimadaSel}
+                disabled={isPending || !fechaEstimadaEfectiva}
                 className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: "#7c3aed" }}
               >

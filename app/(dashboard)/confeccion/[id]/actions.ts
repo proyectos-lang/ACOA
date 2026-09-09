@@ -7,6 +7,7 @@ import { createNovedadProceso, deleteNovedadProceso } from "@/lib/db/novedad-pro
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
 import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 
 type ActionResult = { error?: string; success?: boolean }
 
@@ -34,13 +35,23 @@ export async function guardarConfeccionAction(
       urlImagen = await uploadImagenConfeccion(file, loteId)
     }
 
+    // La fecha estimada se calcula con los días de entrega (sin domingos)
+    const fechaEntrega = (formData.get("fecha_entrega_lote") as string) || null
+    const diasRaw = formData.get("dias_entrega") as string
+    const diasNum = diasRaw ? parseInt(diasRaw, 10) : NaN
+    const diasEntrega = !isNaN(diasNum) && diasNum > 0 ? diasNum : null
+    const fechaEstimada = diasEntrega
+      ? sumarDiasSinDomingo(fechaEntrega || hoyBogota(), diasEntrega)
+      : (formData.get("fecha_estimada_entrega") as string) || null
+
     await guardarConfeccion({
       lote_id: loteId,
       cantidad_reconfirmada: cantidadRaw ? parseInt(cantidadRaw, 10) : null,
       nombre_confeccionista: (formData.get("nombre_confeccionista") as string)?.trim() || null,
       precio_confeccion: precioFinal,
-      fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
-      fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
+      fecha_entrega_lote: fechaEntrega,
+      dias_entrega: diasEntrega,
+      fecha_estimada_entrega: fechaEstimada,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,
       condiciones_confeccion: (formData.get("condiciones_confeccion") as string)?.trim() || null,
       ...(urlImagen !== undefined ? { url_imagen_prenda: urlImagen } : {}),

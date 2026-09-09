@@ -3,6 +3,7 @@
 import { getSession } from "@/lib/auth/session"
 import { guardarEstampacion, getEstampacionByLote } from "@/lib/db/estampacion"
 import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import { createNovedadProceso, deleteNovedadProceso } from "@/lib/db/novedad-proceso"
 import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { cambiarEstado } from "@/lib/db/orden-produccion"
@@ -26,12 +27,24 @@ export async function guardarEstampacionAction(
       const prendas = await listPrendasByLote(loteId)
       precioFinal = prendas.reduce((s, p) => s + (Number(p.est_precio) || 0), 0)
     }
+    // La fecha estimada se calcula con los días de entrega (sin domingos)
+    // desde la fecha de entrega del lote; si no hay días, se usa la fecha
+    // que venga en el formulario
+    const fechaEntrega = (formData.get("fecha_entrega_lote") as string) || null
+    const diasRaw = formData.get("dias_entrega") as string
+    const dias = diasRaw ? parseInt(diasRaw, 10) : NaN
+    const diasEntrega = !isNaN(dias) && dias > 0 ? dias : null
+    const fechaEstimada = diasEntrega
+      ? sumarDiasSinDomingo(fechaEntrega || hoyBogota(), diasEntrega)
+      : (formData.get("fecha_estimada_entrega") as string) || null
+
     await guardarEstampacion({
       lote_id: loteId,
       nombre_estampador: (formData.get("nombre_estampador") as string)?.trim() || null,
       precio_estampacion: precioFinal,
-      fecha_entrega_lote: (formData.get("fecha_entrega_lote") as string) || null,
-      fecha_estimada_entrega: (formData.get("fecha_estimada_entrega") as string) || null,
+      fecha_entrega_lote: fechaEntrega,
+      dias_entrega: diasEntrega,
+      fecha_estimada_entrega: fechaEstimada,
       fecha_retorno_lote: (formData.get("fecha_retorno_lote") as string) || null,
       observaciones_estampado:
         (formData.get("observaciones_estampado") as string)?.trim() || null,

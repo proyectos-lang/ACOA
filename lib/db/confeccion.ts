@@ -9,6 +9,7 @@ export interface ConfeccionRow {
   nombre_confeccionista: string | null
   precio_confeccion: number | null
   fecha_entrega_lote: string | null
+  dias_entrega: number | null
   fecha_estimada_entrega: string | null
   fecha_retorno_lote: string | null
   url_imagen_prenda: string | null
@@ -23,7 +24,7 @@ export interface ConfeccionInsumoRow {
 }
 
 const SELECT_COLS =
-  "id, lote_id, cantidad_reconfirmada, nombre_confeccionista, precio_confeccion, fecha_entrega_lote, fecha_estimada_entrega, fecha_retorno_lote, url_imagen_prenda, condiciones_confeccion"
+  "id, lote_id, cantidad_reconfirmada, nombre_confeccionista, precio_confeccion, fecha_entrega_lote, dias_entrega, fecha_estimada_entrega, fecha_retorno_lote, url_imagen_prenda, condiciones_confeccion"
 
 export async function getConfeccionByLote(loteId: number): Promise<ConfeccionRow | null> {
   const db = createVanessaClient()
@@ -44,6 +45,7 @@ export async function upsertConfeccionParcial(
       | "nombre_confeccionista"
       | "precio_confeccion"
       | "fecha_entrega_lote"
+      | "dias_entrega"
       | "fecha_estimada_entrega"
       | "fecha_retorno_lote"
       | "cantidad_reconfirmada"
@@ -72,6 +74,7 @@ export async function guardarConfeccion(input: {
   nombre_confeccionista?: string | null
   precio_confeccion?: number | null
   fecha_entrega_lote?: string | null
+  dias_entrega?: number | null
   fecha_estimada_entrega?: string | null
   fecha_retorno_lote?: string | null
   url_imagen_prenda?: string
@@ -83,6 +86,7 @@ export async function guardarConfeccion(input: {
 
   const fields: Record<string, unknown> = {
     cantidad_reconfirmada: input.cantidad_reconfirmada ?? null,
+    dias_entrega: input.dias_entrega ?? null,
     nombre_confeccionista: input.nombre_confeccionista ?? null,
     precio_confeccion: input.precio_confeccion ?? null,
     fecha_entrega_lote: input.fecha_entrega_lote ?? null,

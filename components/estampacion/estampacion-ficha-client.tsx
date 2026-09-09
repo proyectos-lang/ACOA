@@ -20,6 +20,7 @@ import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
 import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
 import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
+import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import type { EstampacionRow } from "@/lib/db/estampacion"
 import {
   guardarEstampacionAction,
@@ -154,6 +155,17 @@ export function EstampacionFichaClient({
   const yaEnConfeccion = lote.estado !== "estampacion"
   const esConjunto = orden.tipo_prenda === "conjunto"
 
+  // Fecha estimada calculada a partir de los días de entrega (sin domingos)
+  const [fechaEntregaLote, setFechaEntregaLote] = React.useState(
+    estampacion?.fecha_entrega_lote ?? ""
+  )
+  const [diasEntrega, setDiasEntrega] = React.useState(
+    estampacion?.dias_entrega != null ? String(estampacion.dias_entrega) : ""
+  )
+  const diasNum = parseInt(diasEntrega, 10)
+  const fechaEstimadaCalc =
+    diasNum > 0 ? sumarDiasSinDomingo(fechaEntregaLote || hoyBogota(), diasNum) : ""
+
   return (
     <div className="space-y-6">
       {toast && <Toast tipo={toast.tipo} msg={toast.msg} />}
@@ -280,19 +292,41 @@ export function EstampacionFichaClient({
                 <input
                   type="date"
                   name="fecha_entrega_lote"
-                  defaultValue={estampacion?.fecha_entrega_lote ?? ""}
+                  value={fechaEntregaLote}
+                  onChange={(e) => setFechaEntregaLote(e.target.value)}
                   className={fieldCls}
                 />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-stone-700">Días de entrega</label>
+                <input
+                  type="number"
+                  min="1"
+                  name="dias_entrega"
+                  value={diasEntrega}
+                  onChange={(e) => setDiasEntrega(e.target.value)}
+                  className={fieldCls}
+                  placeholder="Ej: 3"
+                />
+                <p className="text-xs text-stone-400">
+                  Días acordados, sin contar domingos
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha estimada de entrega</label>
                 <input
                   type="date"
                   name="fecha_estimada_entrega"
-                  defaultValue={estampacion?.fecha_estimada_entrega ?? ""}
-                  className={fieldCls}
+                  value={fechaEstimadaCalc || estampacion?.fecha_estimada_entrega || ""}
+                  readOnly={diasNum > 0}
+                  onChange={() => {}}
+                  className={`${fieldCls} ${diasNum > 0 ? "bg-stone-100 text-stone-600" : ""}`}
                 />
-                <p className="text-xs text-stone-400">Cuándo debe devolver el lote el estampador</p>
+                <p className="text-xs text-stone-400">
+                  {diasNum > 0
+                    ? `Calculada: ${diasNum} día${diasNum !== 1 ? "s" : ""} sin domingos`
+                    : "Cuándo debe devolver el lote el estampador"}
+                </p>
               </div>
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha retorno lote</label>

@@ -10,6 +10,7 @@ import {
   PRENDA_ESTADO_LABEL,
   PRENDA_ESTADO_COLOR,
 } from "@/lib/db/lote-prenda"
+import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import {
   crearPrendaAction,
   actualizarPrendaAction,
@@ -70,6 +71,9 @@ function PrendaFila({
         : ""
   )
   const [estEntrega, setEstEntrega] = React.useState(prenda.est_fecha_entrega ?? "")
+  const [estDias, setEstDias] = React.useState(
+    prenda.est_dias_entrega != null ? String(prenda.est_dias_entrega) : ""
+  )
   const [estEstimada, setEstEstimada] = React.useState(prenda.est_fecha_estimada ?? "")
   const [estRetorno, setEstRetorno] = React.useState(prenda.est_fecha_retorno ?? "")
   const [confeccionista, setConfeccionista] = React.useState(prenda.nombre_confeccionista ?? "")
@@ -81,11 +85,22 @@ function PrendaFila({
         : ""
   )
   const [confEntrega, setConfEntrega] = React.useState(prenda.conf_fecha_entrega ?? "")
+  const [confDias, setConfDias] = React.useState(
+    prenda.conf_dias_entrega != null ? String(prenda.conf_dias_entrega) : ""
+  )
   const [confEstimada, setConfEstimada] = React.useState(prenda.conf_fecha_estimada ?? "")
   const [confRetorno, setConfRetorno] = React.useState(prenda.conf_fecha_retorno ?? "")
   const [cantidad, setCantidad] = React.useState(
     prenda.cantidad_contada != null ? String(prenda.cantidad_contada) : ""
   )
+
+  // La fecha estimada de cada prenda se calcula con sus días (sin domingos)
+  const estDiasNum = parseInt(estDias, 10)
+  const estEstimadaCalc =
+    estDiasNum > 0 ? sumarDiasSinDomingo(estEntrega || hoyBogota(), estDiasNum) : ""
+  const confDiasNum = parseInt(confDias, 10)
+  const confEstimadaCalc =
+    confDiasNum > 0 ? sumarDiasSinDomingo(confEntrega || hoyBogota(), confDiasNum) : ""
 
   function guardar() {
     startTransition(async () => {
@@ -95,7 +110,8 @@ function PrendaFila({
               nombre_estampador: estampador || null,
               est_precio: estPrecio ? Number(estPrecio) : null,
               est_fecha_entrega: estEntrega || null,
-              est_fecha_estimada: estEstimada || null,
+              est_dias_entrega: estDiasNum > 0 ? estDiasNum : null,
+              est_fecha_estimada: estEstimadaCalc || estEstimada || null,
               est_fecha_retorno: estRetorno || null,
             }
           : etapa === "confeccion"
@@ -103,7 +119,8 @@ function PrendaFila({
                 nombre_confeccionista: confeccionista || null,
                 conf_precio: confPrecio ? Number(confPrecio) : null,
                 conf_fecha_entrega: confEntrega || null,
-                conf_fecha_estimada: confEstimada || null,
+                conf_dias_entrega: confDiasNum > 0 ? confDiasNum : null,
+                conf_fecha_estimada: confEstimadaCalc || confEstimada || null,
                 conf_fecha_retorno: confRetorno || null,
               }
             : { cantidad_contada: cantidad ? parseInt(cantidad, 10) : null }
@@ -233,8 +250,18 @@ function PrendaFila({
             <input type="date" value={estEntrega} onChange={(e) => setEstEntrega(e.target.value)} className={inputCls} />
           </div>
           <div className="space-y-0.5">
-            <label className={lblCls}>F. estimada de entrega</label>
-            <input type="date" value={estEstimada} onChange={(e) => setEstEstimada(e.target.value)} className={inputCls} />
+            <label className={lblCls}>Días de entrega</label>
+            <input type="number" min="1" value={estDias} onChange={(e) => setEstDias(e.target.value)} className={inputCls} placeholder="Ej: 3" />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. estimada (sin domingos)</label>
+            <input
+              type="date"
+              value={estEstimadaCalc || estEstimada}
+              readOnly={estDiasNum > 0}
+              onChange={(e) => setEstEstimada(e.target.value)}
+              className={`${inputCls} ${estDiasNum > 0 ? "bg-stone-100 text-stone-600" : ""}`}
+            />
           </div>
           <div className="space-y-0.5">
             <label className={lblCls}>F. retorno</label>
@@ -265,8 +292,18 @@ function PrendaFila({
             <input type="date" value={confEntrega} onChange={(e) => setConfEntrega(e.target.value)} className={inputCls} />
           </div>
           <div className="space-y-0.5">
-            <label className={lblCls}>F. estimada de entrega</label>
-            <input type="date" value={confEstimada} onChange={(e) => setConfEstimada(e.target.value)} className={inputCls} />
+            <label className={lblCls}>Días de entrega</label>
+            <input type="number" min="1" value={confDias} onChange={(e) => setConfDias(e.target.value)} className={inputCls} placeholder="Ej: 3" />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>F. estimada (sin domingos)</label>
+            <input
+              type="date"
+              value={confEstimadaCalc || confEstimada}
+              readOnly={confDiasNum > 0}
+              onChange={(e) => setConfEstimada(e.target.value)}
+              className={`${inputCls} ${confDiasNum > 0 ? "bg-stone-100 text-stone-600" : ""}`}
+            />
           </div>
           <div className="space-y-0.5">
             <label className={lblCls}>F. retorno</label>
