@@ -10,6 +10,9 @@ import {
   AlertTriangle,
   PackageCheck,
   ShieldCheck,
+  Save,
+  LayoutGrid,
+  ListPlus,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
@@ -105,6 +108,24 @@ export function EmpaqueRegistroClient({
   const [fecha, setFecha] = React.useState(fechaHoyDefault)
   const [justificacion, setJustificacion] = React.useState("")
 
+  // ── Vista rápida por talla (pensada para móvil, como en conteo) ──
+  const [vistaRapida, setVistaRapida] = React.useState(true)
+  // Lo que se va a registrar en esta pasada: por talla, empacado e imperfectos
+  const [gridEmp, setGridEmp] = React.useState<Record<string, string>>({})
+  const [gridImp, setGridImp] = React.useState<Record<string, string>>({})
+  const [isPendingGrid, startGrid] = useTransition()
+
+  function setGridValor(
+    setter: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+    talla: string,
+    valor: string
+  ) {
+    setter((prev) => ({ ...prev, [talla]: valor }))
+  }
+
+  const totalGridEmp = Object.values(gridEmp).reduce((s, v) => s + (parseInt(v, 10) || 0), 0)
+  const totalGridImp = Object.values(gridImp).reduce((s, v) => s + (parseInt(v, 10) || 0), 0)
+
   function showToast(tipo: "ok" | "error", msg: string) {
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 4000)
@@ -181,6 +202,58 @@ export function EmpaqueRegistroClient({
         setImperfectos("")
         router.refresh()
       }
+    })
+  }
+
+  // Registra de una sola vez todas las tallas con cantidades escritas
+  function handleGuardarGrid() {
+    if (!personaId) return showToast("error", "Seleccione la empacadora")
+
+    const filas = progreso
+      .map((p) => ({
+        talla: p.talla,
+        cantidad: parseInt(gridEmp[p.talla] ?? "", 10) || 0,
+        imperfectos: parseInt(gridImp[p.talla] ?? "", 10) || 0,
+        disponible: Math.max(0, p.pendiente),
+      }))
+      .filter((f) => f.cantidad > 0 || f.imperfectos > 0)
+
+    if (filas.length === 0) {
+      showToast("error", "Ingresa al menos una cantidad o imperfecto")
+      return
+    }
+
+    const excede = filas.find((f) => f.cantidad + f.imperfectos > f.disponible)
+    if (excede) {
+      showToast(
+        "error",
+        `Talla ${excede.talla}: ${excede.cantidad + excede.imperfectos} excede el disponible (${excede.disponible})`
+      )
+      return
+    }
+
+    startGrid(async () => {
+      let ok = 0
+      for (const f of filas) {
+        const res = await crearEmpaqueRegistroAction({
+          lote_id: lote.id,
+          persona_id: parseInt(personaId, 10),
+          color: "",
+          talla: f.talla,
+          cantidad: f.cantidad,
+          imperfectos: f.imperfectos,
+          fecha: fecha || undefined,
+        })
+        if (res.error) {
+          showToast("error", `Talla ${f.talla}: ${res.error}`)
+          return
+        }
+        ok++
+      }
+      showToast("ok", `${ok} talla${ok !== 1 ? "s" : ""} registrada${ok !== 1 ? "s" : ""}`)
+      setGridEmp({})
+      setGridImp({})
+      router.refresh()
     })
   }
 
@@ -300,9 +373,156 @@ export function EmpaqueRegistroClient({
         </div>
       </div>
 
+      {/* ── Vista rápida por talla: pensada para registrar desde el móvil ── */}
+      {loteActivo && conteo?.validado && progreso.length > 0 && (
+        <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2">
+            <h2 className="text-sm font-semibold text-stone-700">Registro rápido por talla</h2>
+            <button
+              type="button"
+              onClick={() => setVistaRapida((v) => !v)}
+              className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50"
+            >
+              {vistaRapida ? (
+                <>
+                  <ListPlus className="h-3.5 w-3.5" /> Registro individual
+                </>
+              ) : (
+                <>
+                  <LayoutGrid className="h-3.5 w-3.5" /> Vista por talla
+                </>
+              )}
+            </button>
+          </div>
+
+          {vistaRapida && (
+            <>
+              {/* Empacadora y fecha, arriba y a lo ancho para el móvil */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-stone-700">Empacadora *</label>
+                  <select
+                    value={personaId}
+                    onChange={(e) => setPersonaId(e.target.value)}
+                    className={fieldCls}
+                  >
+                    <option value="">Seleccionar empacadora…</option>
+                    {empacadoras.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-stone-700">Fecha *</label>
+                  <input
+                    type="date"
+                    value={fecha}
+                    onChange={(e) => setFecha(e.target.value)}
+                    className={fieldCls}
+                  />
+                </div>
+              </div>
+
+              {/* Detalle por talla: empacado e imperfectos, con lo pendiente */}
+              <div className="rounded-xl border border-stone-100 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-stone-50 border-b border-stone-100">
+                      <th className="px-2 py-2 text-left text-xs text-stone-500 font-medium">Talla</th>
+                      <th className="px-2 py-2 text-right text-xs text-stone-500 font-medium">Pend.</th>
+                      <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Empacado</th>
+                      <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Imperf.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {progreso.map((p) => {
+                      const disp = Math.max(0, p.pendiente)
+                      const completa = disp === 0
+                      return (
+                        <tr
+                          key={p.talla}
+                          className={`border-b border-stone-100 last:border-0 ${completa ? "bg-green-50" : ""}`}
+                        >
+                          <td className="px-2 py-2 font-semibold text-stone-800">
+                            {p.talla}
+                            <span className="block text-[11px] font-normal text-stone-400">
+                              {p.empacado.toLocaleString("es-CO")} de{" "}
+                              {p.contado.toLocaleString("es-CO")}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <span
+                              className={`font-mono text-sm font-semibold ${
+                                completa ? "text-green-600" : "text-stone-700"
+                              }`}
+                            >
+                              {completa ? "✓" : disp.toLocaleString("es-CO")}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="0"
+                              max={disp}
+                              disabled={completa}
+                              value={gridEmp[p.talla] ?? ""}
+                              onChange={(e) => setGridValor(setGridEmp, p.talla, e.target.value)}
+                              className="w-full min-w-16 rounded-lg border border-stone-200 px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-[#344966] disabled:bg-stone-50 disabled:text-stone-300"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="0"
+                              max={disp}
+                              disabled={completa}
+                              value={gridImp[p.talla] ?? ""}
+                              onChange={(e) => setGridValor(setGridImp, p.talla, e.target.value)}
+                              className="w-full min-w-16 rounded-lg border border-stone-200 px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-red-300 disabled:bg-stone-50 disabled:text-stone-300"
+                              placeholder="0"
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    <tr className="bg-stone-50">
+                      <td colSpan={2} className="px-2 py-2 text-xs font-semibold text-stone-700">
+                        Total a registrar
+                      </td>
+                      <td className="px-2 py-2 text-center font-mono font-semibold text-teal-700 text-sm">
+                        {totalGridEmp.toLocaleString("es-CO")}
+                      </td>
+                      <td className="px-2 py-2 text-center font-mono font-semibold text-red-700 text-sm">
+                        {totalGridImp.toLocaleString("es-CO")}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGuardarGrid}
+                disabled={isPendingGrid || (totalGridEmp === 0 && totalGridImp === 0)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: "#344966" }}
+              >
+                <Save className="h-4 w-4" />
+                {isPendingGrid ? "Registrando…" : "Registrar empaque"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* ── Formulario nuevo registro ─────────────────────── */}
-        {loteActivo && conteo?.validado && (
+        {/* ── Formulario nuevo registro (individual) ──────── */}
+        {loteActivo && conteo?.validado && !vistaRapida && (
           <form onSubmit={handleAdd}>
             <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4 h-full">
               <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
