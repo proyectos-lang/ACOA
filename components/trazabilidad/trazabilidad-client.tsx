@@ -206,6 +206,18 @@ function LoteDetalle({ lote }: { lote: LoteTraza }) {
                       {p.contadas.toLocaleString("es-CO")} ud
                     </span>
                   )}
+                  {/* Avance individual de la pieza */}
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <div className="w-16 h-1.5 rounded-full bg-stone-100 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${barraAvance(p.avance)}`}
+                        style={{ width: `${p.avance}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono text-stone-500 tabular-nums">
+                      {p.avance}%
+                    </span>
+                  </div>
                 </div>
 
                 {/* Tiempos de cada pieza por etapa */}

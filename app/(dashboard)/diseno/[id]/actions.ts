@@ -10,6 +10,7 @@ import {
 import { cambiarEstado } from "@/lib/db/orden-produccion"
 import { updateLoteDiseno, uploadImagenLote, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
 import { upsertEstampacionParcial } from "@/lib/db/estampacion"
+import { asegurarPrendasDeOrdenConjunto } from "@/lib/db/lote-prenda"
 import { revalidatePath } from "next/cache"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -146,6 +147,9 @@ export async function aprobarYEnviarEstampacionAction(
       await updateLoteEstado(l.id, "estampacion")
     }
     await cambiarEstado(ordenId, "estampacion")
+
+    // OPs tipo conjunto: dividir automáticamente los lotes en sus piezas
+    await asegurarPrendasDeOrdenConjunto(ordenId, session.userId)
 
     revalidatePath(`/diseno/${ordenId}`)
     revalidatePath("/diseno")

@@ -91,6 +91,69 @@ export async function deletePrenda(id: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// Piezas por defecto de un conjunto: al llegar a estampación el lote se
+// divide automáticamente en Superior e Inferior, y esas piezas se arrastran
+// por confección, conteo y empaque con su propia trazabilidad.
+export const PIEZAS_CONJUNTO_POR_DEFECTO = ["Superior", "Inferior"] as const
+
+// Garantiza que un lote de una OP tipo conjunto tenga sus piezas creadas.
+// Es idempotente: si ya tiene piezas (creadas a mano o antes), no toca nada.
+// Devuelve cuántas piezas creó.
+export async function asegurarPrendasConjunto(
+  loteId: number,
+  estadoInicial: PrendaEstado,
+  creadoPor: number
+): Promise<number> {
+  const existentes = await listPrendasByLote(loteId)
+  if (existentes.length > 0) return 0
+
+  const db = createVanessaClient()
+  const filas = PIEZAS_CONJUNTO_POR_DEFECTO.map((nombre) => ({
+    lote_id: loteId,
+    nombre,
+    estado: estadoInicial,
+    creado_por: creadoPor,
+  }))
+  const { error } = await db.from("lote_prenda").insert(filas)
+  if (error) throw new Error(error.message)
+  return filas.length
+}
+
+// Divide automáticamente todos los lotes de una OP tipo conjunto que aún no
+// tengan piezas. Se llama cuando los lotes entran a estampación.
+export async function asegurarPrendasDeOrdenConjunto(
+  ordenId: number,
+  creadoPor: number
+): Promise<number> {
+  const db = createVanessaClient()
+
+  const { data: orden } = await db
+    .from("orden_produccion")
+    .select("id, tipo_prenda")
+    .eq("id", ordenId)
+    .maybeSingle()
+  if (!orden || (orden as { tipo_prenda: string }).tipo_prenda !== "conjunto") return 0
+
+  const { data: lotes } = await db
+    .from("lote")
+    .select("id, estado")
+    .eq("orden_id", ordenId)
+  const filas = (lotes ?? []) as Array<{ id: number; estado: string }>
+
+  let creadas = 0
+  for (const l of filas) {
+    // La pieza arranca en la etapa donde va el lote (estampación en adelante)
+    const etapa: PrendaEstado =
+      l.estado === "confeccion"
+        ? "confeccion"
+        : l.estado === "conteo" || l.estado === "empaque" || l.estado === "finalizado"
+          ? "conteo"
+          : "estampacion"
+    creadas += await asegurarPrendasConjunto(l.id, etapa, creadoPor)
+  }
+  return creadas
+}
+
 // El costo de cada prenda viaja al registro del lote: el precio de
 // estampación/confección del lote (conjunto) queda registrado como la
 // suma de los precios de sus prendas. Se llama tras crear, editar o

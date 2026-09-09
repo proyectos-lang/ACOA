@@ -6,7 +6,8 @@ import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getEstampacionByLote } from "@/lib/db/estampacion"
 import { listEstampadores } from "@/lib/db/estampador"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
-import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
+import { getSession } from "@/lib/auth/session"
 import { EstampacionFichaClient } from "@/components/estampacion/estampacion-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -23,6 +24,17 @@ export default async function EstampacionFichaPage({
 
   const lote = await getLoteById(loteId)
   if (!lote) notFound()
+
+  // OPs tipo conjunto: el lote llega ya dividido en sus piezas (Superior /
+  // Inferior). Se garantiza aquí para lotes que entraron antes de la división
+  // automática, sin duplicar las que ya existan.
+  {
+    const ordenLote = await getOrdenById(lote.orden_id)
+    if (ordenLote?.tipo_prenda === "conjunto") {
+      const sesion = await getSession()
+      await asegurarPrendasConjunto(loteId, "estampacion", sesion?.userId ?? 1)
+    }
+  }
 
   const [orden, corte, curvaTallas, estampacion, estampadores, hoja, prendas] = await Promise.all([
     getOrdenById(lote.orden_id),

@@ -19,6 +19,7 @@ import {
   type CorteCapaRealInput,
 } from "@/lib/db/corte-capas"
 import { cambiarEstado, updateOrden, getOrdenById } from "@/lib/db/orden-produccion"
+import { asegurarPrendasDeOrdenConjunto, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
 import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { updateOpMaterial, sumValorPorPrenda } from "@/lib/db/op-material"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
@@ -263,8 +264,13 @@ export async function confirmarCorteAction(
     }
     await cambiarEstado(ordenId, destino as "estampacion" | "confeccion")
 
+    // OPs tipo conjunto: cada lote se divide automáticamente en sus piezas
+    // (Superior / Inferior), que se arrastran por los procesos siguientes
+    await asegurarPrendasDeOrdenConjunto(ordenId, session.userId)
+
     revalidatePath(`/corte/${ordenId}`)
     revalidatePath("/corte")
+    revalidatePath("/estampacion")
     return { success: true, destino }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error confirmando el corte" }
@@ -312,7 +318,18 @@ export async function enviarLoteAEstampacionAction(
     const orden = await getOrdenById(ordenId)
     const destino = orden?.pasa_estampacion === false ? "confeccion" : "estampacion"
     await updateLoteEstado(loteId, destino)
+
+    // OPs tipo conjunto: dividir el lote en sus piezas al entrar al proceso
+    if (orden?.tipo_prenda === "conjunto") {
+      await asegurarPrendasConjunto(
+        loteId,
+        destino === "confeccion" ? "confeccion" : "estampacion",
+        session.userId
+      )
+    }
+
     revalidatePath(`/corte/${ordenId}`)
+    revalidatePath("/estampacion")
     return { success: true, destino }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error enviando lote" }

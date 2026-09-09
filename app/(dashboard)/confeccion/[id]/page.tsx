@@ -6,7 +6,8 @@ import { getConfeccionByLote, getInsumosByConfeccion } from "@/lib/db/confeccion
 import { getNovedadesByLote } from "@/lib/db/novedad-proceso"
 import { listConfeccionistas } from "@/lib/db/confeccionista"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
-import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
+import { getSession } from "@/lib/auth/session"
 import { ConfeccionFichaClient } from "@/components/confeccion/confeccion-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -25,6 +26,17 @@ export default async function ConfeccionFichaPage({
   if (!lote) notFound()
 
   const confeccion = await getConfeccionByLote(loteId)
+
+  // OPs tipo conjunto: el lote llega ya dividido en sus piezas (Superior /
+  // Inferior). Se garantiza aquí para lotes que entraron antes de la división
+  // automática, sin duplicar las que ya existan.
+  {
+    const ordenLote = await getOrdenById(lote.orden_id)
+    if (ordenLote?.tipo_prenda === "conjunto") {
+      const sesion = await getSession()
+      await asegurarPrendasConjunto(loteId, "confeccion", sesion?.userId ?? 1)
+    }
+  }
 
   const [orden, curvaTallas, insumos, novedades, confeccionistas, hoja, prendas] = await Promise.all([
     getOrdenById(lote.orden_id),

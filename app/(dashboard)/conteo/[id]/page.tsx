@@ -3,7 +3,8 @@ import { getLoteById } from "@/lib/db/lote"
 import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
-import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
+import { getSession } from "@/lib/auth/session"
 import { ConteoFichaClient } from "@/components/conteo/conteo-ficha-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -22,6 +23,17 @@ export default async function ConteoFichaPage({
   if (!lote) notFound()
 
   const conteo = await getConteoByLote(loteId)
+
+  // OPs tipo conjunto: el lote llega ya dividido en sus piezas (Superior /
+  // Inferior). Se garantiza aquí para lotes que entraron antes de la división
+  // automática, sin duplicar las que ya existan.
+  {
+    const ordenLote = await getOrdenById(lote.orden_id)
+    if (ordenLote?.tipo_prenda === "conjunto") {
+      const sesion = await getSession()
+      await asegurarPrendasConjunto(loteId, "conteo", sesion?.userId ?? 1)
+    }
+  }
 
   const [orden, curvaTallas, conteoDetalle, prendas] = await Promise.all([
     getOrdenById(lote.orden_id),

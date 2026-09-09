@@ -26,10 +26,20 @@ export interface HitoEtapa {
   completada: boolean
 }
 
+// Peso de cada estado de pieza para su avance individual
+const PESO_PRENDA: Record<string, number> = {
+  estampacion: 33,
+  confeccion: 66,
+  conteo: 90,
+  completado: 100,
+}
+
 export interface PrendaTraza {
   id: number
   nombre: string
   estado: string
+  // Avance 0-100 de la pieza según su etapa
+  avance: number
   estampador: string | null
   confeccionista: string | null
   contadas: number | null
@@ -240,6 +250,7 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
       id: p.id,
       nombre: p.nombre,
       estado: p.estado,
+      avance: PESO_PRENDA[p.estado] ?? 0,
       estampador: p.nombre_estampador,
       confeccionista: p.nombre_confeccionista,
       contadas: p.cantidad_contada,
