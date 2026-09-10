@@ -18,6 +18,10 @@ import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import { ESTADO_OP_LABEL, ESTADO_OP_COLOR } from "@/lib/db/orden-produccion"
 
+// El consecutivo de lote depende de los lotes ya creados: la pagina no
+// se puede servir desde cache o mostraria un numero desactualizado
+export const dynamic = "force-dynamic"
+
 function padOP(n: number) {
   return `OP-${String(n).padStart(4, "0")}`
 }

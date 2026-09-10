@@ -397,8 +397,22 @@ function OpTelaSlotCard({
   React.useEffect(() => { lotesRef.current = lotes }, [lotes])
 
   // Numero desde el que se nombran los lotes nuevos: continua el consecutivo
-  // global de la operacion (si el ultimo fue 201, el siguiente es 202)
-  const baseConsecutivo = siguienteLote && siguienteLote > 0 ? siguienteLote : 1
+  // de la REFERENCIA de la OP (cada referencia lleva su propia numeracion).
+  // Si la grilla ya trae lotes guardados, se respeta el mayor de ellos para
+  // no repetir numeros dentro de la misma orden.
+  const baseConsecutivo = React.useMemo(() => {
+    const base = siguienteLote && siguienteLote > 0 ? siguienteLote : 1
+    let maxEnGrilla = 0
+    for (const l of inicial.lotes) {
+      const m = /(\d+)\s*$/.exec(l.nombre.trim())
+      if (m) {
+        const n = parseInt(m[1], 10)
+        if (n > maxEnGrilla) maxEnGrilla = n
+      }
+    }
+    return Math.max(base, maxEnGrilla + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siguienteLote])
 
   React.useEffect(() => {
     if (!numLotesPreset || numLotesPreset <= 0) return
