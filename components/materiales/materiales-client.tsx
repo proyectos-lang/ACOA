@@ -4,6 +4,7 @@ import * as React from "react"
 import { useActionState } from "react"
 import { useRouter } from "next/navigation"
 import { Plus, Pencil, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react"
+import { GamaColoresDialog } from "@/components/materiales/gama-colores-dialog"
 import type { MaterialRow } from "@/lib/db/material"
 import {
   crearMaterialAction,
@@ -305,6 +306,14 @@ export function MaterialesClient({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
+                        {/* Gama de colores: solo aplica a las telas */}
+                        {m.tipo.trim().toLowerCase() === "tela" && (
+                          <GamaColoresDialog
+                            materialId={m.id}
+                            nombreTela={m.nombre}
+                            onMsg={showToast}
+                          />
+                        )}
                         <button
                           onClick={() => { setEditRow(m); setDialogOpen(true) }}
                           className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-600 transition-colors"

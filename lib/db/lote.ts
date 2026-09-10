@@ -200,6 +200,29 @@ export async function uploadImagenLote(
   return data.publicUrl
 }
 
+// Siguiente consecutivo global de lote. Los lotes se nombran "Lote N" y N
+// es continuo en toda la operación: si el último es 201, el siguiente es 202.
+export async function getSiguienteConsecutivoLote(): Promise<number> {
+  const db = createVanessaClient()
+  const { data, error } = await db
+    .from("lote")
+    .select("descripcion")
+    .not("descripcion", "is", null)
+    .limit(20000)
+  if (error) throw new Error(error.message)
+
+  let maximo = 0
+  for (const l of (data ?? []) as Array<{ descripcion: string | null }>) {
+    // Toma el número final del nombre ("Lote 201" → 201)
+    const m = /(\d+)\s*$/.exec((l.descripcion ?? "").trim())
+    if (m) {
+      const n = parseInt(m[1], 10)
+      if (n > maximo) maximo = n
+    }
+  }
+  return maximo + 1
+}
+
 export async function updateLoteEstado(id: number, estado: string): Promise<void> {
   const db = createVanessaClient()
   const { error } = await db.from("lote").update({ estado }).eq("id", id)

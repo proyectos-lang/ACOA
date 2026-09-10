@@ -10,7 +10,8 @@ import { getConfigCostos } from "@/lib/db/config-costos"
 import { listCategorias } from "@/lib/db/categoria"
 import { getOpTelas } from "@/lib/db/op-tela"
 import { getOpTelaLotes } from "@/lib/db/op-tela-lote"
-import { getLotesByOrden } from "@/lib/db/lote"
+import { getLotesByOrden, getSiguienteConsecutivoLote } from "@/lib/db/lote"
+import { getGamasPorNombreTela } from "@/lib/db/tela-color"
 import { OrdenDetalleClient } from "@/components/produccion/orden-detalle-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -32,7 +33,7 @@ export default async function OrdenDetallePage({
   const ordenId = Number(id)
   if (isNaN(ordenId)) notFound()
 
-  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes, categorias] = await Promise.all([
+  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes, categorias, gamasTela, siguienteLote] = await Promise.all([
     getOrdenById(ordenId),
     getOpMateriales(ordenId),
     getCurvaTallas(ordenId),
@@ -42,6 +43,8 @@ export default async function OrdenDetallePage({
     getOpTelaLotes(ordenId),
     getLotesByOrden(ordenId),
     listCategorias(),
+    getGamasPorNombreTela(),
+    getSiguienteConsecutivoLote(),
   ])
 
   if (!orden) notFound()
@@ -95,6 +98,8 @@ export default async function OrdenDetallePage({
         lotes={lotes}
         configCostos={configCostos}
         categorias={categorias}
+        gamasTela={gamasTela}
+        siguienteLote={siguienteLote}
       />
     </div>
   )

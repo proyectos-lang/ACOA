@@ -63,6 +63,10 @@ interface Props {
   lotes: LoteRow[]
   configCostos: Record<string, number>
   categorias: CategoriaRow[]
+  // Gama de colores preestablecida por nombre de tela
+  gamasTela: Record<string, string[]>
+  // Siguiente consecutivo global de lote (continuo en toda la operacion)
+  siguienteLote: number
 }
 
 function padOP(n: number) {
@@ -353,6 +357,8 @@ function OpTelaSlotCard({
   plantillaKey,
   sugerenciasTela,
   totalCapasRef,
+  gamaPorTela,
+  siguienteLote,
 }: {
   ordenId: number
   slot: 1 | 2 | 3
@@ -366,6 +372,10 @@ function OpTelaSlotCard({
   plantilla?: SlotGrid | null
   plantillaKey?: number
   sugerenciasTela?: string[]
+  // Colores preestablecidos por nombre de tela, para cargarlos al elegirla
+  gamaPorTela?: Record<string, string[]>
+  // Consecutivo global desde el que se numeran los lotes nuevos
+  siguienteLote?: number
   totalCapasRef?: number | null
 }) {
   const router = useRouter()
@@ -386,6 +396,10 @@ function OpTelaSlotCard({
   const lotesRef = React.useRef(lotes)
   React.useEffect(() => { lotesRef.current = lotes }, [lotes])
 
+  // Numero desde el que se nombran los lotes nuevos: continua el consecutivo
+  // global de la operacion (si el ultimo fue 201, el siguiente es 202)
+  const baseConsecutivo = siguienteLote && siguienteLote > 0 ? siguienteLote : 1
+
   React.useEffect(() => {
     if (!numLotesPreset || numLotesPreset <= 0) return
     const currentLotes = lotesRef.current
@@ -394,7 +408,7 @@ function OpTelaSlotCard({
     const lote1Key = currentLotes[0]?.key ?? null
     const toAdd: EntradaLote[] = []
     for (let i = currentLotes.length; i < numLotesPreset; i++) {
-      toAdd.push({ key: crypto.randomUUID(), nombre: `Lote ${i + 1}` })
+      toAdd.push({ key: crypto.randomUUID(), nombre: `Lote ${baseConsecutivo + i}` })
     }
     setLotes((prev) => [...prev, ...toAdd])
     setCapas((prev) => {
@@ -485,9 +499,46 @@ function OpTelaSlotCard({
     setColores((p) => p.map((c) => c.key === ck ? { ...c, nombre } : c))
   }
 
+  // Al seleccionar la tela se cargan sus colores preestablecidos. Solo se
+  // precargan si aun no hay colores escritos, para no pisar el trabajo hecho.
+  function cambiarTela(nueva: string) {
+    setTipoTela(nueva)
+
+    const gama = gamaPorTela?.[nueva.trim().toUpperCase()] ?? []
+    if (gama.length === 0) return
+
+    const hayColores = colores.some((c) => c.nombre.trim() !== "")
+    if (hayColores) return
+
+    const nuevos: EntradaColor[] = gama.map((nombre: string) => ({
+      key: crypto.randomUUID(),
+      nombre,
+    }))
+    setColores(nuevos)
+    setCapas((prev) => {
+      const next: CapasGrid = {}
+      for (const c of nuevos) {
+        next[c.key] = {}
+        for (const l of lotes) next[c.key][l.key] = prev[c.key]?.[l.key] ?? null
+      }
+      return next
+    })
+    onMsg(`${gama.length} colores cargados de la gama de ${nueva}`)
+  }
+
   function addLote() {
     const key = crypto.randomUUID()
-    const num = lotes.length + 1
+    // Continua el consecutivo global, saltando los numeros ya usados en la grilla
+    const usados = new Set(
+      lotes
+        .map((l) => {
+          const m = /(\d+)\s*$/.exec(l.nombre.trim())
+          return m ? parseInt(m[1], 10) : null
+        })
+        .filter((n): n is number => n != null)
+    )
+    let num = baseConsecutivo
+    while (usados.has(num)) num++
     setLotes((p) => [...p, { key, nombre: `Lote ${num}` }])
     setCapas((p) => {
       const next = { ...p }
@@ -619,7 +670,7 @@ function OpTelaSlotCard({
       </div>
       <select
         value={tipoTela}
-        onChange={(e) => setTipoTela(e.target.value)}
+        onChange={(e) => cambiarTela(e.target.value)}
         className={`w-full ${inputCls} ${!tipoTela ? "text-stone-400" : ""}`}
       >
         <option value="">— Selecciona una tela del maestro —</option>
@@ -1126,6 +1177,8 @@ function CurvaTallasSection({
   opTelas,
   opTelaLotes,
   sugerenciasTela,
+  gamasTela,
+  siguienteLote,
   onSaved,
 }: {
   ordenId: number
@@ -1134,9 +1187,15 @@ function CurvaTallasSection({
   opTelas: OpTelaRow[]
   opTelaLotes: OpTelaLoteRow[]
   sugerenciasTela: string[]
+  gamasTela: Record<string, string[]>
+  siguienteLote: number
   onSaved: (msg: string) => void
 }) {
   const router = useRouter()
+
+  // Las gamas ya llegan indexadas por nombre de tela en mayúsculas
+  const gamaPorTela = gamasTela ?? {}
+
   const [tallas, setTallas] = React.useState<string[]>(() => inicial.map((r) => r.talla))
   const [nuevaTalla, setNuevaTalla] = React.useState("")
   const [isPending, startSave] = useTransition()
@@ -1244,6 +1303,8 @@ function CurvaTallasSection({
         <div className="grid grid-cols-1 gap-3">
           {/* Material 1 — siempre activo, reporta su grid al padre */}
           <OpTelaSlotCard
+            gamaPorTela={gamaPorTela}
+            siguienteLote={siguienteLote}
             key={1}
             ordenId={ordenId}
             slot={1}
@@ -1260,6 +1321,8 @@ function CurvaTallasSection({
           {/* Material 2 */}
           {habilitado2 ? (
             <OpTelaSlotCard
+            gamaPorTela={gamaPorTela}
+            siguienteLote={siguienteLote}
               key={2}
               ordenId={ordenId}
               slot={2}
@@ -1298,6 +1361,8 @@ function CurvaTallasSection({
           {/* Material 3 */}
           {habilitado3 ? (
             <OpTelaSlotCard
+            gamaPorTela={gamaPorTela}
+            siguienteLote={siguienteLote}
               key={3}
               ordenId={ordenId}
               slot={3}
@@ -2523,6 +2588,8 @@ export function OrdenDetalleClient({
   lotes,
   configCostos,
   categorias,
+  gamasTela,
+  siguienteLote,
 }: Props) {
   const router = useRouter()
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
@@ -2616,6 +2683,8 @@ export function OrdenDetalleClient({
 
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <CurvaTallasSection
+            gamasTela={gamasTela}
+            siguienteLote={siguienteLote}
             ordenId={orden.id}
             orden={orden}
             inicial={curvaTallas}
