@@ -570,8 +570,19 @@ function OpTelaSlotCard({
     })
   }
 
-  function setLoteNombre(lk: string, nombre: string) {
-    setLotes((p) => p.map((l) => l.key === lk ? { ...l, nombre } : l))
+  // En la grilla solo se muestra el numero del lote ("Lote 72" -> "72"),
+  // pero se sigue guardando con el nombre completo
+  function soloNumero(nombre: string): string {
+    const m = /(\d+)\s*$/.exec(nombre.trim())
+    return m ? m[1] : nombre.trim()
+  }
+
+  function setLoteNombre(lk: string, valor: string) {
+    // Si escriben solo digitos, se guarda como "Lote N"; si escriben otra
+    // cosa se respeta tal cual (nombres personalizados)
+    const limpio = valor.trim()
+    const nombre = /^\d+$/.test(limpio) ? `Lote ${limpio}` : valor
+    setLotes((p) => p.map((l) => (l.key === lk ? { ...l, nombre } : l)))
   }
 
   // Trae la estructura completa de Material 1 (mismas filas, lotes y capas
@@ -710,14 +721,16 @@ function OpTelaSlotCard({
               <tr>
                 <th className="text-left px-1 py-1 text-stone-400 font-normal w-28">Color</th>
                 {lotes.map((l) => (
-                  <th key={l.key} className="px-1 py-1 min-w-[90px]">
-                    <div className="flex items-center justify-center gap-0.5">
+                  <th key={l.key} className="px-1.5 py-1 min-w-[120px]">
+                    <div className="flex items-center justify-center gap-1">
                       <input
                         type="text"
-                        value={l.nombre}
+                        inputMode="numeric"
+                        value={soloNumero(l.nombre)}
                         onChange={(e) => setLoteNombre(l.key, e.target.value)}
-                        className={`w-16 text-center font-semibold text-stone-700 ${inputCls}`}
-                        placeholder="Lote"
+                        className={`w-20 text-center text-sm font-semibold text-stone-700 ${inputCls}`}
+                        placeholder="N°"
+                        title={l.nombre}
                       />
                       <button
                         type="button"
