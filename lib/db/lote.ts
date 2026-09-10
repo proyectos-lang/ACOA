@@ -200,20 +200,38 @@ export async function uploadImagenLote(
   return data.publicUrl
 }
 
-// Siguiente consecutivo global de lote. Los lotes se nombran "Lote N" y N
-// es continuo en toda la operación: si el último es 201, el siguiente es 202.
-export async function getSiguienteConsecutivoLote(): Promise<number> {
+// Siguiente consecutivo de lote PARA UNA REFERENCIA. Cada referencia lleva
+// su propia numeracion: el mismo "Lote 5" puede existir en referencias
+// distintas. Si la referencia 910 va en 201, su siguiente lote es el 202,
+// mientras que otra referencia arranca donde vaya la suya.
+export async function getSiguienteConsecutivoLote(referencia?: string | null): Promise<number> {
   const db = createVanessaClient()
+
+  const ref = (referencia ?? "").trim().toUpperCase()
+  if (!ref) return 1
+
+  // Ordenes de esa referencia (comparando sin espacios ni mayusculas)
+  const { data: ordenes, error: errOrd } = await db
+    .from("orden_produccion")
+    .select("id, referencia")
+  if (errOrd) throw new Error(errOrd.message)
+
+  const ordenIds = ((ordenes ?? []) as Array<{ id: number; referencia: string | null }>)
+    .filter((o) => (o.referencia ?? "").trim().toUpperCase() === ref)
+    .map((o) => o.id)
+  if (ordenIds.length === 0) return 1
+
   const { data, error } = await db
     .from("lote")
     .select("descripcion")
+    .in("orden_id", ordenIds)
     .not("descripcion", "is", null)
     .limit(20000)
   if (error) throw new Error(error.message)
 
   let maximo = 0
   for (const l of (data ?? []) as Array<{ descripcion: string | null }>) {
-    // Toma el número final del nombre ("Lote 201" → 201)
+    // Toma el numero final del nombre ("Lote 201" -> 201)
     const m = /(\d+)\s*$/.exec((l.descripcion ?? "").trim())
     if (m) {
       const n = parseInt(m[1], 10)

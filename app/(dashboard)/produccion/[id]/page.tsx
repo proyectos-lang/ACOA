@@ -33,7 +33,7 @@ export default async function OrdenDetallePage({
   const ordenId = Number(id)
   if (isNaN(ordenId)) notFound()
 
-  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes, categorias, gamasTela, siguienteLote] = await Promise.all([
+  const [orden, opMateriales, curvaTallas, materiales, session, opTelas, opTelaLotes, lotes, categorias, gamasTela] = await Promise.all([
     getOrdenById(ordenId),
     getOpMateriales(ordenId),
     getCurvaTallas(ordenId),
@@ -44,10 +44,12 @@ export default async function OrdenDetallePage({
     getLotesByOrden(ordenId),
     listCategorias(),
     getGamasPorNombreTela(),
-    getSiguienteConsecutivoLote(),
   ])
 
   if (!orden) notFound()
+
+  // El consecutivo de lote es propio de cada referencia
+  const siguienteLote = await getSiguienteConsecutivoLote(orden.referencia)
 
   const permiso = session ? await getPermiso(session.userId) : null
   const tieneVerCostos = permiso?.ver_costos === true
