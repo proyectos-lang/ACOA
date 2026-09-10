@@ -21,6 +21,7 @@ import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto
 import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
+import { PersonaCombobox } from "@/components/ui/persona-combobox"
 import type { EstampacionRow } from "@/lib/db/estampacion"
 import {
   guardarEstampacionAction,
@@ -155,6 +156,11 @@ export function EstampacionFichaClient({
   const yaEnConfeccion = lote.estado !== "estampacion"
   const esConjunto = orden.tipo_prenda === "conjunto"
 
+  // Estampador elegido con el combobox (se envia en un input oculto)
+  const [estampadorSel, setEstampadorSel] = React.useState(
+    estampacion?.nombre_estampador ?? ""
+  )
+
   // Fecha estimada calculada a partir de los días de entrega (sin domingos)
   const [fechaEntregaLote, setFechaEntregaLote] = React.useState(
     estampacion?.fecha_entrega_lote ?? ""
@@ -234,7 +240,7 @@ export function EstampacionFichaClient({
                 loteId={lote.id}
                 prendas={prendas}
                 etapa="estampacion"
-                estampadores={estampadores.map((e) => e.nombre_completo)}
+                estampadores={estampadores}
                 precioDefault={precioEstampacionOP}
                 onMsg={showToast}
               />
@@ -242,23 +248,14 @@ export function EstampacionFichaClient({
               <>
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Nombre del estampador</label>
-              <select
-                name="nombre_estampador"
-                defaultValue={estampacion?.nombre_estampador ?? ""}
-                className={fieldCls}
-              >
-                <option value="">— Selecciona un estampador —</option>
-                {/* Valor guardado que no está en el módulo Estampadores */}
-                {estampacion?.nombre_estampador &&
-                  !estampadores.some((e) => e.nombre_completo === estampacion.nombre_estampador) && (
-                    <option value={estampacion.nombre_estampador}>
-                      {estampacion.nombre_estampador} (no registrado)
-                    </option>
-                  )}
-                {estampadores.map((e) => (
-                  <option key={e.id} value={e.nombre_completo}>{e.nombre_completo}</option>
-                ))}
-              </select>
+              <PersonaCombobox
+                opciones={estampadores}
+                value={estampadorSel}
+                onChange={setEstampadorSel}
+                vacioLabel="— Selecciona un estampador —"
+                placeholder="Buscar por nombre o código…"
+              />
+              <input type="hidden" name="nombre_estampador" value={estampadorSel} />
               {estampadores.length === 0 && (
                 <p className="text-xs text-amber-600">
                   No hay estampadores registrados. Créalos en el módulo Estampadores.

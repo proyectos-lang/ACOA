@@ -19,6 +19,7 @@ import type { LoteRow } from "@/lib/db/lote"
 import type { OpTelaRow } from "@/lib/db/op-tela"
 import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
+import { PersonaCombobox } from "@/components/ui/persona-combobox"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   aprobarDisenoAction,
@@ -153,21 +154,12 @@ function LoteDisenoCard({
       {/* Estampador asignado desde Diseño (queda en el proceso de estampación) */}
       <div className="space-y-1">
         <label className="text-[11px] font-medium text-stone-500">Estampador asignado</label>
-        <select
+        <PersonaCombobox
+          opciones={estampadores}
           value={estampador}
-          onChange={(e) => setEstampador(e.target.value)}
-          className="w-full rounded-lg border border-stone-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
-        >
-          <option value="">— Sin asignar —</option>
-          {estampador && !estampadores.some((e) => e.nombre_completo === estampador) && (
-            <option value={estampador}>{estampador} (no registrado)</option>
-          )}
-          {estampadores.map((e) => (
-            <option key={e.id} value={e.nombre_completo}>
-              {e.nombre_completo}
-            </option>
-          ))}
-        </select>
+          onChange={setEstampador}
+          compacto
+        />
         {estampadores.length === 0 && (
           <p className="text-[11px] text-amber-600">
             No hay estampadores registrados. Créalos en el módulo Estampadores.

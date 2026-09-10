@@ -22,6 +22,7 @@ import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto
 import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
+import { PersonaCombobox } from "@/components/ui/persona-combobox"
 import type { ConfeccionRow, ConfeccionInsumoRow } from "@/lib/db/confeccion"
 import type { NovedadProcesoRow } from "@/lib/db/novedad-proceso"
 import { TIPO_NOVEDAD_LABEL, TIPO_NOVEDAD_COLOR } from "@/lib/db/novedad-proceso"
@@ -150,6 +151,11 @@ export function ConfeccionFichaClient({
     cantidadReconfirmada != null && cantidadReconfirmada !== lote.cantidad_programada
   const yaEnConteo = lote.estado !== "confeccion"
   const esConjunto = orden.tipo_prenda === "conjunto"
+
+  // Confeccionista elegido con el combobox (se envia en un input oculto)
+  const [confeccionistaSel, setConfeccionistaSel] = React.useState(
+    confeccion?.nombre_confeccionista ?? ""
+  )
 
   // Fecha estimada calculada a partir de los días de entrega (sin domingos)
   const [fechaEntregaLote, setFechaEntregaLote] = React.useState(
@@ -353,7 +359,7 @@ export function ConfeccionFichaClient({
                 loteId={lote.id}
                 prendas={prendas}
                 etapa="confeccion"
-                confeccionistas={confeccionistas.map((c) => c.nombre_completo)}
+                confeccionistas={confeccionistas}
                 precioDefault={precioConfeccionOP}
                 onMsg={showToast}
               />
@@ -361,22 +367,14 @@ export function ConfeccionFichaClient({
               <>
             <div className="space-y-1">
               <label className="text-sm font-medium text-stone-700">Confeccionista</label>
-              <select
-                name="nombre_confeccionista"
-                defaultValue={confeccion?.nombre_confeccionista ?? ""}
-                className={fieldCls}
-              >
-                <option value="">— Selecciona un confeccionista —</option>
-                {confeccion?.nombre_confeccionista &&
-                  !confeccionistas.some((c) => c.nombre_completo === confeccion.nombre_confeccionista) && (
-                    <option value={confeccion.nombre_confeccionista}>
-                      {confeccion.nombre_confeccionista} (no registrado)
-                    </option>
-                  )}
-                {confeccionistas.map((c) => (
-                  <option key={c.id} value={c.nombre_completo}>{c.nombre_completo}</option>
-                ))}
-              </select>
+              <PersonaCombobox
+                opciones={confeccionistas}
+                value={confeccionistaSel}
+                onChange={setConfeccionistaSel}
+                vacioLabel="— Selecciona un confeccionista —"
+                placeholder="Buscar por nombre o código…"
+              />
+              <input type="hidden" name="nombre_confeccionista" value={confeccionistaSel} />
               {confeccionistas.length === 0 && (
                 <p className="text-xs text-amber-600">
                   No hay confeccionistas registrados. Créalos en el módulo Confeccionistas.

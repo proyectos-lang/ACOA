@@ -325,7 +325,7 @@ export function EstampadoresClient({ estampadores }: { estampadores: EstampadorR
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Nombre", "Celular", "Teléfono", "Barrio", "Nacimiento", "Cédula", "Estado", ""].map((h) => (
+                  {["Código", "Nombre", "Celular", "Teléfono", "Barrio", "Nacimiento", "Cédula", "Estado", ""].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-xs font-semibold text-stone-500 uppercase tracking-wide text-left"
@@ -338,6 +338,11 @@ export function EstampadoresClient({ estampadores }: { estampadores: EstampadorR
               <tbody>
                 {estampadores.map((e) => (
                   <tr key={e.id} className="border-b border-stone-100 last:border-0 hover:bg-stone-50">
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs font-semibold text-stone-500">
+                        #{e.id}
+                      </span>
+                    </td>
                     <td className="px-4 py-3">
                       <span className="font-medium text-stone-800 inline-flex items-center gap-1.5">
                         {e.nombre_completo}

@@ -11,6 +11,7 @@ import {
   PRENDA_ESTADO_COLOR,
 } from "@/lib/db/lote-prenda"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
+import { PersonaCombobox, type PersonaOpcion } from "@/components/ui/persona-combobox"
 import {
   crearPrendaAction,
   actualizarPrendaAction,
@@ -54,8 +55,8 @@ function PrendaFila({
   prenda: LotePrendaRow
   loteId: number
   etapa: PrendaEstado
-  estampadores: string[]
-  confeccionistas: string[]
+  estampadores: PersonaOpcion[]
+  confeccionistas: PersonaOpcion[]
   precioDefault: number | null
   onMsg: (tipo: "ok" | "error", msg: string) => void
 }) {
@@ -233,13 +234,13 @@ function PrendaFila({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <div className="space-y-0.5">
             <label className={lblCls}>Estampador</label>
-            <select value={estampador} onChange={(e) => setEstampador(e.target.value)} className={inputCls}>
-              <option value="">— Estampador —</option>
-              {estampador && !estampadores.includes(estampador) && (
-                <option value={estampador}>{estampador} (no registrado)</option>
-              )}
-              {estampadores.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            <PersonaCombobox
+              opciones={estampadores}
+              value={estampador}
+              onChange={setEstampador}
+              vacioLabel="— Estampador —"
+              compacto
+            />
           </div>
           <div className="space-y-0.5">
             <label className={lblCls}>Precio (COP)</label>
@@ -275,13 +276,13 @@ function PrendaFila({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <div className="space-y-0.5">
             <label className={lblCls}>Confeccionista</label>
-            <select value={confeccionista} onChange={(e) => setConfeccionista(e.target.value)} className={inputCls}>
-              <option value="">— Confeccionista —</option>
-              {confeccionista && !confeccionistas.includes(confeccionista) && (
-                <option value={confeccionista}>{confeccionista} (no registrado)</option>
-              )}
-              {confeccionistas.map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
+            <PersonaCombobox
+              opciones={confeccionistas}
+              value={confeccionista}
+              onChange={setConfeccionista}
+              vacioLabel="— Confeccionista —"
+              compacto
+            />
           </div>
           <div className="space-y-0.5">
             <label className={lblCls}>Precio (COP)</label>
@@ -349,8 +350,8 @@ export function PrendasConjuntoSection({
   loteId: number
   prendas: LotePrendaRow[]
   etapa: PrendaEstado
-  estampadores?: string[]
-  confeccionistas?: string[]
+  estampadores?: PersonaOpcion[]
+  confeccionistas?: PersonaOpcion[]
   precioDefault?: number | null
   embedded?: boolean
   onMsg: (tipo: "ok" | "error", msg: string) => void

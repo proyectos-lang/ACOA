@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import { CheckCircle2, AlertTriangle, UserCheck, PackageCheck, X, Printer } from "lucide-react"
+import { PersonaCombobox } from "@/components/ui/persona-combobox"
 import { sumarDiasSinDomingo, hoyBogota as hoyBog } from "@/lib/fechas-habiles"
 import type { LoteConInfo } from "@/lib/db/lote"
 import type { EstampadorRow } from "@/lib/db/estampador"
@@ -472,16 +473,13 @@ export function EstampacionListaClient({
             {seleccion.size} lote{seleccion.size !== 1 ? "s" : ""} seleccionado{seleccion.size !== 1 ? "s" : ""}
           </span>
           <div className="flex items-center gap-2 flex-wrap ml-auto">
-            <select
+            <PersonaCombobox
+              opciones={estampadores}
               value={estampadorSel}
-              onChange={(e) => setEstampadorSel(e.target.value)}
-              className="rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
-            >
-              <option value="">— Estampador —</option>
-              {estampadores.map((e) => (
-                <option key={e.id} value={e.nombre_completo}>{e.nombre_completo}</option>
-              ))}
-            </select>
+              onChange={setEstampadorSel}
+              vacioLabel="— Estampador —"
+              className="w-56"
+            />
             <button
               type="button"
               onClick={handleAsignar}
