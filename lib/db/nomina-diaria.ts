@@ -446,3 +446,132 @@ export async function reabrirDiaNomina(personaId: number, fecha: string): Promis
     .eq("fecha", fecha)
   if (error) throw new Error(error.message)
 }
+
+// ── Nomina por produccion: desglose por referencia empacada ──────
+//
+// Una linea por dia, persona y referencia: cuantas prendas empaco de esa
+// referencia y cuanto se le paga por ellas.
+
+export interface LineaProduccion {
+  fecha: string
+  dia_semana: number
+  persona_id: number
+  persona_nombre: string
+  persona_documento: string
+  numero_op: number | null
+  referencia: string
+  lote_nombre: string
+  unidades: number
+  valor_unitario: number
+  valor_total: number
+}
+
+export async function getNominaProduccion(input: {
+  desde: string
+  hasta: string
+  personaId?: number | null
+}): Promise<{ lineas: LineaProduccion[]; valorPrenda: number }> {
+  const db = createVanessaClient()
+  const config = await getConfigGeneral()
+  const valorPrenda = Number(config?.valor_prenda_empaque) || 0
+
+  let q = db
+    .from("empaque_registro")
+    .select("persona_id, lote_id, fecha, cantidad")
+    .gte("fecha", input.desde)
+    .lte("fecha", input.hasta)
+    .order("fecha", { ascending: false })
+  if (input.personaId) q = q.eq("persona_id", input.personaId)
+
+  const { data: registros, error } = await q
+  if (error) throw new Error(error.message)
+  const filas = (registros ?? []) as Array<{
+    persona_id: number
+    lote_id: number
+    fecha: string
+    cantidad: number
+  }>
+  if (filas.length === 0) return { lineas: [], valorPrenda }
+
+  const personaIds = [...new Set(filas.map((f) => f.persona_id))]
+  const loteIds = [...new Set(filas.map((f) => f.lote_id))]
+
+  const [{ data: personas }, { data: lotes }] = await Promise.all([
+    db.from("persona").select("id, nombre, documento").in("id", personaIds),
+    db.from("lote").select("id, numero_lote, descripcion, orden_id").in("id", loteIds),
+  ])
+
+  const personaMap = new Map(
+    ((personas ?? []) as Array<{ id: number; nombre: string; documento: string }>).map((x) => [
+      x.id,
+      x,
+    ])
+  )
+
+  const lotesRows = (lotes ?? []) as Array<{
+    id: number
+    numero_lote: number
+    descripcion: string | null
+    orden_id: number
+  }>
+  const ordenIds = [...new Set(lotesRows.map((l) => l.orden_id))]
+  const { data: ops } = await db
+    .from("orden_produccion")
+    .select("id, numero_op, referencia")
+    .in("id", ordenIds)
+  const opMap = new Map(
+    ((ops ?? []) as Array<{ id: number; numero_op: number; referencia: string }>).map((o) => [
+      o.id,
+      o,
+    ])
+  )
+  const loteMap = new Map(
+    lotesRows.map((l) => [
+      l.id,
+      {
+        nombre: l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`,
+        orden: opMap.get(l.orden_id),
+      },
+    ])
+  )
+
+  // Agrupar por dia + persona + referencia + lote
+  const mapa = new Map<string, LineaProduccion>()
+  for (const f of filas) {
+    if (f.cantidad <= 0) continue
+    const lote = loteMap.get(f.lote_id)
+    const persona = personaMap.get(f.persona_id)
+    const referencia = lote?.orden?.referencia ?? "—"
+    const key = `${f.fecha}|${f.persona_id}|${referencia}|${lote?.nombre ?? f.lote_id}`
+
+    const previo = mapa.get(key)
+    if (previo) {
+      previo.unidades += f.cantidad
+      previo.valor_total = previo.unidades * valorPrenda
+      continue
+    }
+
+    const [y, m, d] = f.fecha.split("-").map(Number)
+    mapa.set(key, {
+      fecha: f.fecha,
+      dia_semana: new Date(Date.UTC(y, m - 1, d)).getUTCDay(),
+      persona_id: f.persona_id,
+      persona_nombre: persona?.nombre ?? `#${f.persona_id}`,
+      persona_documento: persona?.documento ?? "",
+      numero_op: lote?.orden?.numero_op ?? null,
+      referencia,
+      lote_nombre: lote?.nombre ?? `Lote ${f.lote_id}`,
+      unidades: f.cantidad,
+      valor_unitario: valorPrenda,
+      valor_total: f.cantidad * valorPrenda,
+    })
+  }
+
+  const lineas = [...mapa.values()].sort(
+    (a, b) =>
+      b.fecha.localeCompare(a.fecha) ||
+      a.persona_nombre.localeCompare(b.persona_nombre) ||
+      a.referencia.localeCompare(b.referencia)
+  )
+  return { lineas, valorPrenda }
+}

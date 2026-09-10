@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { CalendarDays, ListChecks } from "lucide-react"
+import { CalendarDays, ListChecks, Package } from "lucide-react"
 import type { PeriodoNominaRow } from "@/lib/db/periodo-nomina"
 import type { PersonaRow } from "@/lib/db/persona"
-import type { NominaPersona, ConfigNominaGeneral } from "@/lib/db/nomina-diaria"
+import type { NominaPersona, ConfigNominaGeneral, LineaProduccion } from "@/lib/db/nomina-diaria"
 import { PeriodosClient } from "@/components/nomina/periodos-client"
 import { NominaDiariaClient } from "@/components/nomina/nomina-diaria-client"
+import { NominaProduccionClient } from "@/components/nomina/nomina-produccion-client"
 
 // Une la nómina diaria (con su configuración) y los períodos quincenales
 export function NominaTabs({
@@ -16,6 +17,8 @@ export function NominaTabs({
   configInicial,
   desdeInicial,
   hastaInicial,
+  lineasProduccion,
+  valorPrenda,
 }: {
   periodos: PeriodoNominaRow[]
   empleados: PersonaRow[]
@@ -23,8 +26,10 @@ export function NominaTabs({
   configInicial: ConfigNominaGeneral | null
   desdeInicial: string
   hastaInicial: string
+  lineasProduccion: LineaProduccion[]
+  valorPrenda: number
 }) {
-  const [vista, setVista] = React.useState<"diaria" | "periodos">("diaria")
+  const [vista, setVista] = React.useState<"diaria" | "produccion" | "periodos">("diaria")
 
   return (
     <div className="space-y-4">
@@ -37,6 +42,15 @@ export function NominaTabs({
           }`}
         >
           <CalendarDays className="h-4 w-4" /> Pago diario
+        </button>
+        <button
+          type="button"
+          onClick={() => setVista("produccion")}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-semibold ${
+            vista === "produccion" ? "bg-[#344966] text-white" : "bg-white text-stone-600"
+          }`}
+        >
+          <Package className="h-4 w-4" /> Por producción
         </button>
         <button
           type="button"
@@ -53,6 +67,14 @@ export function NominaTabs({
         <NominaDiariaClient
           personasIniciales={personasIniciales}
           configInicial={configInicial}
+          empleados={empleados}
+          desdeInicial={desdeInicial}
+          hastaInicial={hastaInicial}
+        />
+      ) : vista === "produccion" ? (
+        <NominaProduccionClient
+          lineasIniciales={lineasProduccion}
+          valorPrendaInicial={valorPrenda}
           empleados={empleados}
           desdeInicial={desdeInicial}
           hastaInicial={hastaInicial}
