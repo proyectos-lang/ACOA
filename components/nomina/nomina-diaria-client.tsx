@@ -75,221 +75,24 @@ function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
   )
 }
 
-// Fila de una persona con su detalle día por día
-function PersonaCard({
-  p,
-  onMsg,
-  onRecargar,
-}: {
-  p: NominaPersona
-  onMsg: (tipo: "ok" | "error", msg: string) => void
-  onRecargar: () => void
-}) {
-  const [abierto, setAbierto] = React.useState(false)
-  const [isPending, startTransition] = useTransition()
-
-  function alternarCierre(d: DiaNomina) {
-    startTransition(async () => {
-      const res = d.cerrado
-        ? await reabrirDiaNominaAction(p.persona_id, d.fecha)
-        : await cerrarDiaNominaAction({
-            persona_id: p.persona_id,
-            fecha: d.fecha,
-            valor_pagado: d.valor_total,
-          })
-      if (res.error) onMsg("error", res.error)
-      else {
-        onMsg("ok", d.cerrado ? "Día reabierto" : "Día cerrado")
-        onRecargar()
-      }
-    })
-  }
-
-  const diasConPago = p.dias.filter((d) => d.valor_total > 0)
-
-  return (
-    <Card className="overflow-hidden p-0">
-      <div
-        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 cursor-pointer hover:bg-stone-50"
-        onClick={() => setAbierto((a) => !a)}
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-stone-400">
-            {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </span>
-          <div className="min-w-0">
-            <p className="font-semibold text-stone-800 truncate">{p.nombre}</p>
-            <p className="text-xs text-stone-500">
-              {p.cargo ?? "—"}
-              <span className="text-stone-400"> · CC {p.documento}</span>
-              {p.es_empacador && (
-                <Badge className="ml-2 bg-teal-100 text-teal-800 border-0 text-[10px]">
-                  Destajo
-                </Badge>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 text-sm">
-          <div className="text-right">
-            <p className="text-[11px] text-stone-500">Días</p>
-            <p className="font-mono font-bold text-stone-700">{p.total_dias_trabajados}</p>
-          </div>
-          {p.es_empacador && (
-            <div className="text-right">
-              <p className="text-[11px] text-stone-500">Prendas</p>
-              <p className="font-mono font-bold text-teal-700">
-                {p.total_unidades.toLocaleString("es-CO")}
-              </p>
-            </div>
-          )}
-          <div className="text-right">
-            <p className="text-[11px] text-stone-500">Devengado</p>
-            <p className="font-mono font-bold text-stone-900">{cop(p.total_devengado)}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-[11px] text-stone-500">Neto</p>
-            <p className="font-mono font-bold text-emerald-700">{cop(p.neto_a_pagar)}</p>
-          </div>
-        </div>
-      </div>
-
-      {abierto && (
-        <div className="border-t border-stone-100 bg-stone-50/40 px-4 py-4 space-y-4">
-          {/* Resumen de liquidación */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {[
-              ["Devengado", cop(p.total_devengado), "text-stone-800"],
-              ["Aux. transporte", cop(p.auxilio_transporte), "text-blue-700"],
-              ["Salud (4%)", `−${cop(p.deduccion_salud)}`, "text-red-600"],
-              ["Pensión (4%)", `−${cop(p.deduccion_pension)}`, "text-red-600"],
-              ["Neto a pagar", cop(p.neto_a_pagar), "text-emerald-700"],
-              ["Costo empresa", cop(p.costo_empleador), "text-amber-700"],
-            ].map(([label, valor, color]) => (
-              <div key={label} className="rounded-lg border border-stone-200 bg-white px-3 py-2">
-                <p className="text-[11px] text-stone-500">{label}</p>
-                <p className={`font-mono text-sm font-bold ${color}`}>{valor}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Detalle día por día */}
-          <div className="rounded-xl border border-stone-200 bg-white overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-stone-50 border-b border-stone-100">
-                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Fecha</th>
-                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Día</th>
-                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Concepto</th>
-                  {p.es_empacador && (
-                    <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">
-                      Prendas
-                    </th>
-                  )}
-                  <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Base</th>
-                  <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Recargo</th>
-                  <th className="px-3 py-2 text-right text-xs text-stone-500 font-medium">Total</th>
-                  <th className="px-3 py-2 text-left text-xs text-stone-500 font-medium">Detalle</th>
-                  <th className="w-20" />
-                </tr>
-              </thead>
-              <tbody>
-                {p.dias.map((d) => (
-                  <tr
-                    key={d.fecha}
-                    className={`border-b border-stone-100 last:border-0 ${
-                      d.valor_total === 0
-                        ? "bg-stone-50/60"
-                        : d.cerrado
-                          ? "bg-emerald-50/40"
-                          : ""
-                    }`}
-                  >
-                    <td className="px-3 py-1.5 font-mono text-xs text-stone-600">{d.fecha}</td>
-                    <td className="px-3 py-1.5 text-xs">
-                      <span
-                        className={
-                          d.es_domingo || d.es_festivo
-                            ? "font-semibold text-amber-700"
-                            : "text-stone-600"
-                        }
-                      >
-                        {DIAS[d.dia_semana]}
-                        {d.es_festivo && <span className="ml-1 text-[10px]">festivo</span>}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1.5">
-                      <Badge
-                        className={`border-0 text-[10px] ${CONCEPTO_COLOR[d.concepto] ?? ""}`}
-                      >
-                        {CONCEPTO_LABEL[d.concepto] ?? d.concepto}
-                      </Badge>
-                    </td>
-                    {p.es_empacador && (
-                      <td className="px-3 py-1.5 text-right font-mono text-xs text-teal-700">
-                        {d.unidades_empacadas > 0
-                          ? d.unidades_empacadas.toLocaleString("es-CO")
-                          : "—"}
-                      </td>
-                    )}
-                    <td className="px-3 py-1.5 text-right font-mono text-xs text-stone-700">
-                      {d.valor_base > 0 ? cop(d.valor_base) : "—"}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono text-xs text-amber-700">
-                      {d.valor_recargo > 0 ? cop(d.valor_recargo) : "—"}
-                    </td>
-                    <td
-                      className={`px-3 py-1.5 text-right font-mono text-xs font-bold ${
-                        d.valor_total > 0 ? "text-stone-900" : "text-stone-300"
-                      }`}
-                    >
-                      {cop(d.valor_total)}
-                    </td>
-                    <td className="px-3 py-1.5 text-[11px] text-stone-500">{d.detalle}</td>
-                    <td className="px-3 py-1.5">
-                      {d.valor_total > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => alternarCierre(d)}
-                          disabled={isPending}
-                          className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold ${
-                            d.cerrado
-                              ? "border border-stone-200 text-stone-500 hover:bg-stone-100"
-                              : "text-white"
-                          }`}
-                          style={d.cerrado ? undefined : { backgroundColor: "#065f46" }}
-                        >
-                          {d.cerrado ? (
-                            <>
-                              <Unlock className="h-3 w-3" /> Reabrir
-                            </>
-                          ) : (
-                            <>
-                              <Lock className="h-3 w-3" /> Cerrar
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-stone-100">
-                  <td colSpan={p.es_empacador ? 6 : 5} className="px-3 py-2 text-xs font-bold text-stone-700">
-                    Total del periodo · {diasConPago.length} días con pago
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-sm font-bold text-stone-900">
-                    {cop(p.total_devengado)}
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </Card>
-  )
+// Una fila de la tabla: un dia de una persona
+type FilaDia = {
+  key: string
+  fecha: string
+  dia_semana: number
+  persona_id: number
+  nombre: string
+  documento: string
+  cargo: string | null
+  es_empacador: boolean
+  // Valor dia (salario) o valor unitario de empaque
+  valor_referencia: number
+  unidades: number
+  concepto: string
+  valor_recargo: number
+  valor_total: number
+  detalle: string
+  cerrado: boolean
 }
 
 // ── Pestaña de configuración ──
@@ -354,12 +157,11 @@ function ConfigTab({
     },
     {
       titulo: "Parámetros legales 2026",
-      nota: "Salario mínimo y auxilio de transporte vigentes en Colombia.",
       campos: [
-        ["salario_minimo", "Salario mínimo mensual", "$"],
-        ["auxilio_transporte", "Auxilio de transporte", "$"],
-        ["tope_auxilio_smmlv", "Tope auxilio (en SMMLV)", "x"],
-        ["dias_semana_para_dominical", "Días para descanso dominical", "d"],
+        ["salario_minimo", "Salario mínimo", "$"],
+        ["auxilio_transporte", "Auxilio transporte", "$"],
+        ["tope_auxilio_smmlv", "Tope auxilio", "SMMLV"],
+        ["dias_semana_para_dominical", "Días p/ dominical", "d"],
       ],
     },
     {
@@ -375,7 +177,7 @@ function ConfigTab({
         ["porc_salud_empleador", "Salud", "%"],
         ["porc_pension_empleador", "Pensión", "%"],
         ["porc_arl", "ARL", "%"],
-        ["porc_caja", "Caja de compensación", "%"],
+        ["porc_caja", "Caja", "%"],
         ["porc_icbf", "ICBF", "%"],
         ["porc_sena", "SENA", "%"],
       ],
@@ -384,25 +186,27 @@ function ConfigTab({
       titulo: "Prestaciones sociales",
       campos: [
         ["porc_cesantias", "Cesantías", "%"],
-        ["porc_int_cesantias", "Intereses cesantías", "%"],
-        ["porc_prima", "Prima de servicios", "%"],
+        ["porc_int_cesantias", "Int. cesantías", "%"],
+        ["porc_prima", "Prima", "%"],
         ["porc_vacaciones", "Vacaciones", "%"],
       ],
     },
   ]
 
   return (
-    <div className="space-y-4">
-      {grupos.map((g) => (
-        <Card key={g.titulo} className="p-5 space-y-3">
-          <div className="border-b border-stone-100 pb-2">
-            <h2 className="text-sm font-semibold text-stone-700">{g.titulo}</h2>
-            {g.nota && <p className="text-xs text-stone-500 mt-0.5">{g.nota}</p>}
+    <Card className="p-5 space-y-5">
+      {grupos.map((g, i) => (
+        <div key={g.titulo} className={i > 0 ? "pt-4 border-t border-stone-100" : ""}>
+          <div className="mb-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+              {g.titulo}
+            </h3>
+            {g.nota && <p className="text-[11px] text-stone-400 mt-0.5">{g.nota}</p>}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             {g.campos.map(([key, label, sufijo]) => (
-              <div key={key} className="space-y-1">
-                <label className="text-xs font-medium text-stone-600">
+              <div key={key} className="space-y-0.5">
+                <label className="text-[11px] font-medium text-stone-500 block truncate">
                   {label} <span className="text-stone-400">({sufijo})</span>
                 </label>
                 <input
@@ -411,25 +215,27 @@ function ConfigTab({
                   min="0"
                   value={valores[key] ?? ""}
                   onChange={(e) => set(key, e.target.value)}
-                  className={`${filtroCls} w-full font-mono`}
+                  className="w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs font-mono outline-none focus:ring-2 focus:ring-[#344966]"
                 />
               </div>
             ))}
           </div>
-        </Card>
+        </div>
       ))}
 
-      <button
-        type="button"
-        onClick={guardar}
-        disabled={isPending}
-        className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-        style={{ backgroundColor: "#344966" }}
-      >
-        <Save className="h-4 w-4" />
-        {isPending ? "Guardando…" : "Guardar configuración"}
-      </button>
-    </div>
+      <div className="pt-3 border-t border-stone-100">
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={isPending}
+          className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-3.5 w-3.5" />
+          {isPending ? "Guardando…" : "Guardar configuración"}
+        </button>
+      </div>
+    </Card>
   )
 }
 
@@ -462,6 +268,29 @@ export function NominaDiariaClient({
     setTimeout(() => setToast(null), 4000)
   }
 
+  // Cierra o reabre el pago de un dia desde la tabla
+  function alternarCierre(f: FilaDia) {
+    startCarga(async () => {
+      const res = f.cerrado
+        ? await reabrirDiaNominaAction(f.persona_id, f.fecha)
+        : await cerrarDiaNominaAction({
+            persona_id: f.persona_id,
+            fecha: f.fecha,
+            valor_pagado: f.valor_total,
+          })
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast("ok", f.cerrado ? "Día reabierto" : "Día cerrado")
+        const r = await cargarNominaDiariaAction({
+          desde,
+          hasta,
+          personaId: personaId ? parseInt(personaId, 10) : null,
+        })
+        if (r.personas) setPersonas(r.personas)
+      }
+    })
+  }
+
   const recargar = React.useCallback(() => {
     startCarga(async () => {
       const res = await cargarNominaDiariaAction({
@@ -477,6 +306,43 @@ export function NominaDiariaClient({
       router.refresh()
     })
   }, [desde, hasta, personaId, router])
+
+  // Tabla plana: una fila por dia y trabajador, ordenada por fecha
+  const filas: FilaDia[] = React.useMemo(() => {
+    const out: FilaDia[] = []
+    for (const per of personas) {
+      for (const d of per.dias) {
+        // Solo interesan los dias con movimiento o con pago
+        if (d.valor_total === 0 && !d.asistio && d.unidades_empacadas === 0) continue
+        out.push({
+          key: `${per.persona_id}_${d.fecha}`,
+          fecha: d.fecha,
+          dia_semana: d.dia_semana,
+          persona_id: per.persona_id,
+          nombre: per.nombre,
+          documento: per.documento,
+          cargo: per.cargo,
+          es_empacador: per.es_empacador,
+          valor_referencia: per.es_empacador
+            ? d.unidades_empacadas > 0
+              ? Math.round(d.valor_base / d.unidades_empacadas)
+              : 0
+            : per.valor_dia,
+          unidades: d.unidades_empacadas,
+          concepto: d.concepto,
+          valor_recargo: d.valor_recargo,
+          valor_total: d.valor_total,
+          detalle: d.detalle,
+          cerrado: d.cerrado,
+        })
+      }
+    }
+    return out.sort(
+      (a, b) => b.fecha.localeCompare(a.fecha) || a.nombre.localeCompare(b.nombre)
+    )
+  }, [personas])
+
+  const totalTabla = filas.reduce((s, f) => s + f.valor_total, 0)
 
   const totalDevengado = personas.reduce((s, p) => s + p.total_devengado, 0)
   const totalNeto = personas.reduce((s, p) => s + p.neto_a_pagar, 0)
@@ -733,16 +599,130 @@ export function NominaDiariaClient({
               </p>
             </Card>
           ) : (
-            <div className="space-y-3">
-              {personas.map((p) => (
-                <PersonaCard
-                  key={p.persona_id}
-                  p={p}
-                  onMsg={showToast}
-                  onRecargar={recargar}
-                />
-              ))}
-            </div>
+            <Card className="overflow-hidden p-0">
+              <div className="overflow-auto max-h-[600px]">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-stone-50 border-b border-stone-100">
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">
+                        Fecha
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">
+                        Trabajador
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">
+                        Documento
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">
+                        Concepto
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">
+                        Valor día / prenda
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">
+                        Prendas
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">
+                        Recargo
+                      </th>
+                      <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">
+                        Pago del día
+                      </th>
+                      <th className="w-20" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filas.map((f) => (
+                      <tr
+                        key={f.key}
+                        className={`border-b border-stone-100 last:border-0 hover:bg-stone-50 ${
+                          f.cerrado ? "bg-emerald-50/40" : ""
+                        }`}
+                      >
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className="font-mono text-xs text-stone-700">{f.fecha}</span>
+                          <span
+                            className={`ml-1.5 text-[11px] ${
+                              f.dia_semana === 0 ? "font-semibold text-amber-700" : "text-stone-400"
+                            }`}
+                          >
+                            {DIAS[f.dia_semana]}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="font-medium text-stone-800">{f.nombre}</span>
+                          <span className="block text-[11px] text-stone-400">{f.cargo ?? "—"}</span>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-stone-600">
+                          {f.documento}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge
+                            className={`border-0 text-[10px] ${CONCEPTO_COLOR[f.concepto] ?? ""}`}
+                          >
+                            {CONCEPTO_LABEL[f.concepto] ?? f.concepto}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs text-stone-700">
+                          {f.valor_referencia > 0 ? cop(f.valor_referencia) : "—"}
+                          {f.es_empacador && f.valor_referencia > 0 && (
+                            <span className="block text-[10px] text-stone-400">por prenda</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs text-teal-700">
+                          {f.unidades > 0 ? f.unidades.toLocaleString("es-CO") : "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs text-amber-700">
+                          {f.valor_recargo > 0 ? cop(f.valor_recargo) : "—"}
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right font-mono text-sm font-bold ${
+                            f.valor_total > 0 ? "text-stone-900" : "text-stone-300"
+                          }`}
+                        >
+                          {cop(f.valor_total)}
+                        </td>
+                        <td className="px-3 py-2">
+                          {f.valor_total > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => alternarCierre(f)}
+                              disabled={cargando}
+                              className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold ${
+                                f.cerrado
+                                  ? "border border-stone-200 text-stone-500 hover:bg-stone-100"
+                                  : "text-white"
+                              }`}
+                              style={f.cerrado ? undefined : { backgroundColor: "#065f46" }}
+                              title={f.detalle}
+                            >
+                              {f.cerrado ? (
+                                <>
+                                  <Unlock className="h-3 w-3" /> Reabrir
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="h-3 w-3" /> Cerrar
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-stone-100 sticky bottom-0">
+                      <td colSpan={7} className="px-3 py-2 text-xs font-bold text-stone-700">
+                        Total del periodo · {filas.length} días liquidados
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-sm font-bold text-stone-900">
+                        {cop(totalTabla)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           )}
         </>
       )}
