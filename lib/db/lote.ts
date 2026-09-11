@@ -151,17 +151,57 @@ export async function upsertLoteDesdeGrid(
 export async function deleteLoteCascada(loteId: number): Promise<void> {
   const db = createVanessaClient()
 
+  // Las tablas que dependen de otra fila (no de lote_id) se borran primero.
+  // Si alguna tabla aún no existe en la base, se ignora y se continúa: el
+  // borrado no debe quedarse a medias por un módulo no instalado.
+  const ignorable = (msg: string) =>
+    msg.toLowerCase().includes("does not exist") ||
+    msg.toLowerCase().includes("schema cache")
+
   // Insumos de confección (dependen de confeccion.id)
   const { data: confs } = await db.from("confeccion").select("id").eq("lote_id", loteId)
   const confIds = ((confs ?? []) as { id: number }[]).map((c) => c.id)
   if (confIds.length > 0) {
     const { error } = await db.from("confeccion_insumo").delete().in("confeccion_id", confIds)
-    if (error) throw new Error(`confeccion_insumo: ${error.message}`)
+    if (error && !ignorable(error.message)) {
+      throw new Error(`confeccion_insumo: ${error.message}`)
+    }
   }
 
-  for (const tabla of ["empaque_registro", "conteo", "confeccion", "estampacion", "novedad_proceso"]) {
+  // Detalle del conteo (depende de conteo.id)
+  const { data: conteos } = await db.from("conteo").select("id").eq("lote_id", loteId)
+  const conteoIds = ((conteos ?? []) as { id: number }[]).map((c) => c.id)
+  if (conteoIds.length > 0) {
+    const { error } = await db.from("conteo_detalle").delete().in("conteo_id", conteoIds)
+    if (error && !ignorable(error.message)) {
+      throw new Error(`conteo_detalle: ${error.message}`)
+    }
+  }
+
+  // Abonos y comprobantes de los pagos del lote (dependen de pago_produccion.id)
+  const { data: pagos } = await db.from("pago_produccion").select("id").eq("lote_id", loteId)
+  const pagoIds = ((pagos ?? []) as { id: number }[]).map((x) => x.id)
+  if (pagoIds.length > 0) {
+    for (const tabla of ["pago_abono", "pago_comprobante"]) {
+      const { error } = await db.from(tabla).delete().in("pago_id", pagoIds)
+      if (error && !ignorable(error.message)) throw new Error(`${tabla}: ${error.message}`)
+    }
+  }
+
+  // Todo lo que cuelga directamente del lote, incluidos los módulos nuevos:
+  // inventario de producto terminado, pagos y piezas de conjunto
+  for (const tabla of [
+    "inventrans",
+    "pago_produccion",
+    "empaque_registro",
+    "conteo",
+    "confeccion",
+    "estampacion",
+    "novedad_proceso",
+    "lote_prenda",
+  ]) {
     const { error } = await db.from(tabla).delete().eq("lote_id", loteId)
-    if (error) throw new Error(`${tabla}: ${error.message}`)
+    if (error && !ignorable(error.message)) throw new Error(`${tabla}: ${error.message}`)
   }
 
   const { error } = await db.from("lote").delete().eq("id", loteId)
