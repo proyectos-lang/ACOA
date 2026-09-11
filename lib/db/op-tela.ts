@@ -70,3 +70,33 @@ export async function deleteOpTela(ordenId: number, slot: 1 | 2 | 3): Promise<vo
     .eq("slot", slot)
   if (error) throw new Error(error.message)
 }
+
+// Cambia el color de una fila de tela (slot + fila). Corte puede corregir
+// los colores cuando en planta se corta un color distinto al programado;
+// el nombre del lote y las cantidades no se tocan.
+export async function updateColorOpTela(
+  ordenId: number,
+  slot: 1 | 2 | 3,
+  fila: number,
+  color: string
+): Promise<void> {
+  const db = createVanessaClient()
+  const limpio = color.trim().toUpperCase().replace(/\s+/g, " ")
+
+  const { error } = await db
+    .from("op_tela")
+    .update({ color: limpio || null })
+    .eq("orden_id", ordenId)
+    .eq("slot", slot)
+    .eq("fila", fila)
+  if (error) throw new Error(error.message)
+
+  // El color tambien esta desnormalizado en op_tela_lote (una fila por lote)
+  const { error: errLote } = await db
+    .from("op_tela_lote")
+    .update({ color: limpio })
+    .eq("orden_id", ordenId)
+    .eq("slot", slot)
+    .eq("fila", fila)
+  if (errLote) throw new Error(errLote.message)
+}

@@ -21,6 +21,7 @@ import {
 import { cambiarEstado, updateOrden, getOrdenById } from "@/lib/db/orden-produccion"
 import { asegurarPrendasDeOrdenConjunto, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
 import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
+import { updateColorOpTela } from "@/lib/db/op-tela"
 import { updateOpMaterial, sumValorPorPrenda } from "@/lib/db/op-material"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
 
@@ -333,5 +334,27 @@ export async function enviarLoteAEstampacionAction(
     return { success: true, destino }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error enviando lote" }
+  }
+}
+
+// Corte puede corregir el color de una fila cuando en planta se corta un
+// color distinto al programado. Cambia solo el color, no las cantidades.
+export async function cambiarColorLoteAction(input: {
+  orden_id: number
+  slot: 1 | 2 | 3
+  fila: number
+  color: string
+}): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+  if (!input.color.trim()) return { error: "Escribe el nuevo color" }
+
+  try {
+    await updateColorOpTela(input.orden_id, input.slot, input.fila, input.color)
+    revalidatePath(`/corte/${input.orden_id}`)
+    revalidatePath(`/produccion/${input.orden_id}`)
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error cambiando el color" }
   }
 }

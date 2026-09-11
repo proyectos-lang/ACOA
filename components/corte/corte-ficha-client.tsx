@@ -9,6 +9,8 @@ import {
   AlertTriangle,
   ExternalLink,
   Zap,
+  Pencil,
+  Printer,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CorteConTelas, CorteTela } from "@/lib/db/corte"
@@ -25,6 +27,7 @@ import {
   aplicarConsumoRealAction,
   confirmarCorteAction,
   marcarCortePendienteAction,
+  cambiarColorLoteAction,
 } from "@/app/(dashboard)/corte/[id]/actions"
 import {
   AlertDialog,
@@ -424,6 +427,40 @@ function CapasCortadasSection({
   const setComentario = (k: string, v: string) =>
     setEstado((p) => ({ ...p, comentarios: { ...p.comentarios, [k]: v } }))
 
+  // Edición del color de una fila: corte puede corregirlo cuando en planta
+  // se corta un color distinto al programado
+  const [editColor, setEditColor] = React.useState<{
+    slot: 1 | 2 | 3
+    fila: number
+    actual: string
+  } | null>(null)
+  const [nuevoColor, setNuevoColor] = React.useState("")
+  const [isPendingColor, startColor] = useTransition()
+
+  function guardarColor() {
+    if (!editColor) return
+    const valor = nuevoColor.trim()
+    if (!valor) {
+      onMsg("error", "Escribe el nuevo color")
+      return
+    }
+    startColor(async () => {
+      const res = await cambiarColorLoteAction({
+        orden_id: orden.id,
+        slot: editColor.slot,
+        fila: editColor.fila,
+        color: valor,
+      })
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", `Color cambiado a ${valor.toUpperCase()}`)
+        setEditColor(null)
+        setNuevoColor("")
+        router.refresh()
+      }
+    })
+  }
+
   // Estructura de filas por slot: op_tela (fila, color) con fallback a op_tela_lote
   const filasDe = React.useCallback(
     (slot: number) => {
@@ -509,6 +546,129 @@ function CapasCortadasSection({
 
   if (slots.length === 0) return null
 
+  // Imprimible de la ficha de la OP con los colores y capas actuales de corte
+  function imprimirFichaActualizada() {
+    const esc = (t: string | null | undefined) =>
+      (t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+
+    const secciones = slots
+      .map((slot) => {
+        const filas = filasDe(slot)
+        const lotes = lotesDe(slot)
+        const tipoTela =
+          opTelas.find((t) => t.slot === slot)?.tipo_tela ?? ""
+
+        const cuerpo = filas
+          .map((f) => {
+            const celdas = lotes
+              .map((l: string) => {
+                const real = parseInt(reales[keyDe(slot, f.fila, l)] ?? "", 10) || 0
+                const prog = programada(slot, f.fila, l)
+                const cambio = real !== prog
+                return `<td class="num${cambio ? " cambio" : ""}">${real || ""}</td>`
+              })
+              .join("")
+            const totalFila = lotes.reduce(
+              (acc: number, l: string) => acc + (parseInt(reales[keyDe(slot, f.fila, l)] ?? "", 10) || 0),
+              0
+            )
+            return `<tr><td class="color">${esc(f.color)}</td>${celdas}<td class="num total-col">${totalFila}</td></tr>`
+          })
+          .join("")
+
+        const capasPorLote = lotes.map((l: string) =>
+          filas.reduce(
+            (acc: number, f: { fila: number; color: string }) =>
+              acc + (parseInt(reales[keyDe(slot, f.fila, l)] ?? "", 10) || 0),
+            0
+          )
+        )
+        const capasMaterial = capasPorLote.reduce((a: number, b: number) => a + b, 0)
+
+        return `
+      <h2>Material ${slot}${tipoTela ? ` — ${esc(tipoTela)}` : ""}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th class="color">Color</th>
+            ${lotes.map((l: string) => `<th>${esc(l)}</th>`).join("")}
+            <th class="total-col">Total capas</th>
+          </tr>
+        </thead>
+        <tbody>${cuerpo}</tbody>
+        <tfoot>
+          <tr class="capas">
+            <td class="color">Capas</td>
+            ${capasPorLote.map((v: number) => `<td class="num">${v}</td>`).join("")}
+            <td class="num total-col">${capasMaterial}</td>
+          </tr>
+          <tr class="unidades">
+            <td class="color">Unidades (× ${tallasCount} tallas)</td>
+            ${capasPorLote.map((v: number) => `<td class="num">${(v * tallasCount).toLocaleString("es-CO")}</td>`).join("")}
+            <td class="num total-col">${(capasMaterial * tallasCount).toLocaleString("es-CO")}</td>
+          </tr>
+        </tfoot>
+      </table>`
+      })
+      .join("")
+
+    const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>Corte ${padOP(orden.numero_op)} — ${esc(orden.referencia)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: letter; margin: 10mm; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #111; padding: 16px; }
+  .encabezado { border: 1.5px solid #111; margin-bottom: 8px; }
+  .encabezado .titulo { background: #f2e14c; font-weight: bold; font-size: 12px; padding: 4px 8px;
+                        display: flex; justify-content: space-between; border-bottom: 1.5px solid #111; }
+  .encabezado table { width: 100%; border-collapse: collapse; }
+  .encabezado td { border: 1px solid #111; padding: 3px 6px; }
+  .encabezado td.label { font-weight: bold; background: #eee; width: 120px; text-transform: uppercase; }
+  h2 { font-size: 10px; margin: 8px 0 3px; text-transform: uppercase; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; table-layout: fixed; }
+  th, td { border: 1px solid #111; padding: 2px 3px; font-size: 9px; word-wrap: break-word; }
+  th { background: #eee; text-transform: uppercase; font-size: 8px; }
+  td.color, th.color { text-align: left; font-weight: bold; width: 90px; }
+  td.num { text-align: center; }
+  td.cambio { background: #fff3cd; }
+  .total-col { background: #dcefe4; font-weight: bold; }
+  tr.capas td { background: #dcefe4; font-weight: bold; }
+  tr.unidades td { font-weight: bold; }
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  .gran-total { border: 1.5px solid #111; margin-top: 8px; padding: 5px 8px;
+                display: flex; justify-content: space-between; font-weight: bold;
+                font-size: 11px; background: #dcefe4; }
+  .nota { margin-top: 6px; font-size: 8px; color: #666; }
+</style></head><body>
+  <div class="encabezado">
+    <div class="titulo"><span>FICHA DE CORTE — COLORES Y CAPAS REALES</span><span>${padOP(orden.numero_op)}</span></div>
+    <table>
+      <tr><td class="label">Referencia</td><td>${esc(orden.referencia)}</td>
+          <td class="label">Impreso</td><td>${new Date().toLocaleDateString("es-CO")}</td></tr>
+      <tr><td class="label">Descripción</td><td colspan="3">${esc(orden.descripcion) || "—"}</td></tr>
+    </table>
+  </div>
+  ${secciones}
+  <div class="gran-total">
+    <span>TOTAL CAPAS: ${totalCapasReales.toLocaleString("es-CO")}</span>
+    <span>TOTAL PRENDAS: ${prendasReales.toLocaleString("es-CO")}</span>
+  </div>
+  <p class="nota">Las celdas resaltadas cambiaron frente a lo programado en la Curva.</p>
+  <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},250)})<\/script>
+</body></html>`
+
+    const w = window.open("", "_blank")
+    if (!w) {
+      onMsg("error", "Permite las ventanas emergentes para imprimir")
+      return
+    }
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+  }
+
   const inputNumCls =
     "w-16 rounded-lg border px-2 py-1 text-xs text-center font-mono outline-none focus:ring-2 focus:ring-[#344966] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 
@@ -518,19 +678,76 @@ function CapasCortadasSection({
         <h2 className="text-sm font-semibold text-stone-700">
           Capas cortadas — confirmación por tela, color y lote
         </h2>
-        <span className="text-xs text-stone-500">
-          Prendas reales estimadas:{" "}
-          <strong style={{ color: "#344966" }}>{prendasReales.toLocaleString("es-CO")}</strong>{" "}
-          ({totalCapasReales} capas × {tallasCount} tallas)
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-stone-500">
+            Prendas reales estimadas:{" "}
+            <strong style={{ color: "#344966" }}>{prendasReales.toLocaleString("es-CO")}</strong>{" "}
+            ({totalCapasReales} capas × {tallasCount} tallas)
+          </span>
+          <button
+            type="button"
+            onClick={imprimirFichaActualizada}
+            className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors shrink-0"
+            title="Imprime la ficha de la OP con los colores y capas actuales"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Imprimir ficha actualizada
+          </button>
+        </div>
       </div>
 
       <p className="text-xs text-stone-400">
         Los valores vienen precargados con la programación de la Curva. Las capas son
         compartidas entre materiales (se toman de Material 1); los colores de cada material
         se relacionan por su posición. Si el valor cortado es diferente, escribe el motivo —
-        el comentario es obligatorio para confirmar.
+        el comentario es obligatorio para confirmar. Puedes corregir el color de una fila con
+        el lápiz si en planta se cortó un color distinto al programado.
       </p>
+
+      {/* ── Cambio de color de una fila ─────────────────────── */}
+      <AlertDialog open={editColor != null} onOpenChange={(o) => !o && setEditColor(null)}>
+        <AlertDialogContent className="max-w-sm rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cambiar el color de la fila</AlertDialogTitle>
+            <AlertDialogDescription>
+              {editColor && (
+                <>
+                  Material {editColor.slot} · color actual{" "}
+                  <strong className="text-stone-800">{editColor.actual || "—"}</strong>. El
+                  nuevo color se aplicará a esta fila en todos sus lotes; las capas y
+                  cantidades no cambian.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <input
+            type="text"
+            value={nuevoColor}
+            onChange={(e) => setNuevoColor(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                guardarColor()
+              }
+            }}
+            className="w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+            placeholder="Nuevo color (ej: AZUL HORTENCIA)"
+          />
+
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={guardarColor}
+              disabled={isPendingColor || !nuevoColor.trim()}
+              className="rounded-xl"
+              style={{ backgroundColor: "#344966" }}
+            >
+              {isPendingColor ? "Guardando…" : "Cambiar color"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {(() => {
         if (!slotRef) return null
@@ -567,11 +784,33 @@ function CapasCortadasSection({
                   const refFila = refFilas[i]
                   return (
                     <tr key={i} className="border-b border-stone-100 last:border-0 align-top">
-                      {materiales.map((m) => (
-                        <td key={m.slot} className="px-3 py-2 font-medium text-stone-800">
-                          {m.filas[i]?.color ?? "—"}
-                        </td>
-                      ))}
+                      {materiales.map((m) => {
+                        const filaColor = m.filas[i]
+                        return (
+                          <td key={m.slot} className="px-3 py-2 font-medium text-stone-800">
+                            <span className="inline-flex items-center gap-1.5">
+                              {filaColor?.color ?? "—"}
+                              {filaColor && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditColor({
+                                      slot: m.slot,
+                                      fila: filaColor.fila,
+                                      actual: filaColor.color ?? "",
+                                    })
+                                    setNuevoColor(filaColor.color ?? "")
+                                  }}
+                                  className="p-0.5 rounded text-stone-300 hover:text-stone-600 hover:bg-stone-100 transition-colors"
+                                  title="Cambiar el color de esta fila"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                            </span>
+                          </td>
+                        )
+                      })}
                       {lotes.map((l) => {
                         if (!refFila) {
                           return (
