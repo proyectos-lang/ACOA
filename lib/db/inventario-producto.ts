@@ -27,19 +27,21 @@ export interface InventransRow {
   creado_en: string
 }
 
-// Saldo por referencia + lote + prenda + talla
+// Saldo del producto terminado. Se agrupa por REFERENCIA + TALLA: una vez
+// empacada, la prenda deja de identificarse por su lote de origen, porque la
+// entrega se hace por referencia y talla. Los lotes que la surtieron quedan
+// en el kardex para la trazabilidad.
 export interface SaldoInventario {
-  orden_id: number | null
-  numero_op: number | null
   referencia: string | null
-  lote_id: number | null
-  lote_nombre: string | null
   prenda_nombre: string | null
   talla: string
   disponible: number
   total_entradas: number
   total_salidas: number
   ultimo_movimiento: string | null
+  // Trazabilidad: de qué OP y lotes proviene el disponible
+  ops: number[]
+  lotes: string[]
 }
 
 export const MOTIVOS_SALIDA = [
@@ -124,10 +126,13 @@ export async function eliminarEntradaPorEmpaque(empaqueRegistroId: number): Prom
 }
 
 // Registra una salida (o ajuste) manual de inventario
+// Registra una salida (o ajuste) manual. La entrega es por REFERENCIA y
+// TALLA: no se ata a un lote, porque el producto terminado ya no se
+// identifica por su lote de origen.
 export async function registrarMovimiento(input: {
   tipo: TipoMovimiento
   motivo: string
-  lote_id: number | null
+  referencia: string
   prenda_nombre?: string | null
   talla: string
   cantidad: number
@@ -136,52 +141,37 @@ export async function registrarMovimiento(input: {
   creado_por: number
 }): Promise<void> {
   if (!(input.cantidad > 0)) throw new Error("La cantidad debe ser mayor que 0")
+  if (!input.referencia.trim()) throw new Error("Indica la referencia")
+
   const db = createVanessaClient()
+  const referencia = input.referencia.trim()
 
-  let orden_id: number | null = null
-  let numero_op: number | null = null
-  let referencia: string | null = null
-  let lote_nombre: string | null = null
-  let color: string | null = null
-
-  if (input.lote_id) {
-    const { data: lote } = await db
-      .from("lote")
-      .select("id, numero_lote, descripcion, color, orden_id")
-      .eq("id", input.lote_id)
-      .maybeSingle()
-    if (lote) {
-      const l = lote as {
-        numero_lote: number
-        descripcion: string | null
-        color: string | null
-        orden_id: number
-      }
-      orden_id = l.orden_id
-      lote_nombre = l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`
-      color = l.color
-      const { data: orden } = await db
-        .from("orden_produccion")
-        .select("numero_op, referencia")
-        .eq("id", l.orden_id)
-        .maybeSingle()
-      const o = orden as { numero_op: number; referencia: string } | null
-      numero_op = o?.numero_op ?? null
-      referencia = o?.referencia ?? null
-    }
-  }
+  // Se conserva el número de OP solo como dato informativo, tomándolo de la
+  // orden más reciente de esa referencia
+  const { data: ordenes } = await db
+    .from("orden_produccion")
+    .select("id, numero_op, referencia")
+    .order("numero_op", { ascending: false })
+  const orden = ((ordenes ?? []) as Array<{
+    id: number
+    numero_op: number
+    referencia: string | null
+  }>).find(
+    (o) => (o.referencia ?? "").trim().toUpperCase() === referencia.toUpperCase()
+  )
 
   const { error } = await db.from("inventrans").insert({
     tipo: input.tipo,
     motivo: input.motivo,
-    orden_id,
-    numero_op,
+    orden_id: orden?.id ?? null,
+    numero_op: orden?.numero_op ?? null,
     referencia,
-    lote_id: input.lote_id,
-    lote_nombre,
+    // La salida no se ata a un lote
+    lote_id: null,
+    lote_nombre: null,
     prenda_nombre: input.prenda_nombre?.trim() || null,
     talla: input.talla.trim(),
-    color,
+    color: null,
     cantidad: input.cantidad,
     fecha: input.fecha,
     observacion: input.observacion?.trim() || null,
@@ -220,23 +210,29 @@ export async function getSaldosInventario(): Promise<SaldoInventario[]> {
 
   const map = new Map<string, SaldoInventario>()
   for (const f of filas) {
-    const key = `${f.lote_id ?? 0}|${f.prenda_nombre ?? ""}|${f.talla.trim().toLowerCase()}`
+    // La clave es la referencia + prenda + talla: el lote no separa el saldo
+    const key = `${(f.referencia ?? "").trim().toUpperCase()}|${f.prenda_nombre ?? ""}|${f.talla
+      .trim()
+      .toUpperCase()}`
     let s = map.get(key)
     if (!s) {
       s = {
-        orden_id: f.orden_id,
-        numero_op: f.numero_op,
         referencia: f.referencia,
-        lote_id: f.lote_id,
-        lote_nombre: f.lote_nombre,
         prenda_nombre: f.prenda_nombre,
         talla: f.talla.trim(),
         disponible: 0,
         total_entradas: 0,
         total_salidas: 0,
         ultimo_movimiento: null,
+        ops: [],
+        lotes: [],
       }
       map.set(key, s)
+    }
+    // Trazabilidad de origen (solo de las entradas)
+    if (f.tipo === "entrada") {
+      if (f.numero_op != null && !s.ops.includes(f.numero_op)) s.ops.push(f.numero_op)
+      if (f.lote_nombre && !s.lotes.includes(f.lote_nombre)) s.lotes.push(f.lote_nombre)
     }
     if (f.tipo === "entrada") {
       s.total_entradas += f.cantidad
@@ -252,9 +248,9 @@ export async function getSaldosInventario(): Promise<SaldoInventario[]> {
 
   return [...map.values()].sort(
     (a, b) =>
-      (b.numero_op ?? 0) - (a.numero_op ?? 0) ||
-      (a.lote_nombre ?? "").localeCompare(b.lote_nombre ?? "", "es", { numeric: true }) ||
-      a.talla.localeCompare(b.talla, "es")
+      (a.referencia ?? "").localeCompare(b.referencia ?? "", "es", { numeric: true }) ||
+      (a.prenda_nombre ?? "").localeCompare(b.prenda_nombre ?? "", "es") ||
+      a.talla.localeCompare(b.talla, "es", { numeric: true })
   )
 }
 

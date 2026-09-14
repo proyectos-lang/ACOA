@@ -97,13 +97,10 @@ export function InventarioClient({
     if (soloDisponible && s.disponible <= 0) return false
     if (fRef) {
       const q = fRef.toLowerCase()
-      if (
-        !(s.referencia ?? "").toLowerCase().includes(q) &&
-        !padOP(s.numero_op).toLowerCase().includes(q)
-      )
-        return false
+      const enOps = s.ops.some((n) => padOP(n).toLowerCase().includes(q))
+      if (!(s.referencia ?? "").toLowerCase().includes(q) && !enOps) return false
     }
-    if (fLote && !(s.lote_nombre ?? "").toLowerCase().includes(fLote.toLowerCase())) return false
+    if (fLote && !s.lotes.some((l) => l.toLowerCase().includes(fLote.toLowerCase()))) return false
     if (fTalla && !s.talla.toLowerCase().includes(fTalla.toLowerCase())) return false
     return true
   })
@@ -128,7 +125,7 @@ export function InventarioClient({
       const res = await registrarMovimientoAction({
         tipo: "salida",
         motivo: salidaMotivo,
-        lote_id: salidaLote.lote_id,
+        referencia: salidaLote.referencia ?? "",
         prenda_nombre: salidaLote.prenda_nombre ?? undefined,
         talla: salidaLote.talla,
         cantidad: cant,
@@ -179,16 +176,16 @@ export function InventarioClient({
     const filas = filtrados
       .map(
         (s) =>
-          `<tr><td>${padOP(s.numero_op)}</td><td>${esc(s.referencia)}</td><td>${esc(
-            s.lote_nombre
-          )}</td><td>${esc(s.prenda_nombre)}</td><td>${esc(s.talla)}</td><td>${
-            s.total_entradas
-          }</td><td>${s.total_salidas}</td><td>${s.disponible}</td><td>${esc(
-            s.ultimo_movimiento
-          )}</td></tr>`
+          `<tr><td>${esc(s.referencia)}</td><td>${esc(s.prenda_nombre)}</td><td>${esc(
+            s.talla
+          )}</td><td>${s.total_entradas}</td><td>${s.total_salidas}</td><td>${
+            s.disponible
+          }</td><td>${esc(s.ultimo_movimiento)}</td><td>${esc(
+            s.ops.map((n) => padOP(n)).join(" / ")
+          )}</td><td>${esc(s.lotes.join(" / "))}</td></tr>`
       )
       .join("")
-    const tabla = `<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>OP</th><th>Referencia</th><th>Lote</th><th>Prenda</th><th>Talla</th><th>Entradas</th><th>Salidas</th><th>Disponible</th><th>Último mov.</th></tr>${filas}</table></body></html>`
+    const tabla = `<html><head><meta charset="utf-8"></head><body><table border="1"><tr><th>Referencia</th><th>Prenda</th><th>Talla</th><th>Entradas</th><th>Salidas</th><th>Disponible</th><th>Último mov.</th><th>OP de origen</th><th>Lotes de origen</th></tr>${filas}</table></body></html>`
     const blob = new Blob(["﻿" + tabla], { type: "application/vnd.ms-excel" })
     const a = document.createElement("a")
     a.href = URL.createObjectURL(blob)
@@ -267,7 +264,7 @@ export function InventarioClient({
             />
           </div>
           <div className="space-y-0.5">
-            <label className="text-[11px] font-medium text-stone-500">Lote</label>
+            <label className="text-[11px] font-medium text-stone-500">Lote de origen</label>
             <input
               type="text"
               value={fLote}
@@ -346,15 +343,14 @@ export function InventarioClient({
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-stone-50 border-b border-stone-100">
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">OP</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Referencia</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Lote</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Prenda</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Talla</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">Entradas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">Salidas</th>
                   <th className="px-3 py-2 text-right text-xs font-semibold text-stone-500 uppercase">Disponible</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Últ. mov.</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-stone-500 uppercase">Origen</th>
                   <th className="w-24" />
                 </tr>
               </thead>
@@ -369,14 +365,12 @@ export function InventarioClient({
                 ) : (
                   filtrados.map((s) => (
                     <tr
-                      key={`${s.lote_id}_${s.prenda_nombre ?? ""}_${s.talla}`}
+                      key={`${s.referencia ?? ""}_${s.prenda_nombre ?? ""}_${s.talla}`}
                       className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
                     >
-                      <td className="px-3 py-2 font-mono text-xs text-stone-600">
-                        {padOP(s.numero_op)}
+                      <td className="px-3 py-2 font-semibold text-stone-800">
+                        {s.referencia ?? "—"}
                       </td>
-                      <td className="px-3 py-2 text-stone-800">{s.referencia ?? "—"}</td>
-                      <td className="px-3 py-2 text-stone-700">{s.lote_nombre ?? "—"}</td>
                       <td className="px-3 py-2 text-stone-600">
                         {s.prenda_nombre ? (
                           <Badge variant="outline" className="text-[10px] border-purple-200 text-purple-700">
@@ -404,6 +398,18 @@ export function InventarioClient({
                       </td>
                       <td className="px-3 py-2 font-mono text-xs text-stone-500">
                         {s.ultimo_movimiento ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-[11px] text-stone-400">
+                        {s.ops.length > 0 ? (
+                          <span title={`Lotes: ${s.lotes.join(", ")}`}>
+                            {s.ops.map((n) => padOP(n)).join(", ")}
+                            {s.lotes.length > 0 && (
+                              <span className="block">{s.lotes.length} lote(s)</span>
+                            )}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-3 py-2">
                         {s.disponible > 0 && (
@@ -519,10 +525,12 @@ export function InventarioClient({
             <AlertDialogDescription>
               {salidaLote && (
                 <>
-                  {padOP(salidaLote.numero_op)} · {salidaLote.referencia} ·{" "}
-                  {salidaLote.lote_nombre} · Talla{" "}
+                  Referencia{" "}
+                  <strong className="text-stone-800">{salidaLote.referencia}</strong>
+                  {salidaLote.prenda_nombre ? ` · ${salidaLote.prenda_nombre}` : ""} · Talla{" "}
                   <strong className="text-stone-800">{salidaLote.talla}</strong>. Disponible:{" "}
                   <strong className="text-teal-700">{salidaLote.disponible}</strong> unidades.
+                  La entrega se descuenta de la referencia y la talla, sin atarse a un lote.
                 </>
               )}
             </AlertDialogDescription>

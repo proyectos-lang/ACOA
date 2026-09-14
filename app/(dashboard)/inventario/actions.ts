@@ -21,7 +21,7 @@ type ActionResult = {
 export async function registrarMovimientoAction(input: {
   tipo: TipoMovimiento
   motivo: string
-  lote_id: number | null
+  referencia: string
   prenda_nombre?: string
   talla: string
   cantidad: number
@@ -31,6 +31,7 @@ export async function registrarMovimientoAction(input: {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
   if (!input.talla.trim()) return { error: "Indica la talla" }
+  if (!input.referencia.trim()) return { error: "Indica la referencia" }
 
   try {
     await registrarMovimiento({ ...input, creado_por: session.userId })
