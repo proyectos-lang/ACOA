@@ -28,6 +28,7 @@ import {
   Radar,
   ClipboardCheck,
   Boxes,
+  ShoppingCart,
 } from "lucide-react"
 import {
   Sidebar,
@@ -90,6 +91,7 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Empaque",          href: "/empaque",       icon: Package,       permisoKey: "mod_empaque"          },
       { nombre: "Liquidación Empaque", href: "/liquidacion-empaque", icon: ClipboardCheck, permisoKey: "mod_empaque"  },
       { nombre: "Inventario",       href: "/inventario",    icon: Boxes,         permisoKey: "mod_empaque"          },
+      { nombre: "Ventas",           href: "/ventas",        icon: ShoppingCart,  permisoKey: "mod_ventas"           },
       { nombre: "Pagos",            href: "/pagos",         icon: Wallet,        permisoKey: "ver_costos"           },
       { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
     ],

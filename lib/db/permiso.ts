@@ -14,6 +14,7 @@ export const PERMISO_MODULOS = [
   { key: "mod_conteo",           label: "Conteo" },
   { key: "mod_empaque",          label: "Empaque" },
   { key: "mod_seguimiento",      label: "Seguimiento" },
+  { key: "mod_ventas",           label: "Ventas" },
   { key: "ver_costos",           label: "Ver Costos" },
 ] as const
 
@@ -35,6 +36,7 @@ export interface PermisoRow {
   mod_conteo: boolean
   mod_empaque: boolean
   mod_seguimiento: boolean
+  mod_ventas: boolean
   ver_costos: boolean
 }
 
