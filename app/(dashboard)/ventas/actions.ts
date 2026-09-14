@@ -23,6 +23,7 @@ import {
   type LineaVentaInput,
   type FaltanteInventario,
   type FormaPago,
+  type RazonSocial,
   type VentaAbonoRow,
   type VentaHistorialRow,
   type HistorialConVenta,
@@ -61,6 +62,7 @@ export async function guardarVentaAction(input: {
   observacion?: string
   forma_pago?: FormaPago
   dias_credito?: number
+  razon_social?: RazonSocial
   lineas: LineaVentaInput[]
 }): Promise<ActionResult> {
   const session = await getSession()
@@ -280,6 +282,7 @@ export async function cargarHistorialVentaAction(ventaId: number): Promise<Actio
 
 export async function cargarHistorialGlobalAction(input?: {
   nivel?: "factura" | "detalle" | null
+  razon_social?: RazonSocial | null
   desde?: string
   hasta?: string
 }): Promise<ActionResult> {

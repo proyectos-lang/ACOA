@@ -10,6 +10,16 @@ export type EstadoVenta = "borrador" | "confirmada" | "anulada"
 // Contado: se paga al momento. Credito: pasa a cartera con su saldo.
 export type FormaPago = "contado" | "credito"
 
+// Razon social que emite la factura
+export type RazonSocial = "ACOA" | "GOODFATHER"
+
+export const RAZONES_SOCIALES: RazonSocial[] = ["ACOA", "GOODFATHER"]
+
+export const RAZON_SOCIAL_COLOR: Record<RazonSocial, string> = {
+  ACOA: "bg-[#344966]/10 text-[#344966]",
+  GOODFATHER: "bg-violet-100 text-violet-800",
+}
+
 export interface VentaAbonoRow {
   id: number
   venta_id: number
@@ -35,6 +45,7 @@ export interface VentaHistorialRow {
   valor_unidad: number | null
   usuario_id: number | null
   usuario_nombre: string | null
+  razon_social: RazonSocial | null
   creado_en: string
 }
 
@@ -97,6 +108,7 @@ export interface VentaRow {
   dias_credito: number
   fecha_vencimiento: string | null
   total_abonado: number
+  razon_social: RazonSocial
 }
 
 export type VentaConDetalle = VentaRow & { detalle: VentaDetalleRow[] }
@@ -124,7 +136,7 @@ export const ESTADO_VENTA_COLOR: Record<EstadoVenta, string> = {
 }
 
 const VENTA_COLS =
-  "id, numero_documento, fecha, cliente_id, cliente_nombre, ciudad, estado, total_unidades, total_valor, observacion, creado_en, confirmada_en, forma_pago, dias_credito, fecha_vencimiento, total_abonado"
+  "id, numero_documento, fecha, cliente_id, cliente_nombre, ciudad, estado, total_unidades, total_valor, observacion, creado_en, confirmada_en, forma_pago, dias_credito, fecha_vencimiento, total_abonado, razon_social"
 const DETALLE_COLS =
   "id, venta_id, referencia, descripcion, linea, categoria, talla, cantidad, valor_unidad, valor_total, inventrans_id"
 
@@ -246,6 +258,7 @@ export async function listVentas(input?: {
   hasta?: string
   clienteId?: number | null
   estado?: string | null
+  razon_social?: RazonSocial | null
 }): Promise<VentaConDetalle[]> {
   const db = createVanessaClient()
 
@@ -256,6 +269,7 @@ export async function listVentas(input?: {
   if (input?.hasta) q = q.lte("fecha", input.hasta)
   if (input?.clienteId) q = q.eq("cliente_id", input.clienteId)
   if (input?.estado) q = q.eq("estado", input.estado)
+  if (input?.razon_social) q = q.eq("razon_social", input.razon_social)
 
   const { data, error } = await q
   if (error) throw new Error(error.message)
@@ -303,6 +317,7 @@ export async function guardarVenta(
     observacion?: string | null
     forma_pago?: FormaPago
     dias_credito?: number
+    razon_social?: RazonSocial
     lineas: LineaVentaInput[]
   },
   creadoPor: number
@@ -329,6 +344,7 @@ export async function guardarVenta(
     observacion: input.observacion?.trim() || null,
     forma_pago: formaPago,
     dias_credito: diasCredito,
+    razon_social: input.razon_social ?? "ACOA",
   }
 
   let ventaId = input.id ?? null
@@ -689,6 +705,7 @@ async function registrarHistorial(input: {
   venta_id: number
   nivel: "factura" | "detalle"
   accion: string
+  razon_social?: RazonSocial | null
   descripcion?: string | null
   total_valor?: number | null
   total_unidades?: number | null
@@ -699,6 +716,18 @@ async function registrarHistorial(input: {
   usuario_id?: number | null
 }): Promise<void> {
   const db = createVanessaClient()
+
+  // La razon social se toma de la venta si no viene explicita, para que
+  // el historial se pueda filtrar sin depender de la venta
+  let razonSocial = input.razon_social ?? null
+  if (!razonSocial) {
+    const { data } = await db
+      .from("venta")
+      .select("razon_social")
+      .eq("id", input.venta_id)
+      .maybeSingle()
+    razonSocial = (data as { razon_social: RazonSocial } | null)?.razon_social ?? null
+  }
 
   let usuarioNombre: string | null = null
   if (input.usuario_id) {
@@ -724,6 +753,7 @@ async function registrarHistorial(input: {
     valor_unidad: input.valor_unidad ?? null,
     usuario_id: input.usuario_id ?? null,
     usuario_nombre: usuarioNombre,
+    razon_social: razonSocial,
   })
 }
 
@@ -742,6 +772,7 @@ export async function getHistorialVenta(ventaId: number): Promise<VentaHistorial
 // Historial global, para la pestana de historial del modulo
 export async function getHistorialGlobal(input?: {
   nivel?: "factura" | "detalle" | null
+  razon_social?: RazonSocial | null
   desde?: string
   hasta?: string
 }): Promise<HistorialConVenta[]> {
@@ -753,6 +784,7 @@ export async function getHistorialGlobal(input?: {
     .order("creado_en", { ascending: false })
     .limit(2000)
   if (input?.nivel) q = q.eq("nivel", input.nivel)
+  if (input?.razon_social) q = q.eq("razon_social", input.razon_social)
 
   const { data, error } = await q
   if (error) throw new Error(error.message)
@@ -761,7 +793,7 @@ export async function getHistorialGlobal(input?: {
 
   const { data: ventas } = await db
     .from("venta")
-    .select("id, numero_documento, cliente_nombre, fecha")
+    .select("id, numero_documento, cliente_nombre, fecha, razon_social")
     .in("id", [...new Set(filas.map((f) => f.venta_id))])
 
   const porId = new Map(
@@ -770,6 +802,7 @@ export async function getHistorialGlobal(input?: {
       numero_documento: string
       cliente_nombre: string
       fecha: string
+      razon_social: RazonSocial
     }>).map((v) => [v.id, v])
   )
 
@@ -780,6 +813,8 @@ export async function getHistorialGlobal(input?: {
       numero_documento: v?.numero_documento ?? "(eliminada)",
       cliente_nombre: v?.cliente_nombre ?? "",
       fecha_venta: v?.fecha ?? "",
+      // Si el evento no la trae, se usa la de la venta
+      razon_social: f.razon_social ?? v?.razon_social ?? null,
     }
   })
 

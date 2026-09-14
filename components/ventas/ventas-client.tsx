@@ -20,6 +20,7 @@ import {
   Banknote,
   History,
   Wallet,
+  Building2,
 } from "lucide-react"
 import type {
   VentaConDetalle,
@@ -29,6 +30,7 @@ import type {
   FaltanteInventario,
   EstadoVenta,
   FormaPago,
+  RazonSocial,
   VentaAbonoRow,
   HistorialConVenta,
 } from "@/lib/db/venta"
@@ -37,6 +39,8 @@ import {
   ESTADO_VENTA_COLOR,
   FORMA_PAGO_LABEL,
   FORMA_PAGO_COLOR,
+  RAZONES_SOCIALES,
+  RAZON_SOCIAL_COLOR,
 } from "@/lib/db/venta"
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
@@ -147,6 +151,7 @@ export function VentasClient({
   const [faltantes, setFaltantes] = React.useState<FaltanteInventario[]>([])
   const [formaPago, setFormaPago] = React.useState<FormaPago>("contado")
   const [diasCredito, setDiasCredito] = React.useState(30)
+  const [razonSocial, setRazonSocial] = React.useState<RazonSocial>("ACOA")
 
   // Cartera: abonos de la venta abierta
   const [abonoDe, setAbonoDe] = React.useState<VentaConDetalle | null>(null)
@@ -159,6 +164,7 @@ export function VentasClient({
   // Historial
   const [historial, setHistorial] = React.useState<HistorialConVenta[]>([])
   const [hNivel, setHNivel] = React.useState<"factura" | "detalle" | "">("")
+  const [hRazon, setHRazon] = React.useState<RazonSocial | "">("")
   const [hCargado, setHCargado] = React.useState(false)
 
   // ── Filtros de la cartera ──
@@ -166,6 +172,7 @@ export function VentasClient({
   const [fHasta, setFHasta] = React.useState("")
   const [fCliente, setFCliente] = React.useState("")
   const [fEstado, setFEstado] = React.useState("")
+  const [fRazon, setFRazon] = React.useState<RazonSocial | "">("")
 
   // Nuevo cliente
   const [nuevoCliente, setNuevoCliente] = React.useState(false)
@@ -251,6 +258,7 @@ export function VentasClient({
     setFaltantes([])
     setFormaPago("contado")
     setDiasCredito(30)
+    setRazonSocial("ACOA")
   }
 
   function cargarVenta(v: VentaConDetalle) {
@@ -263,6 +271,7 @@ export function VentasClient({
     setObservacion(v.observacion ?? "")
     setFormaPago(v.forma_pago)
     setDiasCredito(v.dias_credito || 30)
+    setRazonSocial(v.razon_social)
     setLineas(
       v.detalle.map((d) => ({
         key: Math.random().toString(36).slice(2),
@@ -291,6 +300,7 @@ export function VentasClient({
       observacion,
       forma_pago: formaPago,
       dias_credito: formaPago === "credito" ? diasCredito : 0,
+      razon_social: razonSocial,
       lineas: lineas
         .filter((l) => l.referencia.trim() && l.cantidad > 0)
         .map(({ key: _key, ...l }) => l),
@@ -484,9 +494,12 @@ export function VentasClient({
 
   // ── Historial ──
   const cargarHistorial = React.useCallback(
-    (nivel: "factura" | "detalle" | "") => {
+    (nivel: "factura" | "detalle" | "", razon: RazonSocial | "" = "") => {
       startTransition(async () => {
-        const r = await cargarHistorialGlobalAction({ nivel: nivel || null })
+        const r = await cargarHistorialGlobalAction({
+          nivel: nivel || null,
+          razon_social: razon || null,
+        })
         if (r.error) {
           aviso("error", r.error)
           return
@@ -500,7 +513,7 @@ export function VentasClient({
   )
 
   React.useEffect(() => {
-    if (vista === "historial" && !hCargado) cargarHistorial(hNivel)
+    if (vista === "historial" && !hCargado) cargarHistorial(hNivel, hRazon)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista, hCargado])
 
@@ -510,6 +523,7 @@ export function VentasClient({
       if (fDesde && v.fecha < fDesde) return false
       if (fHasta && v.fecha > fHasta) return false
       if (fEstado && v.estado !== fEstado) return false
+      if (fRazon && v.razon_social !== fRazon) return false
       if (fCliente) {
         const t = fCliente.toLowerCase()
         const enCliente = v.cliente_nombre.toLowerCase().includes(t)
@@ -519,7 +533,7 @@ export function VentasClient({
       }
       return true
     })
-  }, [ventas, fDesde, fHasta, fCliente, fEstado])
+  }, [ventas, fDesde, fHasta, fCliente, fEstado, fRazon])
 
   // Cartera: solo las ventas a credito confirmadas con saldo o abonos
   const ventasCredito = React.useMemo(
@@ -575,6 +589,7 @@ export function VentasClient({
       total: number
       estado: EstadoVenta
       forma_pago: FormaPago
+      razon_social: RazonSocial
     }> = []
     for (const v of ventasFiltradas) {
       for (const d of v.detalle) {
@@ -592,6 +607,7 @@ export function VentasClient({
           total: Number(d.valor_total),
           estado: v.estado,
           forma_pago: v.forma_pago,
+          razon_social: v.razon_social,
         })
       }
     }
@@ -611,13 +627,14 @@ export function VentasClient({
       "CANTIDAD",
       "VALOR POR UNIDAD",
       "TOTAL",
+      "RAZON SOCIAL",
       "FORMA DE PAGO",
       "ESTADO",
     ]
     const filas = filasPlanas
       .map(
         (f) =>
-          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td>${f.linea}</td><td>${f.categoria}</td><td>${f.cantidad}</td><td>${f.valor}</td><td>${f.total}</td><td>${FORMA_PAGO_LABEL[f.forma_pago]}</td><td>${ESTADO_VENTA_LABEL[f.estado]}</td></tr>`
+          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td>${f.linea}</td><td>${f.categoria}</td><td>${f.cantidad}</td><td>${f.valor}</td><td>${f.total}</td><td>${f.razon_social}</td><td>${FORMA_PAGO_LABEL[f.forma_pago]}</td><td>${ESTADO_VENTA_LABEL[f.estado]}</td></tr>`
       )
       .join("")
     const html = `<table border="1"><thead><tr>${encabezados
@@ -636,7 +653,7 @@ export function VentasClient({
     const filas = filasPlanas
       .map(
         (f) =>
-          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td class="c">${f.cantidad}</td><td class="r">${pesos(f.valor)}</td><td class="r">${pesos(f.total)}</td></tr>`
+          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.razon_social}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td class="c">${f.cantidad}</td><td class="r">${pesos(f.valor)}</td><td class="r">${pesos(f.total)}</td></tr>`
       )
       .join("")
     const w = window.open("", "_blank")
@@ -653,11 +670,11 @@ export function VentasClient({
       tfoot td { font-weight: bold; border-top: 2px solid #344966 }
     </style></head><body>
       <h1>Cartera de ventas</h1>
-      <p class="sub">${filasPlanas.length} lineas &middot; ${unidadesCartera.toLocaleString("es-CO")} unidades &middot; ${pesos(totalCartera)}</p>
+      <p class="sub">${fRazon ? `Razon social: ${fRazon} &middot; ` : ""}${filasPlanas.length} lineas &middot; ${unidadesCartera.toLocaleString("es-CO")} unidades &middot; ${pesos(totalCartera)}</p>
       <table>
-        <thead><tr><th>Fecha</th><th>Documento</th><th>Cliente</th><th>Ciudad</th><th>Ref.</th><th>Descripcion</th><th>Cant.</th><th>Vr. unidad</th><th>Total</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Documento</th><th>Factura</th><th>Cliente</th><th>Ciudad</th><th>Ref.</th><th>Descripcion</th><th>Cant.</th><th>Vr. unidad</th><th>Total</th></tr></thead>
         <tbody>${filas}</tbody>
-        <tfoot><tr><td colspan="6">TOTAL</td><td class="c">${unidadesCartera}</td><td></td><td class="r">${pesos(totalCartera)}</td></tr></tfoot>
+        <tfoot><tr><td colspan="7">TOTAL</td><td class="c">${unidadesCartera}</td><td></td><td class="r">${pesos(totalCartera)}</td></tr></tfoot>
       </table>
       <script>window.addEventListener("load", function(){ window.print() })<\/script>
     </body></html>`)
@@ -800,6 +817,30 @@ export function VentasClient({
                   value={fecha}
                   onChange={(e) => setFecha(e.target.value)}
                 />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-stone-500">
+                  Razon social que factura
+                </label>
+                <div className="flex gap-2">
+                  {RAZONES_SOCIALES.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRazonSocial(r)}
+                      className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+                        razonSocial === r
+                          ? r === "ACOA"
+                            ? "border-[#344966] bg-[#344966]/10 text-[#344966]"
+                            : "border-violet-300 bg-violet-50 text-violet-800"
+                          : "border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+                      }`}
+                    >
+                      <Building2 className="h-3.5 w-3.5" />
+                      {r}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="text-[11px] font-medium text-stone-500">Cliente</label>
@@ -1111,6 +1152,25 @@ export function VentasClient({
                 <p className="text-xl font-bold text-[#344966]">{pesos(totalCartera)}</p>
               </div>
             </div>
+
+            {/* Cuanto factura cada razon social */}
+            <div className="mt-4 flex flex-wrap gap-3 border-t border-stone-100 pt-3">
+              {RAZONES_SOCIALES.map((r) => {
+                const deLaRazon = ventasFiltradas.filter(
+                  (v) => v.razon_social === r && v.estado !== "anulada"
+                )
+                const valor = deLaRazon.reduce((s, v) => s + Number(v.total_valor), 0)
+                return (
+                  <div key={r} className="flex items-center gap-2">
+                    <Badge className={RAZON_SOCIAL_COLOR[r]}>{r}</Badge>
+                    <span className="text-sm font-semibold text-stone-800">{pesos(valor)}</span>
+                    <span className="text-xs text-stone-400">
+                      ({deLaRazon.length} factura{deLaRazon.length === 1 ? "" : "s"})
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           </Card>
 
           {/* Filtros */}
@@ -1158,6 +1218,23 @@ export function VentasClient({
                   <option value="anulada">Anulada</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">
+                  Razon social
+                </label>
+                <select
+                  className={filtroCls}
+                  value={fRazon}
+                  onChange={(e) => setFRazon(e.target.value as RazonSocial | "")}
+                >
+                  <option value="">Todas</option>
+                  {RAZONES_SOCIALES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
                 onClick={exportarExcel}
                 className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50"
@@ -1191,6 +1268,7 @@ export function VentasClient({
                       "Cant.",
                       "Vr. unidad",
                       "Total",
+                      "Factura",
                       "Pago",
                       "Estado",
                     ].map((h) => (
@@ -1206,7 +1284,7 @@ export function VentasClient({
                 <tbody>
                   {filasPlanas.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-3 py-8 text-center text-sm text-stone-400">
+                      <td colSpan={14} className="px-3 py-8 text-center text-sm text-stone-400">
                         No hay ventas registradas con esos filtros
                       </td>
                     </tr>
@@ -1228,6 +1306,11 @@ export function VentasClient({
                         <td className="px-3 py-2 text-right text-stone-600">{pesos(f.valor)}</td>
                         <td className="px-3 py-2 text-right font-semibold text-stone-900">
                           {pesos(f.total)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge className={RAZON_SOCIAL_COLOR[f.razon_social]}>
+                            {f.razon_social}
+                          </Badge>
                         </td>
                         <td className="px-3 py-2">
                           <Badge className={FORMA_PAGO_COLOR[f.forma_pago]}>
@@ -1264,6 +1347,9 @@ export function VentasClient({
                       </Badge>
                       <Badge className={FORMA_PAGO_COLOR[v.forma_pago]}>
                         {FORMA_PAGO_LABEL[v.forma_pago]}
+                      </Badge>
+                      <Badge className={RAZON_SOCIAL_COLOR[v.razon_social]}>
+                        {v.razon_social}
                       </Badge>
                     </div>
                     <p className="text-xs text-stone-500">
@@ -1642,7 +1728,7 @@ export function VentasClient({
                   onChange={(e) => {
                     const n = e.target.value as "factura" | "detalle" | ""
                     setHNivel(n)
-                    cargarHistorial(n)
+                    cargarHistorial(n, hRazon)
                   }}
                 >
                   <option value="">Todo</option>
@@ -1650,8 +1736,29 @@ export function VentasClient({
                   <option value="detalle">Detalle</option>
                 </select>
               </div>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">
+                  Razon social
+                </label>
+                <select
+                  className={filtroCls}
+                  value={hRazon}
+                  onChange={(e) => {
+                    const r = e.target.value as RazonSocial | ""
+                    setHRazon(r)
+                    cargarHistorial(hNivel, r)
+                  }}
+                >
+                  <option value="">Todas</option>
+                  {RAZONES_SOCIALES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <button
-                onClick={() => cargarHistorial(hNivel)}
+                onClick={() => cargarHistorial(hNivel, hRazon)}
                 disabled={isPending}
                 className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               >
@@ -1672,6 +1779,7 @@ export function VentasClient({
                     {[
                       "Fecha y hora",
                       "Documento",
+                      "Factura",
                       "Cliente",
                       "Nivel",
                       "Accion",
@@ -1690,7 +1798,7 @@ export function VentasClient({
                 <tbody>
                   {historial.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center text-sm text-stone-400">
+                      <td colSpan={8} className="px-3 py-8 text-center text-sm text-stone-400">
                         {hCargado ? "No hay eventos registrados" : "Cargando..."}
                       </td>
                     </tr>
@@ -1707,6 +1815,15 @@ export function VentasClient({
                         </td>
                         <td className="px-3 py-2 font-semibold text-stone-800">
                           {h.numero_documento}
+                        </td>
+                        <td className="px-3 py-2">
+                          {h.razon_social ? (
+                            <Badge className={RAZON_SOCIAL_COLOR[h.razon_social]}>
+                              {h.razon_social}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-stone-300">—</span>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-stone-600">{h.cliente_nombre}</td>
                         <td className="px-3 py-2">
