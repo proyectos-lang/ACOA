@@ -14,8 +14,18 @@ import {
   deleteCliente,
   upsertReferenciaVenta,
   getSiguienteDocumento,
+  getDocumentoDeVenta,
+  registrarAbono,
+  eliminarAbono,
+  getAbonos,
+  getHistorialVenta,
+  getHistorialGlobal,
   type LineaVentaInput,
   type FaltanteInventario,
+  type FormaPago,
+  type VentaAbonoRow,
+  type VentaHistorialRow,
+  type HistorialConVenta,
 } from "@/lib/db/venta"
 
 type ActionResult = {
@@ -24,6 +34,9 @@ type ActionResult = {
   ventaId?: number
   documento?: string
   faltantes?: FaltanteInventario[]
+  abonos?: VentaAbonoRow[]
+  historial?: VentaHistorialRow[]
+  historialGlobal?: HistorialConVenta[]
 }
 
 function revalidar() {
@@ -40,24 +53,28 @@ async function esAdmin(userId: number): Promise<boolean> {
 
 export async function guardarVentaAction(input: {
   id?: number | null
-  numero_documento: string
+  numero_documento?: string | null
   fecha: string
   cliente_id: number | null
   cliente_nombre: string
   ciudad?: string
   observacion?: string
+  forma_pago?: FormaPago
+  dias_credito?: number
   lineas: LineaVentaInput[]
 }): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
-  if (!input.numero_documento.trim()) return { error: "Indica el número de documento" }
   if (!input.fecha) return { error: "Indica la fecha" }
   if (!input.cliente_nombre.trim()) return { error: "Indica el cliente" }
 
   try {
     const ventaId = await guardarVenta(input, session.userId)
     revalidar()
-    return { success: true, ventaId }
+    // Se devuelve el numero real asignado: al crear lo pone la secuencia,
+    // asi que puede no ser el que la interfaz mostraba como vista previa
+    const documento = await getDocumentoDeVenta(ventaId)
+    return { success: true, ventaId, documento }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error guardando la venta" }
   }
@@ -197,6 +214,85 @@ export async function eliminarClienteAction(id: number): Promise<ActionResult> {
 }
 
 // ── Referencias y precios ───────────────────────────────────────
+
+// ── Cartera: abonos de las ventas a credito ─────────────────────
+
+export async function registrarAbonoAction(input: {
+  venta_id: number
+  fecha: string
+  valor: number
+  medio_pago?: string
+  referencia?: string
+  observacion?: string
+}): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+  if (!(input.valor > 0)) return { error: "El valor del abono debe ser mayor que 0" }
+  if (!input.fecha) return { error: "Indica la fecha del abono" }
+
+  try {
+    await registrarAbono(input, session.userId)
+    revalidar()
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error registrando el abono" }
+  }
+}
+
+export async function eliminarAbonoAction(abonoId: number): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    await eliminarAbono(abonoId, session.userId)
+    revalidar()
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error eliminando el abono" }
+  }
+}
+
+export async function cargarAbonosAction(ventaId: number): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const abonos = await getAbonos(ventaId)
+    return { success: true, abonos }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error cargando los abonos" }
+  }
+}
+
+// ── Historial ───────────────────────────────────────────────────
+
+export async function cargarHistorialVentaAction(ventaId: number): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const historial = await getHistorialVenta(ventaId)
+    return { success: true, historial }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error cargando el historial" }
+  }
+}
+
+export async function cargarHistorialGlobalAction(input?: {
+  nivel?: "factura" | "detalle" | null
+  desde?: string
+  hasta?: string
+}): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const historialGlobal = await getHistorialGlobal(input)
+    return { success: true, historialGlobal }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error cargando el historial" }
+  }
+}
 
 export async function guardarReferenciaVentaAction(input: {
   referencia: string

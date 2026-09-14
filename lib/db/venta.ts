@@ -7,6 +7,44 @@ import { getSaldosInventario } from "@/lib/db/inventario-producto"
 
 export type EstadoVenta = "borrador" | "confirmada" | "anulada"
 
+// Contado: se paga al momento. Credito: pasa a cartera con su saldo.
+export type FormaPago = "contado" | "credito"
+
+export interface VentaAbonoRow {
+  id: number
+  venta_id: number
+  fecha: string
+  valor: number
+  medio_pago: string | null
+  referencia: string | null
+  observacion: string | null
+  creado_en: string
+}
+
+export interface VentaHistorialRow {
+  id: number
+  venta_id: number
+  nivel: "factura" | "detalle"
+  accion: string
+  descripcion: string | null
+  total_valor: number | null
+  total_unidades: number | null
+  referencia: string | null
+  talla: string | null
+  cantidad: number | null
+  valor_unidad: number | null
+  usuario_id: number | null
+  usuario_nombre: string | null
+  creado_en: string
+}
+
+// Historial con el documento al que pertenece, para la vista global
+export type HistorialConVenta = VentaHistorialRow & {
+  numero_documento: string
+  cliente_nombre: string
+  fecha_venta: string
+}
+
 export interface ClienteRow {
   id: number
   nombre: string
@@ -55,6 +93,10 @@ export interface VentaRow {
   observacion: string | null
   creado_en: string
   confirmada_en: string | null
+  forma_pago: FormaPago
+  dias_credito: number
+  fecha_vencimiento: string | null
+  total_abonado: number
 }
 
 export type VentaConDetalle = VentaRow & { detalle: VentaDetalleRow[] }
@@ -65,6 +107,16 @@ export const ESTADO_VENTA_LABEL: Record<EstadoVenta, string> = {
   anulada: "Anulada",
 }
 
+export const FORMA_PAGO_LABEL: Record<FormaPago, string> = {
+  contado: "Pago inmediato",
+  credito: "Credito",
+}
+
+export const FORMA_PAGO_COLOR: Record<FormaPago, string> = {
+  contado: "bg-sky-100 text-sky-800",
+  credito: "bg-amber-100 text-amber-800",
+}
+
 export const ESTADO_VENTA_COLOR: Record<EstadoVenta, string> = {
   borrador: "bg-stone-100 text-stone-700",
   confirmada: "bg-emerald-100 text-emerald-800",
@@ -72,7 +124,7 @@ export const ESTADO_VENTA_COLOR: Record<EstadoVenta, string> = {
 }
 
 const VENTA_COLS =
-  "id, numero_documento, fecha, cliente_id, cliente_nombre, ciudad, estado, total_unidades, total_valor, observacion, creado_en, confirmada_en"
+  "id, numero_documento, fecha, cliente_id, cliente_nombre, ciudad, estado, total_unidades, total_valor, observacion, creado_en, confirmada_en, forma_pago, dias_credito, fecha_vencimiento, total_abonado"
 const DETALLE_COLS =
   "id, venta_id, referencia, descripcion, linea, categoria, talla, cantidad, valor_unidad, valor_total, inventrans_id"
 
@@ -243,12 +295,14 @@ export interface LineaVentaInput {
 export async function guardarVenta(
   input: {
     id?: number | null
-    numero_documento: string
+    numero_documento?: string | null
     fecha: string
     cliente_id: number | null
     cliente_nombre: string
     ciudad?: string | null
     observacion?: string | null
+    forma_pago?: FormaPago
+    dias_credito?: number
     lineas: LineaVentaInput[]
   },
   creadoPor: number
@@ -262,8 +316,10 @@ export async function guardarVenta(
   const totalUnidades = input.lineas.reduce((s, l) => s + l.cantidad, 0)
   const totalValor = input.lineas.reduce((s, l) => s + l.cantidad * l.valor_unidad, 0)
 
+  const formaPago: FormaPago = input.forma_pago ?? "contado"
+  const diasCredito = formaPago === "credito" ? Math.max(0, input.dias_credito ?? 0) : 0
+
   const cabecera = {
-    numero_documento: input.numero_documento.trim(),
     fecha: input.fecha,
     cliente_id: input.cliente_id,
     cliente_nombre: input.cliente_nombre.trim().toUpperCase(),
@@ -271,6 +327,8 @@ export async function guardarVenta(
     total_unidades: totalUnidades,
     total_valor: totalValor,
     observacion: input.observacion?.trim() || null,
+    forma_pago: formaPago,
+    dias_credito: diasCredito,
   }
 
   let ventaId = input.id ?? null
@@ -289,9 +347,16 @@ export async function guardarVenta(
     if (error) throw new Error(error.message)
     await db.from("venta_detalle").delete().eq("venta_id", ventaId)
   } else {
+    // El numero de documento es automatico: sale de la secuencia
+    const numero = input.numero_documento?.trim() || (await siguienteConsecutivo())
     const { data, error } = await db
       .from("venta")
-      .insert({ ...cabecera, estado: "borrador", creado_por: creadoPor })
+      .insert({
+        ...cabecera,
+        numero_documento: numero,
+        estado: "borrador",
+        creado_por: creadoPor,
+      })
       .select("id")
       .single()
     if (error || !data) throw new Error(error?.message ?? "Error creando la venta")
@@ -311,6 +376,32 @@ export async function guardarVenta(
   }))
   const { error: errDet } = await db.from("venta_detalle").insert(filas)
   if (errDet) throw new Error(errDet.message)
+
+  await registrarHistorial({
+    venta_id: ventaId as number,
+    nivel: "factura",
+    accion: input.id ? "editada" : "creada",
+    descripcion: `${formaPago === "credito" ? "Credito" : "Contado"} - ${
+      filas.length
+    } linea(s)`,
+    total_valor: totalValor,
+    total_unidades: totalUnidades,
+    usuario_id: creadoPor,
+  })
+
+  // Historial a nivel detalle: que se vendio en esta version del documento
+  for (const f of filas) {
+    await registrarHistorial({
+      venta_id: ventaId as number,
+      nivel: "detalle",
+      accion: input.id ? "linea editada" : "linea agregada",
+      referencia: f.referencia,
+      talla: f.talla,
+      cantidad: f.cantidad,
+      valor_unidad: f.valor_unidad,
+      usuario_id: creadoPor,
+    })
+  }
 
   return ventaId as number
 }
@@ -449,13 +540,46 @@ export async function confirmarVenta(
     await db.from("venta_detalle").update({ inventrans_id: mov.id }).eq("id", l.id)
   }
 
+  // Las ventas a credito pasan a cartera con su fecha de vencimiento
+  const vencimiento =
+    v.forma_pago === "credito" && v.dias_credito > 0
+      ? sumarDias(v.fecha, v.dias_credito)
+      : v.forma_pago === "credito"
+        ? v.fecha
+        : null
+
   const { error: errEstado } = await db
     .from("venta")
-    .update({ estado: "confirmada", confirmada_en: new Date().toISOString() })
+    .update({
+      estado: "confirmada",
+      confirmada_en: new Date().toISOString(),
+      fecha_vencimiento: vencimiento,
+    })
     .eq("id", ventaId)
   if (errEstado) throw new Error(errEstado.message)
 
+  await registrarHistorial({
+    venta_id: ventaId,
+    nivel: "factura",
+    accion: "confirmada",
+    descripcion:
+      v.forma_pago === "credito"
+        ? `A credito${vencimiento ? `, vence el ${vencimiento}` : ""}. Descuenta inventario.`
+        : "Pago inmediato. Descuenta inventario.",
+    total_valor: Number(v.total_valor),
+    total_unidades: v.total_unidades,
+    usuario_id: creadoPor,
+  })
+
   return { lineas: lineas.length }
+}
+
+// Suma dias calendario a una fecha ISO (YYYY-MM-DD)
+function sumarDias(fechaISO: string, dias: number): string {
+  const [y, m, d] = fechaISO.split("-").map(Number)
+  const f = new Date(Date.UTC(y, m - 1, d))
+  f.setUTCDate(f.getUTCDate() + dias)
+  return f.toISOString().slice(0, 10)
 }
 
 // Anula la venta y devuelve al inventario lo que había descontado
@@ -479,6 +603,16 @@ export async function anularVenta(ventaId: number): Promise<void> {
 
   const { error } = await db.from("venta").update({ estado: "anulada" }).eq("id", ventaId)
   if (error) throw new Error(error.message)
+
+  await registrarHistorial({
+    venta_id: ventaId,
+    nivel: "factura",
+    accion: "anulada",
+    descripcion:
+      movIds.length > 0
+        ? `Se devolvieron ${movIds.length} movimiento(s) al inventario`
+        : "Sin movimientos de inventario que devolver",
+  })
 }
 
 export async function eliminarVenta(ventaId: number): Promise<void> {
@@ -489,7 +623,30 @@ export async function eliminarVenta(ventaId: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-// Siguiente número de documento (consecutivo)
+// ── Consecutivo del documento ───────────────────────────────────
+
+// Toma el siguiente numero de la secuencia. Es atomico: dos usuarios
+// registrando a la vez no obtienen el mismo numero.
+async function siguienteConsecutivo(): Promise<string> {
+  const db = createVanessaClient()
+  const { data, error } = await db.rpc("siguiente_documento_venta")
+  if (!error && data != null) return String(data)
+
+  // Respaldo si la funcion no esta creada: el mayor numero + 1
+  const { data: ventas } = await db.from("venta").select("numero_documento").limit(5000)
+  let maximo = 0
+  for (const v of (ventas ?? []) as Array<{ numero_documento: string }>) {
+    const m = /(\d+)\s*$/.exec((v.numero_documento ?? "").trim())
+    if (m) {
+      const n = parseInt(m[1], 10)
+      if (n > maximo) maximo = n
+    }
+  }
+  return String(maximo + 1)
+}
+
+// Numero que se le muestra al usuario antes de guardar. Es solo una
+// vista previa: el numero definitivo se asigna al crear la venta.
 export async function getSiguienteDocumento(): Promise<string> {
   const db = createVanessaClient()
   const { data } = await db.from("venta").select("numero_documento").limit(5000)
@@ -503,4 +660,236 @@ export async function getSiguienteDocumento(): Promise<string> {
     }
   }
   return String(maximo + 1)
+}
+
+// ── Historial de la venta ───────────────────────────────────────
+
+async function registrarHistorial(input: {
+  venta_id: number
+  nivel: "factura" | "detalle"
+  accion: string
+  descripcion?: string | null
+  total_valor?: number | null
+  total_unidades?: number | null
+  referencia?: string | null
+  talla?: string | null
+  cantidad?: number | null
+  valor_unidad?: number | null
+  usuario_id?: number | null
+}): Promise<void> {
+  const db = createVanessaClient()
+
+  let usuarioNombre: string | null = null
+  if (input.usuario_id) {
+    const { data } = await db
+      .from("usuario")
+      .select("nombre_completo")
+      .eq("id", input.usuario_id)
+      .maybeSingle()
+    usuarioNombre = (data as { nombre_completo: string } | null)?.nombre_completo ?? null
+  }
+
+  // El historial no debe tumbar la operacion si falla
+  await db.from("venta_historial").insert({
+    venta_id: input.venta_id,
+    nivel: input.nivel,
+    accion: input.accion,
+    descripcion: input.descripcion ?? null,
+    total_valor: input.total_valor ?? null,
+    total_unidades: input.total_unidades ?? null,
+    referencia: input.referencia ?? null,
+    talla: input.talla ?? null,
+    cantidad: input.cantidad ?? null,
+    valor_unidad: input.valor_unidad ?? null,
+    usuario_id: input.usuario_id ?? null,
+    usuario_nombre: usuarioNombre,
+  })
+}
+
+// Historial de una venta (factura y detalle)
+export async function getHistorialVenta(ventaId: number): Promise<VentaHistorialRow[]> {
+  const db = createVanessaClient()
+  const { data, error } = await db
+    .from("venta_historial")
+    .select("*")
+    .eq("venta_id", ventaId)
+    .order("creado_en", { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as VentaHistorialRow[]
+}
+
+// Historial global, para la pestana de historial del modulo
+export async function getHistorialGlobal(input?: {
+  nivel?: "factura" | "detalle" | null
+  desde?: string
+  hasta?: string
+}): Promise<HistorialConVenta[]> {
+  const db = createVanessaClient()
+
+  let q = db
+    .from("venta_historial")
+    .select("*")
+    .order("creado_en", { ascending: false })
+    .limit(2000)
+  if (input?.nivel) q = q.eq("nivel", input.nivel)
+
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  const filas = (data ?? []) as VentaHistorialRow[]
+  if (filas.length === 0) return []
+
+  const { data: ventas } = await db
+    .from("venta")
+    .select("id, numero_documento, cliente_nombre, fecha")
+    .in("id", [...new Set(filas.map((f) => f.venta_id))])
+
+  const porId = new Map(
+    ((ventas ?? []) as Array<{
+      id: number
+      numero_documento: string
+      cliente_nombre: string
+      fecha: string
+    }>).map((v) => [v.id, v])
+  )
+
+  const conVenta = filas.map((f) => {
+    const v = porId.get(f.venta_id)
+    return {
+      ...f,
+      numero_documento: v?.numero_documento ?? "(eliminada)",
+      cliente_nombre: v?.cliente_nombre ?? "",
+      fecha_venta: v?.fecha ?? "",
+    }
+  })
+
+  // El filtro por fecha es sobre la fecha de la venta
+  return conVenta.filter((h) => {
+    if (input?.desde && h.fecha_venta && h.fecha_venta < input.desde) return false
+    if (input?.hasta && h.fecha_venta && h.fecha_venta > input.hasta) return false
+    return true
+  })
+}
+
+// ── Cartera: abonos de las ventas a credito ─────────────────────
+
+export async function getAbonos(ventaId: number): Promise<VentaAbonoRow[]> {
+  const db = createVanessaClient()
+  const { data, error } = await db
+    .from("venta_abono")
+    .select("id, venta_id, fecha, valor, medio_pago, referencia, observacion, creado_en")
+    .eq("venta_id", ventaId)
+    .order("fecha", { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as VentaAbonoRow[]
+}
+
+export async function registrarAbono(
+  input: {
+    venta_id: number
+    fecha: string
+    valor: number
+    medio_pago?: string | null
+    referencia?: string | null
+    observacion?: string | null
+  },
+  creadoPor: number
+): Promise<void> {
+  if (!(input.valor > 0)) throw new Error("El valor del abono debe ser mayor que 0")
+
+  const db = createVanessaClient()
+
+  const { data: venta } = await db
+    .from("venta")
+    .select("id, estado, forma_pago, total_valor, total_abonado, numero_documento")
+    .eq("id", input.venta_id)
+    .maybeSingle()
+  const v = venta as VentaRow | null
+  if (!v) throw new Error("Venta no encontrada")
+  if (v.estado !== "confirmada") {
+    throw new Error("Solo se abonan las ventas confirmadas")
+  }
+  if (v.forma_pago !== "credito") {
+    throw new Error("Esta venta es de pago inmediato, no tiene cartera")
+  }
+
+  const saldo = Number(v.total_valor) - Number(v.total_abonado)
+  if (input.valor > saldo) {
+    throw new Error(
+      `El abono (${input.valor}) supera el saldo pendiente (${saldo})`
+    )
+  }
+
+  const { error } = await db.from("venta_abono").insert({
+    venta_id: input.venta_id,
+    fecha: input.fecha,
+    valor: input.valor,
+    medio_pago: input.medio_pago?.trim() || null,
+    referencia: input.referencia?.trim() || null,
+    observacion: input.observacion?.trim() || null,
+    creado_por: creadoPor,
+  })
+  if (error) throw new Error(error.message)
+
+  const nuevoTotal = Number(v.total_abonado) + input.valor
+  const { error: errTotal } = await db
+    .from("venta")
+    .update({ total_abonado: nuevoTotal })
+    .eq("id", input.venta_id)
+  if (errTotal) throw new Error(errTotal.message)
+
+  await registrarHistorial({
+    venta_id: input.venta_id,
+    nivel: "factura",
+    accion: "abono",
+    descripcion: `Abono de ${input.valor}${
+      input.medio_pago ? ` por ${input.medio_pago}` : ""
+    }. Saldo: ${Number(v.total_valor) - nuevoTotal}`,
+    total_valor: Number(v.total_valor),
+    usuario_id: creadoPor,
+  })
+}
+
+export async function eliminarAbono(abonoId: number, creadoPor: number): Promise<void> {
+  const db = createVanessaClient()
+
+  const { data: abono } = await db
+    .from("venta_abono")
+    .select("id, venta_id, valor")
+    .eq("id", abonoId)
+    .maybeSingle()
+  const a = abono as { id: number; venta_id: number; valor: number } | null
+  if (!a) throw new Error("Abono no encontrado")
+
+  const { error } = await db.from("venta_abono").delete().eq("id", abonoId)
+  if (error) throw new Error(error.message)
+
+  const { data: venta } = await db
+    .from("venta")
+    .select("total_abonado")
+    .eq("id", a.venta_id)
+    .maybeSingle()
+  const total = Number((venta as { total_abonado: number } | null)?.total_abonado ?? 0)
+  await db
+    .from("venta")
+    .update({ total_abonado: Math.max(0, total - Number(a.valor)) })
+    .eq("id", a.venta_id)
+
+  await registrarHistorial({
+    venta_id: a.venta_id,
+    nivel: "factura",
+    accion: "abono eliminado",
+    descripcion: `Se elimino un abono de ${a.valor}`,
+    usuario_id: creadoPor,
+  })
+}
+
+// Numero de documento ya asignado a una venta
+export async function getDocumentoDeVenta(ventaId: number): Promise<string | undefined> {
+  const db = createVanessaClient()
+  const { data } = await db
+    .from("venta")
+    .select("numero_documento")
+    .eq("id", ventaId)
+    .maybeSingle()
+  return (data as { numero_documento: string } | null)?.numero_documento
 }

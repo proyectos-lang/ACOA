@@ -16,6 +16,10 @@ import {
   Users,
   Pencil,
   X,
+  CreditCard,
+  Banknote,
+  History,
+  Wallet,
 } from "lucide-react"
 import type {
   VentaConDetalle,
@@ -24,8 +28,17 @@ import type {
   LineaVentaInput,
   FaltanteInventario,
   EstadoVenta,
+  FormaPago,
+  VentaAbonoRow,
+  HistorialConVenta,
 } from "@/lib/db/venta"
-import { ESTADO_VENTA_LABEL, ESTADO_VENTA_COLOR } from "@/lib/db/venta"
+import {
+  ESTADO_VENTA_LABEL,
+  ESTADO_VENTA_COLOR,
+  FORMA_PAGO_LABEL,
+  FORMA_PAGO_COLOR,
+} from "@/lib/db/venta"
+import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
 import {
   guardarVentaAction,
@@ -35,6 +48,10 @@ import {
   verificarDisponibleAction,
   crearClienteAction,
   siguienteDocumentoAction,
+  registrarAbonoAction,
+  eliminarAbonoAction,
+  cargarAbonosAction,
+  cargarHistorialGlobalAction,
 } from "@/app/(dashboard)/ventas/actions"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -114,7 +131,9 @@ export function VentasClient({
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [isPending, startTransition] = useTransition()
-  const [vista, setVista] = React.useState<"registro" | "cartera">("registro")
+  const [vista, setVista] = React.useState<"registro" | "ventas" | "cartera" | "historial">(
+    "registro"
+  )
 
   // ── Formulario de la venta ──
   const [ventaId, setVentaId] = React.useState<number | null>(null)
@@ -126,6 +145,21 @@ export function VentasClient({
   const [observacion, setObservacion] = React.useState("")
   const [lineas, setLineas] = React.useState<LineaEdit[]>([nuevaLinea()])
   const [faltantes, setFaltantes] = React.useState<FaltanteInventario[]>([])
+  const [formaPago, setFormaPago] = React.useState<FormaPago>("contado")
+  const [diasCredito, setDiasCredito] = React.useState(30)
+
+  // Cartera: abonos de la venta abierta
+  const [abonoDe, setAbonoDe] = React.useState<VentaConDetalle | null>(null)
+  const [abonos, setAbonos] = React.useState<VentaAbonoRow[]>([])
+  const [abValor, setAbValor] = React.useState(0)
+  const [abFecha, setAbFecha] = React.useState(hoyBogota())
+  const [abMedio, setAbMedio] = React.useState("")
+  const [abReferencia, setAbReferencia] = React.useState("")
+
+  // Historial
+  const [historial, setHistorial] = React.useState<HistorialConVenta[]>([])
+  const [hNivel, setHNivel] = React.useState<"factura" | "detalle" | "">("")
+  const [hCargado, setHCargado] = React.useState(false)
 
   // ── Filtros de la cartera ──
   const [fDesde, setFDesde] = React.useState("")
@@ -215,6 +249,8 @@ export function VentasClient({
     setObservacion("")
     setLineas([nuevaLinea()])
     setFaltantes([])
+    setFormaPago("contado")
+    setDiasCredito(30)
   }
 
   function cargarVenta(v: VentaConDetalle) {
@@ -225,6 +261,8 @@ export function VentasClient({
     setClienteNombre(v.cliente_nombre)
     setCiudad(v.ciudad ?? "")
     setObservacion(v.observacion ?? "")
+    setFormaPago(v.forma_pago)
+    setDiasCredito(v.dias_credito || 30)
     setLineas(
       v.detalle.map((d) => ({
         key: Math.random().toString(36).slice(2),
@@ -244,12 +282,15 @@ export function VentasClient({
   function payload() {
     return {
       id: ventaId,
-      numero_documento: documento,
+      // Al crear, el numero lo asigna la base de datos (consecutivo)
+      numero_documento: ventaId ? documento : null,
       fecha,
       cliente_id: clienteId,
       cliente_nombre: clienteNombre,
       ciudad,
       observacion,
+      forma_pago: formaPago,
+      dias_credito: formaPago === "credito" ? diasCredito : 0,
       lineas: lineas
         .filter((l) => l.referencia.trim() && l.cantidad > 0)
         .map(({ key: _key, ...l }) => l),
@@ -269,6 +310,10 @@ export function VentasClient({
         return
       }
       if (r.ventaId) setVentaId(r.ventaId)
+      // El numero definitivo lo asigna la base de datos al crear
+      if (r.documento) setDocumento(r.documento)
+      // El historial cacheado queda viejo tras guardar
+      setHCargado(false)
       router.refresh()
       if (despues && r.ventaId) despues(r.ventaId)
       else aviso("ok", "Venta guardada como borrador")
@@ -315,10 +360,18 @@ export function VentasClient({
         router.refresh()
         return
       }
-      aviso("ok", "Venta confirmada y descontada del inventario")
+      const eraCredito = formaPago === "credito"
+      aviso(
+        "ok",
+        eraCredito
+          ? "Venta confirmada, descontada del inventario y enviada a cartera"
+          : "Venta confirmada y descontada del inventario"
+      )
       limpiarFormulario()
       router.refresh()
-      setVista("cartera")
+      // El credito queda en cartera; el contado se ve en la lista de ventas
+      setVista(eraCredito ? "cartera" : "ventas")
+      setHCargado(false)
     })
   }
 
@@ -372,6 +425,85 @@ export function VentasClient({
     })
   }
 
+  // ── Abonos de cartera ──
+  function abrirAbonos(v: VentaConDetalle) {
+    setAbonoDe(v)
+    setAbValor(0)
+    setAbFecha(hoyBogota())
+    setAbMedio("")
+    setAbReferencia("")
+    startTransition(async () => {
+      const r = await cargarAbonosAction(v.id)
+      setAbonos(r.abonos ?? [])
+    })
+  }
+
+  function guardarAbono() {
+    if (!abonoDe) return
+    if (!(abValor > 0)) {
+      aviso("error", "Indica el valor del abono")
+      return
+    }
+    startTransition(async () => {
+      const r = await registrarAbonoAction({
+        venta_id: abonoDe.id,
+        fecha: abFecha,
+        valor: abValor,
+        medio_pago: abMedio,
+        referencia: abReferencia,
+      })
+      if (r.error) {
+        aviso("error", r.error)
+        return
+      }
+      aviso("ok", "Abono registrado")
+      const recarga = await cargarAbonosAction(abonoDe.id)
+      setAbonos(recarga.abonos ?? [])
+      setAbValor(0)
+      setAbMedio("")
+      setAbReferencia("")
+      router.refresh()
+    })
+  }
+
+  function borrarAbono(abonoId: number) {
+    startTransition(async () => {
+      const r = await eliminarAbonoAction(abonoId)
+      if (r.error) {
+        aviso("error", r.error)
+        return
+      }
+      aviso("ok", "Abono eliminado")
+      if (abonoDe) {
+        const recarga = await cargarAbonosAction(abonoDe.id)
+        setAbonos(recarga.abonos ?? [])
+      }
+      router.refresh()
+    })
+  }
+
+  // ── Historial ──
+  const cargarHistorial = React.useCallback(
+    (nivel: "factura" | "detalle" | "") => {
+      startTransition(async () => {
+        const r = await cargarHistorialGlobalAction({ nivel: nivel || null })
+        if (r.error) {
+          aviso("error", r.error)
+          return
+        }
+        setHistorial(r.historialGlobal ?? [])
+        setHCargado(true)
+      })
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
+  React.useEffect(() => {
+    if (vista === "historial" && !hCargado) cargarHistorial(hNivel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vista, hCargado])
+
   // ── Cartera filtrada ──
   const ventasFiltradas = React.useMemo(() => {
     return ventas.filter((v) => {
@@ -388,6 +520,37 @@ export function VentasClient({
       return true
     })
   }, [ventas, fDesde, fHasta, fCliente, fEstado])
+
+  // Cartera: solo las ventas a credito confirmadas con saldo o abonos
+  const ventasCredito = React.useMemo(
+    () => ventas.filter((v) => v.forma_pago === "credito" && v.estado === "confirmada"),
+    [ventas]
+  )
+
+  const carteraFiltrada = React.useMemo(() => {
+    return ventasCredito.filter((v) => {
+      if (fDesde && v.fecha < fDesde) return false
+      if (fHasta && v.fecha > fHasta) return false
+      if (fCliente) {
+        const t = fCliente.toLowerCase()
+        if (
+          !v.cliente_nombre.toLowerCase().includes(t) &&
+          !(v.ciudad ?? "").toLowerCase().includes(t) &&
+          !v.numero_documento.toLowerCase().includes(t)
+        )
+          return false
+      }
+      return true
+    })
+  }, [ventasCredito, fDesde, fHasta, fCliente])
+
+  const saldoDe = (v: VentaConDetalle) => Number(v.total_valor) - Number(v.total_abonado)
+  const totalPorCobrar = carteraFiltrada.reduce((s, v) => s + saldoDe(v), 0)
+  const totalAbonadoCartera = carteraFiltrada.reduce((s, v) => s + Number(v.total_abonado), 0)
+  const hoy = hoyBogota()
+  const vencidas = carteraFiltrada.filter(
+    (v) => saldoDe(v) > 0 && v.fecha_vencimiento && v.fecha_vencimiento < hoy
+  )
 
   const totalCartera = ventasFiltradas
     .filter((v) => v.estado !== "anulada")
@@ -411,6 +574,7 @@ export function VentasClient({
       valor: number
       total: number
       estado: EstadoVenta
+      forma_pago: FormaPago
     }> = []
     for (const v of ventasFiltradas) {
       for (const d of v.detalle) {
@@ -427,6 +591,7 @@ export function VentasClient({
           valor: Number(d.valor_unidad),
           total: Number(d.valor_total),
           estado: v.estado,
+          forma_pago: v.forma_pago,
         })
       }
     }
@@ -446,12 +611,13 @@ export function VentasClient({
       "CANTIDAD",
       "VALOR POR UNIDAD",
       "TOTAL",
+      "FORMA DE PAGO",
       "ESTADO",
     ]
     const filas = filasPlanas
       .map(
         (f) =>
-          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td>${f.linea}</td><td>${f.categoria}</td><td>${f.cantidad}</td><td>${f.valor}</td><td>${f.total}</td><td>${ESTADO_VENTA_LABEL[f.estado]}</td></tr>`
+          `<tr><td>${f.fecha}</td><td>${f.documento}</td><td>${f.cliente}</td><td>${f.ciudad}</td><td>${f.referencia}</td><td>${f.descripcion}</td><td>${f.linea}</td><td>${f.categoria}</td><td>${f.cantidad}</td><td>${f.valor}</td><td>${f.total}</td><td>${FORMA_PAGO_LABEL[f.forma_pago]}</td><td>${ESTADO_VENTA_LABEL[f.estado]}</td></tr>`
       )
       .join("")
     const html = `<table border="1"><thead><tr>${encabezados
@@ -502,65 +668,129 @@ export function VentasClient({
     a.referencia.localeCompare(b.referencia, "es", { numeric: true })
   )
 
+  // Para el combobox: cada referencia con su descripcion y su disponible total
+  const opcionesReferencia = React.useMemo(
+    () =>
+      referenciasOrdenadas.map((r) => {
+        const disponible = saldos
+          .filter(
+            (s) =>
+              (s.referencia ?? "").trim().toUpperCase() === r.referencia.trim().toUpperCase()
+          )
+          .reduce((acc, s) => acc + s.disponible, 0)
+        return { referencia: r.referencia, descripcion: r.descripcion, disponible }
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [referencias, saldos]
+  )
+
   return (
     <div className="space-y-4">
       {toast && <Toast tipo={toast.tipo} msg={toast.msg} />}
 
       {/* Pestanas */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setVista("registro")}
-          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-            vista === "registro"
-              ? "bg-[#344966] text-white"
-              : "bg-white text-stone-600 border border-stone-200 hover:bg-stone-50"
-          }`}
-        >
-          <ShoppingCart className="mr-2 inline h-4 w-4" />
-          Registrar venta
-        </button>
-        <button
-          onClick={() => setVista("cartera")}
-          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-            vista === "cartera"
-              ? "bg-[#344966] text-white"
-              : "bg-white text-stone-600 border border-stone-200 hover:bg-stone-50"
-          }`}
-        >
-          <FileSpreadsheet className="mr-2 inline h-4 w-4" />
-          Cartera ({ventas.length})
-        </button>
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { k: "registro", label: "Registrar venta", icon: ShoppingCart },
+            { k: "ventas", label: `Ventas (${ventas.length})`, icon: FileSpreadsheet },
+            { k: "cartera", label: `Cartera (${ventasCredito.length})`, icon: Wallet },
+            { k: "historial", label: "Historial", icon: History },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setVista(t.k)}
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+              vista === t.k
+                ? "bg-[#344966] text-white"
+                : "bg-white text-stone-600 border border-stone-200 hover:bg-stone-50"
+            }`}
+          >
+            <t.icon className="mr-2 inline h-4 w-4" />
+            {t.label}
+          </button>
+        ))}
       </div>
 
-      {vista === "registro" ? (
+      {vista === "registro" && (
         <div className="space-y-4">
           {/* Cabecera de la venta */}
           <Card className="p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-stone-700">
                 {ventaId ? `Editando la venta ${documento}` : "Nueva venta"}
               </h2>
-              {ventaId && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={limpiarFormulario}
-                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+                  onClick={() => setNuevoCliente((v) => !v)}
+                  className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50"
                 >
-                  <X className="h-3 w-3" /> Cancelar edicion
+                  <Users className="h-3.5 w-3.5" />
+                  Nuevo cliente
                 </button>
-              )}
+                {ventaId && (
+                  <button
+                    onClick={limpiarFormulario}
+                    className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+                  >
+                    <X className="h-3 w-3" /> Cancelar edicion
+                  </button>
+                )}
+              </div>
             </div>
+
+            {nuevoCliente && (
+              <div className="mb-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                  <input
+                    className={inputCls}
+                    value={ncNombre}
+                    onChange={(e) => setNcNombre(e.target.value)}
+                    placeholder="Nombre del cliente"
+                  />
+                  <input
+                    className={inputCls}
+                    value={ncCiudad}
+                    onChange={(e) => setNcCiudad(e.target.value)}
+                    placeholder="Ciudad / sucursal"
+                  />
+                  <input
+                    className={inputCls}
+                    value={ncNit}
+                    onChange={(e) => setNcNit(e.target.value)}
+                    placeholder="NIT"
+                  />
+                  <input
+                    className={inputCls}
+                    value={ncTelefono}
+                    onChange={(e) => setNcTelefono(e.target.value)}
+                    placeholder="Telefono"
+                  />
+                </div>
+                <button
+                  onClick={crearCliente}
+                  disabled={isPending}
+                  className="mt-3 rounded-xl bg-[#344966] px-4 py-2 text-sm font-medium text-white hover:bg-[#2a3b52] disabled:opacity-50"
+                >
+                  Guardar cliente
+                </button>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label className="text-[11px] font-medium text-stone-500">
                   Numero de documento
                 </label>
-                <input
-                  className={inputCls}
-                  value={documento}
-                  onChange={(e) => setDocumento(e.target.value)}
-                  placeholder="429"
-                />
+                <div
+                  className={`${inputCls} flex items-center justify-between bg-stone-50 text-stone-500`}
+                >
+                  <span className="font-semibold text-stone-700">{documento || "..."}</span>
+                  <span className="text-[10px] uppercase text-stone-400">
+                    {ventaId ? "asignado" : "automatico"}
+                  </span>
+                </div>
               </div>
               <div>
                 <label className="text-[11px] font-medium text-stone-500">Fecha</label>
@@ -606,62 +836,65 @@ export function VentasClient({
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap items-end gap-3">
-              <div className="min-w-[240px] flex-1">
-                <label className="text-[11px] font-medium text-stone-500">Observacion</label>
-                <input
-                  className={inputCls}
-                  value={observacion}
-                  onChange={(e) => setObservacion(e.target.value)}
-                  placeholder="Opcional"
-                />
-              </div>
-              <button
-                onClick={() => setNuevoCliente((v) => !v)}
-                className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50"
-              >
-                <Users className="h-4 w-4" />
-                Nuevo cliente
-              </button>
-            </div>
+            {/* Forma de pago: contado o credito */}
+            <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+              <p className="mb-2 text-[11px] font-medium uppercase text-stone-500">
+                Forma de pago
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFormaPago("contado")}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    formaPago === "contado"
+                      ? "border-sky-300 bg-sky-50 text-sky-800"
+                      : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                  }`}
+                >
+                  <Banknote className="h-4 w-4" />
+                  Pago inmediato
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormaPago("credito")}
+                  className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition ${
+                    formaPago === "credito"
+                      ? "border-amber-300 bg-amber-50 text-amber-800"
+                      : "border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+                  }`}
+                >
+                  <CreditCard className="h-4 w-4" />
+                  A credito
+                </button>
 
-            {nuevoCliente && (
-              <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                {formaPago === "credito" && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-medium text-stone-500">Plazo (dias)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-24 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+                      value={diasCredito || ""}
+                      onChange={(e) => setDiasCredito(Number(e.target.value) || 0)}
+                    />
+                  </div>
+                )}
+
+                <div className="min-w-[200px] flex-1">
                   <input
                     className={inputCls}
-                    value={ncNombre}
-                    onChange={(e) => setNcNombre(e.target.value)}
-                    placeholder="Nombre del cliente"
-                  />
-                  <input
-                    className={inputCls}
-                    value={ncCiudad}
-                    onChange={(e) => setNcCiudad(e.target.value)}
-                    placeholder="Ciudad / sucursal"
-                  />
-                  <input
-                    className={inputCls}
-                    value={ncNit}
-                    onChange={(e) => setNcNit(e.target.value)}
-                    placeholder="NIT"
-                  />
-                  <input
-                    className={inputCls}
-                    value={ncTelefono}
-                    onChange={(e) => setNcTelefono(e.target.value)}
-                    placeholder="Telefono"
+                    value={observacion}
+                    onChange={(e) => setObservacion(e.target.value)}
+                    placeholder="Observacion (opcional)"
                   />
                 </div>
-                <button
-                  onClick={crearCliente}
-                  disabled={isPending}
-                  className="mt-3 rounded-xl bg-[#344966] px-4 py-2 text-sm font-medium text-white hover:bg-[#2a3b52] disabled:opacity-50"
-                >
-                  Guardar cliente
-                </button>
               </div>
-            )}
+              <p className="mt-2 text-[11px] text-stone-400">
+                {formaPago === "credito"
+                  ? "Al confirmar, la venta pasa a cartera con su saldo pendiente y fecha de vencimiento."
+                  : "La venta se da por pagada al confirmarla; no pasa a cartera."}
+              </p>
+            </div>
           </Card>
 
           {/* Faltantes de inventario */}
@@ -732,18 +965,13 @@ export function VentasClient({
                     return (
                       <tr key={l.key} className="border-b border-stone-100 last:border-0">
                         <td className="px-2 py-2">
-                          <select
-                            className={inputCls}
+                          <ReferenciaCombobox
+                            opciones={opcionesReferencia}
                             value={l.referencia}
-                            onChange={(e) => aplicarReferencia(l.key, e.target.value)}
-                          >
-                            <option value="">Ref.</option>
-                            {referenciasOrdenadas.map((r) => (
-                              <option key={r.id} value={r.referencia}>
-                                {r.referencia}
-                              </option>
-                            ))}
-                          </select>
+                            onChange={(ref) => aplicarReferencia(l.key, ref)}
+                            vacioLabel="Ref."
+                            className="min-w-[180px]"
+                          />
                         </td>
                         <td className="px-2 py-2 text-xs text-stone-500">{l.descripcion}</td>
                         <td className="px-2 py-2 text-xs text-stone-500">{l.linea}</td>
@@ -857,7 +1085,9 @@ export function VentasClient({
             </p>
           </Card>
         </div>
-      ) : (
+      )}
+
+      {vista === "ventas" && (
         <div className="space-y-4">
           {/* Totales */}
           <Card className="p-4">
@@ -961,6 +1191,7 @@ export function VentasClient({
                       "Cant.",
                       "Vr. unidad",
                       "Total",
+                      "Pago",
                       "Estado",
                     ].map((h) => (
                       <th
@@ -975,7 +1206,7 @@ export function VentasClient({
                 <tbody>
                   {filasPlanas.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="px-3 py-8 text-center text-sm text-stone-400">
+                      <td colSpan={13} className="px-3 py-8 text-center text-sm text-stone-400">
                         No hay ventas registradas con esos filtros
                       </td>
                     </tr>
@@ -997,6 +1228,11 @@ export function VentasClient({
                         <td className="px-3 py-2 text-right text-stone-600">{pesos(f.valor)}</td>
                         <td className="px-3 py-2 text-right font-semibold text-stone-900">
                           {pesos(f.total)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge className={FORMA_PAGO_COLOR[f.forma_pago]}>
+                            {f.forma_pago === "credito" ? "Credito" : "Contado"}
+                          </Badge>
                         </td>
                         <td className="px-3 py-2">
                           <Badge className={ESTADO_VENTA_COLOR[f.estado]}>
@@ -1026,6 +1262,9 @@ export function VentasClient({
                       <Badge className={ESTADO_VENTA_COLOR[v.estado]}>
                         {ESTADO_VENTA_LABEL[v.estado]}
                       </Badge>
+                      <Badge className={FORMA_PAGO_COLOR[v.forma_pago]}>
+                        {FORMA_PAGO_LABEL[v.forma_pago]}
+                      </Badge>
                     </div>
                     <p className="text-xs text-stone-500">
                       {v.fecha} &middot; {v.cliente_nombre}
@@ -1035,6 +1274,11 @@ export function VentasClient({
                   <div className="text-right">
                     <p className="text-sm font-bold text-stone-900">{pesos(Number(v.total_valor))}</p>
                     <p className="text-xs text-stone-500">{v.total_unidades} unidades</p>
+                    {v.forma_pago === "credito" && v.estado === "confirmada" && (
+                      <p className="text-xs text-amber-700">
+                        Saldo: {pesos(Number(v.total_valor) - Number(v.total_abonado))}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     {v.estado === "borrador" && (
@@ -1101,6 +1345,408 @@ export function VentasClient({
                   No hay documentos con esos filtros
                 </p>
               )}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {vista === "cartera" && (
+        <div className="space-y-4">
+          {/* Totales de cartera */}
+          <Card className="p-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div>
+                <p className="text-[11px] uppercase text-stone-400">Facturas a credito</p>
+                <p className="text-xl font-bold text-stone-900">{carteraFiltrada.length}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase text-stone-400">Por cobrar</p>
+                <p className="text-xl font-bold text-amber-700">{pesos(totalPorCobrar)}</p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase text-stone-400">Abonado</p>
+                <p className="text-xl font-bold text-emerald-700">
+                  {pesos(totalAbonadoCartera)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase text-stone-400">Vencidas</p>
+                <p className="text-xl font-bold text-red-700">{vencidas.length}</p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Filtros */}
+          <Card className="p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Desde</label>
+                <input
+                  type="date"
+                  className={filtroCls}
+                  value={fDesde}
+                  onChange={(e) => setFDesde(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Hasta</label>
+                <input
+                  type="date"
+                  className={filtroCls}
+                  value={fHasta}
+                  onChange={(e) => setFHasta(e.target.value)}
+                />
+              </div>
+              <div className="min-w-[200px] flex-1">
+                <label className="block text-[11px] font-medium text-stone-500">
+                  Cliente, ciudad o documento
+                </label>
+                <input
+                  className={`${filtroCls} w-full`}
+                  value={fCliente}
+                  onChange={(e) => setFCliente(e.target.value)}
+                  placeholder="Buscar..."
+                />
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-0">
+            <div className="max-h-[560px] overflow-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead className="sticky top-0 bg-stone-50">
+                  <tr className="border-b border-stone-200">
+                    {[
+                      "Documento",
+                      "Fecha",
+                      "Cliente",
+                      "Vence",
+                      "Total",
+                      "Abonado",
+                      "Saldo",
+                      "Estado",
+                      "",
+                    ].map((h, i) => (
+                      <th
+                        key={`${h}_${i}`}
+                        className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {carteraFiltrada.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-3 py-8 text-center text-sm text-stone-400">
+                        No hay ventas a credito pendientes
+                      </td>
+                    </tr>
+                  ) : (
+                    carteraFiltrada.map((v) => {
+                      const saldo = saldoDe(v)
+                      const vencida = saldo > 0 && v.fecha_vencimiento && v.fecha_vencimiento < hoy
+                      const pagada = saldo <= 0
+                      return (
+                        <tr
+                          key={v.id}
+                          className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
+                        >
+                          <td className="px-3 py-2 font-semibold text-stone-800">
+                            {v.numero_documento}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs text-stone-600">{v.fecha}</td>
+                          <td className="px-3 py-2 text-stone-700">
+                            {v.cliente_nombre}
+                            {v.ciudad ? (
+                              <span className="block text-[11px] text-stone-400">{v.ciudad}</span>
+                            ) : null}
+                          </td>
+                          <td
+                            className={`px-3 py-2 font-mono text-xs ${
+                              vencida ? "font-semibold text-red-600" : "text-stone-600"
+                            }`}
+                          >
+                            {v.fecha_vencimiento ?? "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right text-stone-700">
+                            {pesos(Number(v.total_valor))}
+                          </td>
+                          <td className="px-3 py-2 text-right text-emerald-700">
+                            {pesos(Number(v.total_abonado))}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right font-bold ${
+                              pagada ? "text-emerald-700" : "text-amber-700"
+                            }`}
+                          >
+                            {pesos(saldo)}
+                          </td>
+                          <td className="px-3 py-2">
+                            {pagada ? (
+                              <Badge className="bg-emerald-100 text-emerald-800">Pagada</Badge>
+                            ) : vencida ? (
+                              <Badge className="bg-red-100 text-red-800">Vencida</Badge>
+                            ) : (
+                              <Badge className="bg-amber-100 text-amber-800">Pendiente</Badge>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              onClick={() => abrirAbonos(v)}
+                              className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                            >
+                              <Wallet className="h-3 w-3" /> Abonos
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Abonos de la venta abierta */}
+          {abonoDe && (
+            <Card className="p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold text-stone-700">
+                    Abonos de {abonoDe.numero_documento}
+                  </h2>
+                  <p className="text-xs text-stone-500">
+                    {abonoDe.cliente_nombre} &middot; Saldo:{" "}
+                    <strong className="text-amber-700">{pesos(saldoDe(abonoDe))}</strong>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setAbonoDe(null)}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-stone-500 hover:bg-stone-100"
+                >
+                  <X className="h-3 w-3" /> Cerrar
+                </button>
+              </div>
+
+              {saldoDe(abonoDe) > 0 && (
+                <div className="mb-3 grid grid-cols-1 gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 sm:grid-cols-5">
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500">Fecha</label>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={abFecha}
+                      onChange={(e) => setAbFecha(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500">Valor</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className={inputCls}
+                      value={abValor || ""}
+                      onChange={(e) => setAbValor(Number(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500">Medio</label>
+                    <select
+                      className={inputCls}
+                      value={abMedio}
+                      onChange={(e) => setAbMedio(e.target.value)}
+                    >
+                      <option value="">Medio de pago</option>
+                      <option value="Efectivo">Efectivo</option>
+                      <option value="Transferencia">Transferencia</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Consignacion">Consignacion</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-stone-500">Referencia</label>
+                    <input
+                      className={inputCls}
+                      value={abReferencia}
+                      onChange={(e) => setAbReferencia(e.target.value)}
+                      placeholder="No. comprobante"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={guardarAbono}
+                      disabled={isPending}
+                      className="w-full rounded-xl bg-[#15803d] px-4 py-2 text-sm font-medium text-white hover:bg-[#166534] disabled:opacity-50"
+                    >
+                      Registrar abono
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {abonos.length === 0 ? (
+                <p className="py-4 text-center text-sm text-stone-400">
+                  Esta factura aun no tiene abonos
+                </p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200">
+                      {["Fecha", "Valor", "Medio", "Referencia", ""].map((h, i) => (
+                        <th
+                          key={`${h}_${i}`}
+                          className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {abonos.map((a) => (
+                      <tr key={a.id} className="border-b border-stone-100 last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs text-stone-600">{a.fecha}</td>
+                        <td className="px-3 py-2 font-semibold text-emerald-700">
+                          {pesos(Number(a.valor))}
+                        </td>
+                        <td className="px-3 py-2 text-stone-600">{a.medio_pago ?? "—"}</td>
+                        <td className="px-3 py-2 text-xs text-stone-500">{a.referencia ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => borrarAbono(a.id)}
+                            className="rounded-lg p-1 text-stone-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          )}
+        </div>
+      )}
+      {vista === "historial" && (
+        <div className="space-y-4">
+          <Card className="p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Nivel</label>
+                <select
+                  className={filtroCls}
+                  value={hNivel}
+                  onChange={(e) => {
+                    const n = e.target.value as "factura" | "detalle" | ""
+                    setHNivel(n)
+                    cargarHistorial(n)
+                  }}
+                >
+                  <option value="">Todo</option>
+                  <option value="factura">Factura</option>
+                  <option value="detalle">Detalle</option>
+                </select>
+              </div>
+              <button
+                onClick={() => cargarHistorial(hNivel)}
+                disabled={isPending}
+                className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+              >
+                Actualizar
+              </button>
+              <p className="text-xs text-stone-400">
+                {historial.length} evento(s) &middot; a nivel factura se ve el ciclo del
+                documento; a nivel detalle, las lineas vendidas
+              </p>
+            </div>
+          </Card>
+
+          <Card className="p-0">
+            <div className="max-h-[600px] overflow-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead className="sticky top-0 bg-stone-50">
+                  <tr className="border-b border-stone-200">
+                    {[
+                      "Fecha y hora",
+                      "Documento",
+                      "Cliente",
+                      "Nivel",
+                      "Accion",
+                      "Detalle",
+                      "Usuario",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historial.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-8 text-center text-sm text-stone-400">
+                        {hCargado ? "No hay eventos registrados" : "Cargando..."}
+                      </td>
+                    </tr>
+                  ) : (
+                    historial.map((h) => (
+                      <tr
+                        key={h.id}
+                        className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
+                      >
+                        <td className="px-3 py-2 font-mono text-[11px] text-stone-500">
+                          {new Date(h.creado_en).toLocaleString("es-CO", {
+                            timeZone: "America/Bogota",
+                          })}
+                        </td>
+                        <td className="px-3 py-2 font-semibold text-stone-800">
+                          {h.numero_documento}
+                        </td>
+                        <td className="px-3 py-2 text-stone-600">{h.cliente_nombre}</td>
+                        <td className="px-3 py-2">
+                          <Badge
+                            className={
+                              h.nivel === "factura"
+                                ? "bg-[#344966]/10 text-[#344966]"
+                                : "bg-stone-100 text-stone-600"
+                            }
+                          >
+                            {h.nivel}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-stone-700">{h.accion}</td>
+                        <td className="px-3 py-2 text-xs text-stone-500">
+                          {h.nivel === "detalle" ? (
+                            <span>
+                              <strong className="text-stone-700">{h.referencia}</strong>
+                              {h.talla ? ` talla ${h.talla}` : ""} &middot; {h.cantidad} und
+                              {h.valor_unidad ? ` a ${pesos(Number(h.valor_unidad))}` : ""}
+                            </span>
+                          ) : (
+                            <span>
+                              {h.descripcion}
+                              {h.total_valor != null && (
+                                <span className="ml-1 text-stone-400">
+                                  ({pesos(Number(h.total_valor))})
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-stone-500">
+                          {h.usuario_nombre ?? "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </Card>
         </div>

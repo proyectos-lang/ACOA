@@ -66,6 +66,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Administrativo",
     items: [
       { nombre: "Dashboard",     href: "/",              icon: LayoutDashboard, permisoKey: null               },
+      { nombre: "Ventas",        href: "/ventas",        icon: ShoppingCart,    permisoKey: "mod_ventas"       },
       { nombre: "Usuarios",      href: "/usuarios",      icon: Users,           permisoKey: "mod_usuarios"     },
       { nombre: "Personal",      href: "/personal",      icon: UserCheck,       permisoKey: "mod_personal"     },
       { nombre: "Asistencia",    href: "/asistencia",    icon: Clock,           permisoKey: "mod_asistencia"   },
@@ -91,7 +92,6 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Empaque",          href: "/empaque",       icon: Package,       permisoKey: "mod_empaque"          },
       { nombre: "Liquidación Empaque", href: "/liquidacion-empaque", icon: ClipboardCheck, permisoKey: "mod_empaque"  },
       { nombre: "Inventario",       href: "/inventario",    icon: Boxes,         permisoKey: "mod_empaque"          },
-      { nombre: "Ventas",           href: "/ventas",        icon: ShoppingCart,  permisoKey: "mod_ventas"           },
       { nombre: "Pagos",            href: "/pagos",         icon: Wallet,        permisoKey: "ver_costos"           },
       { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
     ],
