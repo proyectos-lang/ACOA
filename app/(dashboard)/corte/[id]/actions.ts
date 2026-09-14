@@ -218,24 +218,28 @@ export async function marcarCortePendienteAction(
 
 // ── Confirmar capas reales cortadas ──────────────────────────────────────────
 
-export async function confirmarCorteAction(
-  ordenId: number,
-  filas: CorteCapaRealInput[],
-  tallasCount: number
-): Promise<ActionResult & { destino?: string }> {
-  const session = await getSession()
-  if (!session) return { error: "No autorizado" }
-
-  // Toda modificación respecto a lo programado exige comentario
+// Valida que todo cambio frente a lo programado tenga su comentario
+function validarComentarios(filas: CorteCapaRealInput[]): string | null {
   const sinComentario = filas.filter(
     (f) => f.capas_reales !== f.capas_programadas && !(f.comentario ?? "").trim()
   )
-  if (sinComentario.length > 0) {
-    const d = sinComentario[0]
-    return {
-      error: `Falta el comentario del cambio en [${d.color} × ${d.lote_nombre}] (Material ${d.slot}): programado ${d.capas_programadas}, cortado ${d.capas_reales}`,
-    }
-  }
+  if (sinComentario.length === 0) return null
+  const d = sinComentario[0]
+  return `Falta el comentario del cambio en [${d.color} \u00d7 ${d.lote_nombre}] (Material ${d.slot}): programado ${d.capas_programadas}, cortado ${d.capas_reales}`
+}
+
+// Guarda las capas reales y recalcula las cantidades de cada lote, SIN enviar
+// la orden a estampación. Permite ir registrando el avance del corte.
+export async function guardarCapasCorteAction(
+  ordenId: number,
+  filas: CorteCapaRealInput[],
+  tallasCount: number
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  const errComentario = validarComentarios(filas)
+  if (errComentario) return { error: errComentario }
 
   try {
     // 1. Guardar las capas reales confirmadas
@@ -255,7 +259,33 @@ export async function confirmarCorteAction(
       await upsertLoteDesdeGrid(ordenId, nombre, capasReales * tallasCount, session.userId)
     }
 
-    // 3. Avanzar los lotes y la OP: a Estampación, o directo a Costura si la
+    revalidatePath(`/corte/${ordenId}`)
+    revalidatePath("/corte")
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error guardando las capas" }
+  }
+}
+
+// Guarda y ENVÍA la orden al siguiente proceso (estampación, o confección
+// si la OP no pasa por estampación).
+export async function confirmarCorteAction(
+  ordenId: number,
+  filas: CorteCapaRealInput[],
+  tallasCount: number
+): Promise<ActionResult & { destino?: string }> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  const errComentario = validarComentarios(filas)
+  if (errComentario) return { error: errComentario }
+
+  try {
+    // Guardar primero, para no enviar con datos sin registrar
+    const guardado = await guardarCapasCorteAction(ordenId, filas, tallasCount)
+    if (guardado.error) return { error: guardado.error }
+
+    // Avanzar los lotes y la OP: a Estampación, o directo a Costura si la
     // OP no pasa por estampación
     const orden = await getOrdenById(ordenId)
     const destino = orden?.pasa_estampacion === false ? "confeccion" : "estampacion"

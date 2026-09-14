@@ -26,6 +26,7 @@ import {
   guardarCortetelaAction,
   aplicarConsumoRealAction,
   confirmarCorteAction,
+  guardarCapasCorteAction,
   marcarCortePendienteAction,
   cambiarColorLoteAction,
 } from "@/app/(dashboard)/corte/[id]/actions"
@@ -501,10 +502,12 @@ function CapasCortadasSection({
   const destinoLabel = orden.pasa_estampacion === false ? "Costura" : "Estampación"
   const yaConfirmado = orden.estado !== "corte"
 
-  function confirmar() {
+  // Construye el payload de capas reales; devuelve null si falta algun
+  // comentario obligatorio (y avisa cual)
+  function construirPayload(): CorteCapaRealInput[] | null {
     // Las capas son compartidas entre materiales: se registran una sola vez,
     // tomando las cantidades del material de referencia (Material 1)
-    if (!slotRef) return
+    if (!slotRef) return null
     const payload: CorteCapaRealInput[] = []
     const filas = filasDe(slotRef)
     const lotes = lotesDe(slotRef)
@@ -520,7 +523,7 @@ function CapasCortadasSection({
             "error",
             `Falta el comentario del cambio en [${f.color} × ${l}]: programado ${prog}, cortado ${real}`
           )
-          return
+          return null
         }
         payload.push({
           slot: slotRef,
@@ -533,7 +536,27 @@ function CapasCortadasSection({
         })
       }
     }
+    return payload
+  }
 
+  // Guarda el avance sin enviar la orden al siguiente proceso
+  function guardarAvance() {
+    const payload = construirPayload()
+    if (!payload) return
+    startTransition(async () => {
+      const res = await guardarCapasCorteAction(orden.id, payload, tallasCount)
+      if (res.error) onMsg("error", res.error)
+      else {
+        onMsg("ok", "Avance del corte guardado")
+        router.refresh()
+      }
+    })
+  }
+
+  // Guarda y envia la orden al siguiente proceso
+  function confirmar() {
+    const payload = construirPayload()
+    if (!payload) return
     startTransition(async () => {
       const res = await confirmarCorteAction(orden.id, payload, tallasCount)
       if (res.error) onMsg("error", res.error)
@@ -884,7 +907,20 @@ function CapasCortadasSection({
           El corte ya fue confirmado — la OP está en {LOTE_ESTADO_LABEL[orden.estado] ?? orden.estado}.
         </p>
       ) : (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* Guardar el avance sin enviar al siguiente proceso */}
+          <button
+            type="button"
+            onClick={guardarAvance}
+            disabled={isPending}
+            className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+            style={{ backgroundColor: "#344966" }}
+            title="Guarda las capas registradas sin enviar la orden"
+          >
+            <Save className="h-4 w-4" />
+            {isPending ? "Guardando…" : "Guardar avance"}
+          </button>
+
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
