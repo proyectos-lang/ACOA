@@ -629,19 +629,40 @@ export async function eliminarVenta(ventaId: number): Promise<void> {
 // registrando a la vez no obtienen el mismo numero.
 async function siguienteConsecutivo(): Promise<string> {
   const db = createVanessaClient()
-  const { data, error } = await db.rpc("siguiente_documento_venta")
-  if (!error && data != null) return String(data)
 
-  // Respaldo si la funcion no esta creada: el mayor numero + 1
+  // El mayor documento que ya existe. Sirve para detectar una secuencia
+  // atrasada, como queda tras cargar ventas historicas.
   const { data: ventas } = await db.from("venta").select("numero_documento").limit(5000)
+  const usados = new Set<string>()
   let maximo = 0
   for (const v of (ventas ?? []) as Array<{ numero_documento: string }>) {
-    const m = /(\d+)\s*$/.exec((v.numero_documento ?? "").trim())
+    const doc = (v.numero_documento ?? "").trim()
+    usados.add(doc)
+    const m = /(\d+)\s*$/.exec(doc)
     if (m) {
       const n = parseInt(m[1], 10)
       if (n > maximo) maximo = n
     }
   }
+
+  const { data, error } = await db.rpc("siguiente_documento_venta")
+  if (!error && data != null) {
+    const n = parseInt(String(data), 10)
+    // Si la secuencia va adelante del historico, se usa tal cual
+    if (Number.isFinite(n) && n > maximo && !usados.has(String(n))) return String(n)
+
+    // Va atrasada: se adelanta de una vez al mayor existente
+    const { error: errAjuste } = await db.rpc("ajustar_consecutivo_venta")
+    if (!errAjuste) {
+      const { data: reintento, error: errReintento } = await db.rpc("siguiente_documento_venta")
+      if (!errReintento && reintento != null) {
+        const m = parseInt(String(reintento), 10)
+        if (Number.isFinite(m) && m > maximo && !usados.has(String(m))) return String(m)
+      }
+    }
+  }
+
+  // Respaldo: el mayor numero + 1
   return String(maximo + 1)
 }
 

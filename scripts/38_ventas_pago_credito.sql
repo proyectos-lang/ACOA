@@ -96,3 +96,24 @@ $$;
 
 -- PostgREST expone la funcion para poder llamarla con rpc()
 GRANT EXECUTE ON FUNCTION vanessa.siguiente_documento_venta() TO anon, authenticated, service_role;
+
+-- Ajusta la secuencia al mayor documento existente. Se usa despues de
+-- cargar ventas historicas, para que el consecutivo no repita numeros.
+CREATE OR REPLACE FUNCTION vanessa.ajustar_consecutivo_venta()
+RETURNS BIGINT
+LANGUAGE plpgsql
+VOLATILE
+AS $$
+DECLARE
+  maximo BIGINT;
+BEGIN
+  SELECT COALESCE(MAX(NULLIF(regexp_replace(numero_documento, '\D', '', 'g'), '')::BIGINT), 0)
+    INTO maximo
+    FROM vanessa.venta;
+  IF maximo > 0 THEN
+    PERFORM setval('vanessa.venta_documento_seq', maximo, TRUE);
+  END IF;
+  RETURN maximo;
+END $$;
+
+GRANT EXECUTE ON FUNCTION vanessa.ajustar_consecutivo_venta() TO anon, authenticated, service_role;
