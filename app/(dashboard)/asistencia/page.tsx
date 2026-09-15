@@ -1,4 +1,5 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
+import { normalizarFecha } from "@/lib/fechas-habiles"
 import { getAsistenciaPorFecha } from "@/lib/db/asistencia-dia"
 import { listPersonas } from "@/lib/db/persona"
 import { AsistenciaClient } from "@/components/asistencia/asistencia-client"
@@ -14,9 +15,7 @@ export default async function AsistenciaPage({
   await requirePermiso("mod_asistencia")
 
   const { fecha: fechaParam } = await searchParams
-  const fecha =
-    fechaParam ??
-    new Date().toLocaleDateString("sv-SE", { timeZone: "America/Bogota" })
+  const fecha = normalizarFecha(fechaParam)
 
   const [registros, personas] = await Promise.all([
     getAsistenciaPorFecha(fecha),

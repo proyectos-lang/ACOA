@@ -50,3 +50,34 @@ export function diasSinDomingoEntre(desde: string, hasta: string): number | null
   }
   return dias
 }
+
+// Valida una fecha que llega por la URL (YYYY-MM-DD). Postgres rechaza
+// cualquier otra cosa con "invalid input syntax for type date", asi que
+// un valor vacio o a medio escribir en un date-picker tumbaba la pagina.
+// Devuelve la fecha si es real, o la de respaldo (hoy) si no lo es.
+export function normalizarFecha(valor?: string | null, respaldo?: string): string {
+  const base = respaldo ?? hoyBogota()
+  if (!valor) return base
+
+  const limpio = valor.trim()
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(limpio)
+  if (!m) return base
+
+  const [, ys, ms, ds] = m
+  const y = Number(ys)
+  const mes = Number(ms)
+  const d = Number(ds)
+  if (y < 1900 || y > 2200 || mes < 1 || mes > 12 || d < 1 || d > 31) return base
+
+  // Descarta dias que no existen en ese mes (31 de septiembre, 30 de febrero)
+  const fecha = new Date(Date.UTC(y, mes - 1, d))
+  if (
+    fecha.getUTCFullYear() !== y ||
+    fecha.getUTCMonth() !== mes - 1 ||
+    fecha.getUTCDate() !== d
+  ) {
+    return base
+  }
+
+  return limpio
+}
