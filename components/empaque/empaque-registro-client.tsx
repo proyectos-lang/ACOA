@@ -103,6 +103,8 @@ export function EmpaqueRegistroClient({
     empacadoras[0] ? String(empacadoras[0].id) : ""
   )
   const [talla, setTalla] = React.useState("")
+  // Segunda pulsacion para aceptar registrar mas de lo contado
+  const [confirmoExceso, setConfirmoExceso] = React.useState(false)
   const [cantidad, setCantidad] = React.useState("")
   const [imperfectos, setImperfectos] = React.useState("")
   const [fecha, setFecha] = React.useState(fechaHoyDefault)
@@ -132,9 +134,15 @@ export function EmpaqueRegistroClient({
   }
 
   // El empaque se maneja solo por talla: agrupar el conteo por talla
-  // (los conteos viejos podían tener la misma talla en varios colores)
+  // (los conteos viejos podían tener la misma talla en varios colores).
+  // Se parte de las tallas de la curva para que ninguna quede fuera: si
+  // una no se conto, igual debe poder registrarse y quedar en evidencia.
   const progreso = (() => {
     const map = new Map<string, { talla: string; contado: number }>()
+    for (const t of curvaTallas) {
+      const k = t.talla.trim().toLowerCase()
+      if (!map.has(k)) map.set(k, { talla: t.talla.trim(), contado: 0 })
+    }
     for (const d of conteoDetalle) {
       const k = d.talla.trim().toLowerCase()
       const prev = map.get(k)
@@ -168,6 +176,17 @@ export function EmpaqueRegistroClient({
   // Diferencia frente al conteo: si lo empacado + imperfectos es menor,
   // hay que justificarla antes de finalizar el lote
   const pendienteTotal = Math.max(0, totalContado - totalEmpacado - totalImperfectos)
+
+  // Una talla se pasa de lo contado cuando lo que se va a registrar
+  // supera lo pendiente. No se bloquea: se avisa y se pide justificar.
+  function excedeTalla(t: string): boolean {
+    const p = progreso.find((x) => x.talla.toLowerCase() === t.trim().toLowerCase())
+    if (!p) return false
+    const emp = parseInt(gridEmp[p.talla] ?? "", 10) || 0
+    const imp = parseInt(gridImp[p.talla] ?? "", 10) || 0
+    if (emp + imp === 0) return false
+    return emp + imp > Math.max(0, p.pendiente)
+  }
 
   // Disponible por talla (conteo - ya empacado)
   function disponibleParaTalla(t: string): number {
@@ -223,11 +242,14 @@ export function EmpaqueRegistroClient({
       return
     }
 
-    const excede = filas.find((f) => f.cantidad + f.imperfectos > f.disponible)
-    if (excede) {
+    // Si se registra mas de lo contado, se avisa una vez y se deja pasar:
+    // el conteo puede estar corto y la diferencia se justifica al cerrar.
+    const excedidas = filas.filter((f) => f.cantidad + f.imperfectos > f.disponible)
+    if (excedidas.length > 0 && !confirmoExceso) {
+      setConfirmoExceso(true)
       showToast(
         "error",
-        `Talla ${excede.talla}: ${excede.cantidad + excede.imperfectos} excede el disponible (${excede.disponible})`
+        `Talla ${excedidas.map((e) => e.talla).join(", ")}: registras mas de lo contado. Vuelve a pulsar para confirmar; la diferencia se justifica al cerrar el lote.`
       )
       return
     }
@@ -253,6 +275,7 @@ export function EmpaqueRegistroClient({
       showToast("ok", `${ok} talla${ok !== 1 ? "s" : ""} registrada${ok !== 1 ? "s" : ""}`)
       setGridEmp({})
       setGridImp({})
+      setConfirmoExceso(false)
       router.refresh()
     })
   }
@@ -466,11 +489,11 @@ export function EmpaqueRegistroClient({
                               type="number"
                               inputMode="numeric"
                               min="0"
-                              max={disp}
-                              disabled={completa}
                               value={gridEmp[p.talla] ?? ""}
                               onChange={(e) => setGridValor(setGridEmp, p.talla, e.target.value)}
-                              className="w-full min-w-16 rounded-lg border border-stone-200 px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-[#344966] disabled:bg-stone-50 disabled:text-stone-300"
+                              className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-[#344966] ${
+                                excedeTalla(p.talla) ? "border-amber-400 bg-amber-50" : "border-stone-200"
+                              }`}
                               placeholder="0"
                             />
                           </td>
@@ -479,11 +502,11 @@ export function EmpaqueRegistroClient({
                               type="number"
                               inputMode="numeric"
                               min="0"
-                              max={disp}
-                              disabled={completa}
                               value={gridImp[p.talla] ?? ""}
                               onChange={(e) => setGridValor(setGridImp, p.talla, e.target.value)}
-                              className="w-full min-w-16 rounded-lg border border-stone-200 px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-red-300 disabled:bg-stone-50 disabled:text-stone-300"
+                              className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-red-300 ${
+                                excedeTalla(p.talla) ? "border-amber-400 bg-amber-50" : "border-stone-200"
+                              }`}
                               placeholder="0"
                             />
                           </td>
