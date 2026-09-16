@@ -7,16 +7,23 @@ import {
   updatePrenda,
   deletePrenda,
   sincronizarPreciosProcesoLote,
+  reemplazarPorConjuntoCompleto,
+  esConjuntoCompleto,
   type PrendaEstado,
 } from "@/lib/db/lote-prenda"
 
-type ActionResult = { error?: string; success?: boolean; id?: number }
+type ActionResult = { error?: string; success?: boolean; id?: number; aviso?: string }
 
 function revalidarFichas(loteId: number) {
   for (const p of [
     `/estampacion/${loteId}`,
     `/confeccion/${loteId}`,
     `/conteo/${loteId}`,
+    // Los listados tambien muestran lo asignado por prenda: sin esto
+    // seguian mostrando los datos viejos y parecia que no se guardaba
+    "/estampacion",
+    "/confeccion",
+    "/conteo",
   ]) revalidatePath(p)
 }
 
@@ -30,10 +37,20 @@ export async function crearPrendaAction(
   if (!nombre.trim()) return { error: "Escribe el nombre de la prenda (ej: Camiseta, Pantalón)" }
 
   try {
+    // "Conjunto completo" significa que el lote no va dividido: reemplaza a
+    // las piezas Superior/Inferior que se crearon solas y siguen vacias
+    let aviso: string | undefined
+    if (esConjuntoCompleto(nombre)) {
+      const retiradas = await reemplazarPorConjuntoCompleto(loteId)
+      if (retiradas > 0) {
+        aviso = `Se retiraron ${retiradas} pieza(s) vacías (Superior/Inferior): el lote se trabaja completo`
+      }
+    }
+
     const id = await createPrenda(loteId, nombre, estadoInicial, session.userId)
     await sincronizarPreciosProcesoLote(loteId, session.userId)
     revalidarFichas(loteId)
-    return { success: true, id }
+    return { success: true, id, aviso }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error creando la prenda" }
   }

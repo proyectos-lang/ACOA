@@ -310,6 +310,16 @@ export type LoteConInfo = LoteRow & {
     fecha_estimada_entrega: string | null
     fecha_retorno_lote: string | null
   } | null
+  // Prendas del conjunto: en esos lotes el estampador y las fechas se
+  // asignan por prenda, y la lista las muestra desglosadas
+  prendas?: Array<{
+    nombre: string
+    nombre_estampador: string | null
+    est_precio: number | null
+    est_fecha_entrega: string | null
+    est_fecha_estimada: string | null
+    est_fecha_retorno: string | null
+  }>
 }
 
 export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
@@ -327,7 +337,7 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
   const ordenIds = [...new Set(rows.map((l) => l.orden_id))]
   const loteIds = rows.map((l) => l.id)
 
-  const [{ data: ops }, { data: estampaciones }] = await Promise.all([
+  const [{ data: ops }, { data: estampaciones }, { data: prendas }] = await Promise.all([
     db
       .from("orden_produccion")
       .select("id, numero_op, referencia, gama_color")
@@ -335,6 +345,12 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
     db
       .from("estampacion")
       .select("lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, fecha_estimada_entrega, fecha_retorno_lote")
+      .in("lote_id", loteIds),
+    // Los lotes de conjunto guardan el estampador en cada prenda, no en el
+    // lote: sin esto la lista los mostraba como "sin asignar"
+    db
+      .from("lote_prenda")
+      .select("lote_id, nombre, nombre_estampador, est_precio, est_fecha_entrega, est_fecha_estimada, est_fecha_retorno")
       .in("lote_id", loteIds),
   ])
 
@@ -356,9 +372,79 @@ export async function getLotesEnEstampacion(): Promise<LoteConInfo[]> {
     ).map((e) => [e.lote_id, e])
   )
 
+  // Consolidado de las prendas de cada lote de conjunto
+  const prendasPorLote = new Map<number, PrendaEstampacion[]>()
+  for (const pr of (prendas ?? []) as PrendaEstampacion[]) {
+    const arr = prendasPorLote.get(pr.lote_id) ?? []
+    arr.push(pr)
+    prendasPorLote.set(pr.lote_id, arr)
+  }
+
   return rows.map((l) => ({
     ...l,
     orden: opMap.get(l.orden_id) ?? { numero_op: 0, referencia: "—", gama_color: null },
-    estampacion: estMap.get(l.id) ?? null,
+    estampacion: consolidarEstampacion(estMap.get(l.id) ?? null, prendasPorLote.get(l.id) ?? []),
+    prendas: prendasPorLote.get(l.id) ?? [],
   }))
+}
+
+interface PrendaEstampacion {
+  lote_id: number
+  nombre: string
+  nombre_estampador: string | null
+  est_precio: number | null
+  est_fecha_entrega: string | null
+  est_fecha_estimada: string | null
+  est_fecha_retorno: string | null
+}
+
+type EstampacionLote = {
+  lote_id: number
+  nombre_estampador: string | null
+  precio_estampacion: number | null
+  fecha_entrega_lote: string | null
+  fecha_estimada_entrega: string | null
+  fecha_retorno_lote: string | null
+} | null
+
+// En un lote de conjunto los datos de estampacion viven en cada prenda. Si
+// el lote no tiene estampador propio, se toma el de sus prendas para que la
+// lista muestre lo que realmente se asigno: un solo nombre si todas
+// coinciden, o "Varios" si son distintos. Las fechas se consolidan tomando
+// la mas temprana de entrega y la mas tardia de estimada/retorno, que es lo
+// que define cuando sale y cuando vuelve el lote completo.
+function consolidarEstampacion(
+  delLote: EstampacionLote,
+  prendas: PrendaEstampacion[]
+): EstampacionLote {
+  if (delLote?.nombre_estampador || prendas.length === 0) return delLote
+
+  const conEstampador = prendas.filter((p) => p.nombre_estampador)
+  if (conEstampador.length === 0) return delLote
+
+  const nombres = [...new Set(conEstampador.map((p) => (p.nombre_estampador ?? "").trim()))]
+  const minima = (xs: (string | null)[]) => {
+    const v = xs.filter((x): x is string => !!x && x > "1900-01-01").sort()
+    return v[0] ?? null
+  }
+  const maxima = (xs: (string | null)[]) => {
+    const v = xs.filter((x): x is string => !!x && x > "1900-01-01").sort()
+    return v[v.length - 1] ?? null
+  }
+
+  const precios = prendas.reduce((acc, p) => acc + (Number(p.est_precio) || 0), 0)
+
+  return {
+    lote_id: delLote?.lote_id ?? prendas[0].lote_id,
+    nombre_estampador: nombres.length === 1 ? nombres[0] : `Varios (${nombres.length})`,
+    precio_estampacion: delLote?.precio_estampacion ?? (precios > 0 ? precios : null),
+    fecha_entrega_lote:
+      delLote?.fecha_entrega_lote ?? minima(prendas.map((p) => p.est_fecha_entrega)),
+    fecha_estimada_entrega:
+      delLote?.fecha_estimada_entrega ?? maxima(prendas.map((p) => p.est_fecha_estimada)),
+    // El lote solo vuelve cuando han vuelto todas sus prendas
+    fecha_retorno_lote: prendas.every((p) => p.est_fecha_retorno)
+      ? maxima(prendas.map((p) => p.est_fecha_retorno))
+      : (delLote?.fecha_retorno_lote ?? null),
+  }
 }

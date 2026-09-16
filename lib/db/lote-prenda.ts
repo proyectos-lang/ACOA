@@ -173,3 +173,45 @@ export async function sincronizarPreciosProcesoLote(
     upsertConfeccionParcial(loteId, { precio_confeccion: sumConf }, userId),
   ])
 }
+
+// Nombre de la pieza que representa el conjunto sin dividir
+export const PIEZA_CONJUNTO_COMPLETO = "Conjunto completo"
+
+export function esConjuntoCompleto(nombre: string): boolean {
+  // Tolera mayusculas, espacios y las erratas que ya hay en los datos
+  const n = nombre.trim().toLowerCase().replace(/\s+/g, " ")
+  return n.startsWith("conjunto complet")
+}
+
+// Al elegir "Conjunto completo" el lote NO se trabaja dividido: esa pieza
+// reemplaza a Superior/Inferior en vez de sumarse a ellas. Si se dejaran
+// las tres, el precio del lote quedaria inflado (es la suma de sus piezas)
+// y la misma prenda se asignaria dos veces.
+// Devuelve cuantas piezas automaticas se retiraron.
+export async function reemplazarPorConjuntoCompleto(loteId: number): Promise<number> {
+  const prendas = await listPrendasByLote(loteId)
+
+  // Solo se retiran las piezas por defecto que sigan vacias: si alguien ya
+  // les cargo estampador o precio, se conservan y se avisa en la interfaz.
+  const porDefecto = new Set<string>(
+    PIEZAS_CONJUNTO_POR_DEFECTO.map((n) => n.toLowerCase())
+  )
+  const retirables = prendas.filter(
+    (p) =>
+      porDefecto.has(p.nombre.trim().toLowerCase()) &&
+      !p.nombre_estampador &&
+      !p.nombre_confeccionista &&
+      p.est_precio == null &&
+      p.conf_precio == null &&
+      p.cantidad_contada == null
+  )
+  if (retirables.length === 0) return 0
+
+  const db = createVanessaClient()
+  const { error } = await db
+    .from("lote_prenda")
+    .delete()
+    .in("id", retirables.map((p) => p.id))
+  if (error) throw new Error(error.message)
+  return retirables.length
+}

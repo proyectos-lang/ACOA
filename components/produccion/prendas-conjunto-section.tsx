@@ -363,11 +363,21 @@ export function PrendasConjuntoSection({
   function crear() {
     const nombre = nuevaPrenda.trim()
     if (!nombre) return
+
+    // No repetir una prenda que ya esta en el lote
+    const yaExiste = prendas.some(
+      (p) => p.nombre.trim().toLowerCase() === nombre.toLowerCase()
+    )
+    if (yaExiste) {
+      onMsg("error", `"${nombre}" ya está en este lote`)
+      return
+    }
+
     startTransition(async () => {
       const res = await crearPrendaAction(loteId, nombre, etapa)
       if (res.error) onMsg("error", res.error)
       else {
-        onMsg("ok", `Prenda "${nombre}" agregada`)
+        onMsg("ok", res.aviso ? `"${nombre}" agregada. ${res.aviso}` : `Prenda "${nombre}" agregada`)
         router.refresh()
       }
     })

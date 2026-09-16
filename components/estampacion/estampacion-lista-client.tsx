@@ -683,6 +683,18 @@ export function EstampacionListaClient({
                     {lote.estampacion?.nombre_estampador ?? (
                       <span className="text-stone-400 italic">Sin asignar</span>
                     )}
+                    {/* En los conjuntos se detalla que se asigno a cada prenda */}
+                    {(lote.prendas ?? []).some((p) => p.nombre_estampador) && (
+                      <span className="mt-0.5 block space-y-0.5">
+                        {(lote.prendas ?? [])
+                          .filter((p) => p.nombre_estampador)
+                          .map((p, i) => (
+                            <span key={`${p.nombre}_${i}`} className="block text-[10px] text-stone-400">
+                              {p.nombre}: {p.nombre_estampador}
+                            </span>
+                          ))}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-stone-600">
                     {lote.estampacion?.precio_estampacion != null
