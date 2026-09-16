@@ -13,6 +13,9 @@ export interface EmpaqueRegistroRow {
   precio_unidad: number
   valor_total: number
   fecha: string
+  // false = el empaque carga inventario pero no se le paga a la
+  // empacadora (reempaque, correccion, producto devuelto)
+  genera_pago: boolean
 }
 
 export interface AcumuladoTalla {
@@ -23,7 +26,7 @@ export interface AcumuladoTalla {
 }
 
 const SELECT_COLS =
-  "id, lote_id, persona_id, color, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha"
+  "id, lote_id, persona_id, color, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha, genera_pago"
 
 export async function getEmpaquePorLote(loteId: number): Promise<EmpaqueRegistroRow[]> {
   const db = createVanessaClient()
@@ -70,6 +73,8 @@ export async function createEmpaqueRegistro(input: {
   precio_unidad: number
   fecha: string
   creado_por: number
+  // Por defecto el empaque se paga; en false solo carga inventario
+  genera_pago?: boolean
 }): Promise<number> {
   const db = createVanessaClient()
   // valor_total is GENERATED — do not include
@@ -80,8 +85,11 @@ export async function createEmpaqueRegistro(input: {
     talla: input.talla.trim(),
     cantidad: input.cantidad,
     imperfectos: input.imperfectos ?? 0,
-    precio_unidad: input.precio_unidad,
+    // Si no se paga, el precio del registro queda en cero: asi ningun
+    // reporte que sume valor_total lo cuenta como pago
+    precio_unidad: input.genera_pago === false ? 0 : input.precio_unidad,
     fecha: input.fecha,
+    genera_pago: input.genera_pago !== false,
     creado_por: input.creado_por,
   }).select("id").single()
   if (error || !data) throw new Error(error?.message ?? "Error registrando empaque")
@@ -104,6 +112,7 @@ export async function getEmpaqueResumenPorPersonaYPeriodo(
     .from("empaque_registro")
     .select("cantidad, valor_total")
     .eq("persona_id", personaId)
+    .eq("genera_pago", true)
     .gte("fecha", fechaInicio)
     .lte("fecha", fechaFin)
   if (error) throw new Error(error.message)

@@ -193,6 +193,8 @@ export async function getNominaDiaria(input: {
         .from("empaque_registro")
         .select("persona_id, fecha, cantidad")
         .in("persona_id", personaIds)
+        // Los empaques marcados "solo inventario" no se pagan
+        .eq("genera_pago", true)
         .gte("fecha", input.desde)
         .lte("fecha", input.hasta),
       db.from("festivo").select("fecha").gte("fecha", input.desde).lte("fecha", input.hasta),
@@ -478,6 +480,7 @@ export async function getNominaProduccion(input: {
   let q = db
     .from("empaque_registro")
     .select("persona_id, lote_id, fecha, cantidad")
+    .eq("genera_pago", true)
     .gte("fecha", input.desde)
     .lte("fecha", input.hasta)
     .order("fecha", { ascending: false })

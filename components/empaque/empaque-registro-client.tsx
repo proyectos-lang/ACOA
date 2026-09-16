@@ -13,6 +13,7 @@ import {
   Save,
   LayoutGrid,
   ListPlus,
+  Boxes,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
@@ -195,7 +196,7 @@ export function EmpaqueRegistroClient({
   }
 
   // ── Registrar empaque ──────────────────────────────────────────
-  function handleAdd(e: React.FormEvent) {
+  function handleAdd(e: React.FormEvent, generaPago = true) {
     e.preventDefault()
     const cant = parseInt(cantidad, 10) || 0
     const imperf = parseInt(imperfectos, 10) || 0
@@ -213,10 +214,16 @@ export function EmpaqueRegistroClient({
         cantidad: cant,
         imperfectos: imperf,
         fecha: fecha || undefined,
+        genera_pago: generaPago,
       })
       if (res.error) showToast("error", res.error)
       else {
-        showToast("ok", "Registro de empaque guardado")
+        showToast(
+          "ok",
+          generaPago
+            ? "Registrado en inventario y pago"
+            : "Registrado solo en inventario (sin pago)"
+        )
         setCantidad("")
         setImperfectos("")
         router.refresh()
@@ -225,7 +232,7 @@ export function EmpaqueRegistroClient({
   }
 
   // Registra de una sola vez todas las tallas con cantidades escritas
-  function handleGuardarGrid() {
+  function handleGuardarGrid(generaPago: boolean) {
     if (!personaId) return showToast("error", "Seleccione la empacadora")
 
     const filas = progreso
@@ -265,6 +272,7 @@ export function EmpaqueRegistroClient({
           cantidad: f.cantidad,
           imperfectos: f.imperfectos,
           fecha: fecha || undefined,
+          genera_pago: generaPago,
         })
         if (res.error) {
           showToast("error", `Talla ${f.talla}: ${res.error}`)
@@ -272,7 +280,11 @@ export function EmpaqueRegistroClient({
         }
         ok++
       }
-      showToast("ok", `${ok} talla${ok !== 1 ? "s" : ""} registrada${ok !== 1 ? "s" : ""}`)
+      showToast(
+        "ok",
+        `${ok} talla${ok !== 1 ? "s" : ""} registrada${ok !== 1 ? "s" : ""}` +
+          (generaPago ? " en inventario y pago" : " solo en inventario (sin pago)")
+      )
       setGridEmp({})
       setGridImp({})
       setConfirmoExceso(false)
@@ -528,16 +540,31 @@ export function EmpaqueRegistroClient({
                 </table>
               </div>
 
-              <button
-                type="button"
-                onClick={handleGuardarGrid}
-                disabled={isPendingGrid || (totalGridEmp === 0 && totalGridImp === 0)}
-                className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: "#344966" }}
-              >
-                <Save className="h-4 w-4" />
-                {isPendingGrid ? "Registrando…" : "Registrar empaque"}
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => handleGuardarGrid(true)}
+                  disabled={isPendingGrid || (totalGridEmp === 0 && totalGridImp === 0)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: "#344966" }}
+                >
+                  <Save className="h-4 w-4" />
+                  {isPendingGrid ? "Registrando…" : "Registrar en inventario y pago"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGuardarGrid(false)}
+                  disabled={isPendingGrid || (totalGridEmp === 0 && totalGridImp === 0)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white py-3 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-50"
+                >
+                  <Boxes className="h-4 w-4" />
+                  {isPendingGrid ? "Registrando…" : "Registrar solo en inventario"}
+                </button>
+                <p className="text-center text-[11px] text-stone-400">
+                  &quot;Solo inventario&quot; carga el producto pero no le genera pago por
+                  produccion a la empacadora
+                </p>
+              </div>
             </>
           )}
         </div>
@@ -638,15 +665,29 @@ export function EmpaqueRegistroClient({
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isPendingAdd}
-                className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 w-full justify-center"
-                style={{ backgroundColor: "#344966" }}
-              >
-                <Plus className="h-4 w-4" />
-                {isPendingAdd ? "Registrando…" : "Registrar"}
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="submit"
+                  disabled={isPendingAdd}
+                  className="flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60 w-full justify-center"
+                  style={{ backgroundColor: "#344966" }}
+                >
+                  <Plus className="h-4 w-4" />
+                  {isPendingAdd ? "Registrando…" : "Registrar en inventario y pago"}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => handleAdd(e, false)}
+                  disabled={isPendingAdd}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+                >
+                  <Boxes className="h-4 w-4" />
+                  {isPendingAdd ? "Registrando…" : "Registrar solo en inventario"}
+                </button>
+                <p className="text-center text-[11px] text-stone-400">
+                  &quot;Solo inventario&quot; no le genera pago por produccion a la empacadora
+                </p>
+              </div>
             </div>
           </form>
         )}
@@ -804,7 +845,14 @@ export function EmpaqueRegistroClient({
                       <td className="px-3 py-2 text-stone-700">
                         {empacadora?.nombre ?? `#${r.persona_id}`}
                       </td>
-                      <td className="px-3 py-2 font-medium text-stone-800">{r.talla}</td>
+                      <td className="px-3 py-2 font-medium text-stone-800">
+                        {r.talla}
+                        {r.genera_pago === false && (
+                          <span className="ml-1.5 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold text-stone-500">
+                            solo inventario
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 font-mono text-stone-700">
                         {r.cantidad.toLocaleString("es-CO")}
                       </td>

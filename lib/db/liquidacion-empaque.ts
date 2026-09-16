@@ -26,6 +26,8 @@ export interface DetalleEmpaqueDia {
   imperfectos: number
   precio_unidad: number
   valor_total: number
+  // false = cargo inventario pero no se le paga a la empacadora
+  genera_pago: boolean
 }
 
 // Un día de trabajo de una persona
@@ -53,7 +55,7 @@ export async function getLiquidacionEmpaque(input: {
 
   let q = db
     .from("empaque_registro")
-    .select("id, lote_id, persona_id, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha")
+    .select("id, lote_id, persona_id, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha, genera_pago")
     .gte("fecha", input.desde)
     .lte("fecha", input.hasta)
     .order("fecha", { ascending: false })
@@ -71,6 +73,7 @@ export async function getLiquidacionEmpaque(input: {
     precio_unidad: number
     valor_total: number
     fecha: string
+    genera_pago: boolean | null
   }>
   if (filas.length === 0) return []
 
@@ -164,6 +167,7 @@ export async function getLiquidacionEmpaque(input: {
       imperfectos: f.imperfectos ?? 0,
       precio_unidad: Number(f.precio_unidad) || 0,
       valor_total: Number(f.valor_total) || 0,
+      genera_pago: f.genera_pago !== false,
     })
   }
 

@@ -30,6 +30,8 @@ export async function crearEmpaqueRegistroAction(input: {
   cantidad: number
   imperfectos?: number
   fecha?: string
+  // false = solo carga inventario, sin pago por produccion
+  genera_pago?: boolean
 }): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
@@ -91,6 +93,7 @@ export async function crearEmpaqueRegistroAction(input: {
       imperfectos,
       precio_unidad: lote.precio_empaque_unidad,
       fecha: input.fecha || fechaHoy,
+      genera_pago: input.genera_pago !== false,
       creado_por: session.userId,
     })
 
@@ -109,6 +112,8 @@ export async function crearEmpaqueRegistroAction(input: {
 
     revalidatePath(`/empaque/${input.lote_id}`)
     revalidatePath("/inventario")
+    revalidatePath("/liquidacion-empaque")
+    revalidatePath("/nomina")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error registrando empaque" }
@@ -128,6 +133,8 @@ export async function eliminarEmpaqueRegistroAction(
     await deleteEmpaqueRegistro(registroId)
     revalidatePath(`/empaque/${loteId}`)
     revalidatePath("/inventario")
+    revalidatePath("/liquidacion-empaque")
+    revalidatePath("/nomina")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error eliminando registro" }
