@@ -13,13 +13,17 @@ import { batchReplaceCurvaTallas, getCurvaTallas } from "@/lib/db/curva-talla"
 import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-costos"
 import { insertOpTelas, deleteOpTela, getOpTelas } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
-import { createLoteDesdeOP, upsertLoteDesdeGrid, deleteLoteCascada } from "@/lib/db/lote"
+import { createLoteDesdeOP, upsertLoteDesdeGrid, deleteLoteCascada,
+  type AjusteLote,
+} from "@/lib/db/lote"
 import { createCategoria } from "@/lib/db/categoria"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
 export interface ActionResult {
   error?: string
   success?: boolean
+  // Advertencia cuando el guardado alcanzo lotes que ya van en proceso
+  aviso?: string
 }
 
 // ── Info general de la OP ─────────────────────────────────────────────────────
@@ -226,9 +230,10 @@ async function recalcularCantidadesLotes(
   ordenId: number,
   tallasCount: number,
   userId: number
-): Promise<void> {
+): Promise<AjusteLote[]> {
   const telaLotes = await getOpTelaLotes(ordenId)
   const nombres = [...new Set(telaLotes.map((r) => r.lote_nombre))]
+  const ajustes: AjusteLote[] = []
   for (const nombre of nombres) {
     let filas = telaLotes.filter((r) => r.lote_nombre === nombre && r.slot === 1)
     if (filas.length === 0) {
@@ -237,8 +242,23 @@ async function recalcularCantidadesLotes(
       filas = filasNombre.filter((r) => r.slot === slotMin)
     }
     const totalCapas = filas.reduce((s, r) => s + r.capas, 0)
-    await upsertLoteDesdeGrid(ordenId, nombre, totalCapas * tallasCount, userId)
+    const ajuste = await upsertLoteDesdeGrid(ordenId, nombre, totalCapas * tallasCount, userId)
+    if (ajuste) ajustes.push(ajuste)
   }
+  return ajustes
+}
+
+// Aviso para la interfaz cuando la correccion de la ficha alcanzo lotes que
+// ya iban en proceso: ahi puede haber cantidades ya contadas o pagadas.
+function avisoAjustes(ajustes: AjusteLote[]): string | undefined {
+  const enProceso = ajustes.filter((a) => a.estado !== "cortado")
+  if (enProceso.length === 0) return undefined
+  const detalle = enProceso
+    .slice(0, 4)
+    .map((a) => `${a.lote_nombre}: ${a.antes} → ${a.ahora} (${a.estado})`)
+    .join("; ")
+  const resto = enProceso.length > 4 ? ` y ${enProceso.length - 4} mas` : ""
+  return `Se actualizaron ${enProceso.length} lote(s) que ya estan en proceso — ${detalle}${resto}. Revisa conteos y pagos de esos lotes.`
 }
 
 // Recalcula costo_materiales / costo_unitario / total_unidades en hoja_costos.

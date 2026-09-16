@@ -667,7 +667,11 @@ function OpTelaSlotCard({
         tallasCount
       )
       if (res.error) onMsg(`Error: ${res.error}`)
-      else { onMsg(`Material ${slot} guardado`); router.refresh() }
+      else {
+        // El aviso sale cuando la correccion alcanzo lotes ya en proceso
+        onMsg(res.aviso ? `Material ${slot} guardado. ${res.aviso}` : `Material ${slot} guardado`)
+        router.refresh()
+      }
     })
   }
 
@@ -1276,7 +1280,7 @@ function CurvaTallasSection({
     startSave(async () => {
       const res = await guardarCurvaAction(ordenId, tallas)
       if (res.error) { onSaved(`Error al guardar tallas: ${res.error}`); return }
-      onSaved("Tallas guardadas")
+      onSaved(res.aviso ? `Tallas guardadas. ${res.aviso}` : "Tallas guardadas")
       router.refresh()
     })
   }

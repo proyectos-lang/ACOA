@@ -98,43 +98,69 @@ export async function createLoteDesdeOP(
   })
 }
 
+// Resultado de ajustar un lote desde la ficha: sirve para avisar en la
+// interfaz cuando el cambio toca un lote que ya va en proceso.
+export interface AjusteLote {
+  lote_nombre: string
+  estado: string
+  antes: number
+  ahora: number
+}
+
 export async function upsertLoteDesdeGrid(
   ordenId: number,
   loteNombre: string,
   cantidadProgramada: number,
   creadoPor: number
-): Promise<void> {
+): Promise<AjusteLote | null> {
   const db = createVanessaClient()
   // Traer TODOS los lotes con ese nombre: con maybeSingle() un duplicado
   // devolvía error (ignorado) → existing null → se creaba otro duplicado más
   const { data, error: selError } = await db
     .from("lote")
-    .select("id, estado")
+    .select("id, estado, cantidad_programada")
     .eq("orden_id", ordenId)
     .eq("descripcion", loteNombre)
     .order("id")
   if (selError) throw new Error(selError.message)
-  const rows = (data ?? []) as { id: number; estado: string }[]
+  const rows = (data ?? []) as {
+    id: number
+    estado: string
+    cantidad_programada: number
+  }[]
 
   if (rows.length === 0) {
     await createLoteDesdeOP(
       { orden_id: ordenId, descripcion: loteNombre, cantidad_programada: cantidadProgramada },
       creadoPor
     )
-    return
+    return null
   }
 
   // Canónico: preferir uno que ya esté en producción; si no, el más antiguo
   const canonico = rows.find((r) => r.estado !== "cortado") ?? rows[0]
 
-  if (canonico.estado === "cortado") {
+  // La ficha manda: si se corrige la programación, la corrección baja a los
+  // lotes aunque ya estén en estampación o confección. Antes solo se
+  // actualizaban los lotes en "cortado", así que al arreglar una ficha mal
+  // programada los procesos seguían viendo las cantidades erradas.
+  const cambio =
+    canonico.cantidad_programada !== cantidadProgramada
+      ? {
+          lote_nombre: loteNombre,
+          estado: canonico.estado,
+          antes: canonico.cantidad_programada,
+          ahora: cantidadProgramada,
+        }
+      : null
+
+  if (cambio) {
     const { error } = await db
       .from("lote")
       .update({ cantidad_programada: cantidadProgramada })
       .eq("id", canonico.id)
     if (error) throw new Error(error.message)
   }
-  // Si el canónico ya está en producción, no se modifica
 
   // Auto-sanar: eliminar duplicados en estado "cortado" distintos del canónico
   for (const r of rows) {
@@ -143,6 +169,8 @@ export async function upsertLoteDesdeGrid(
       if (error) throw new Error(error.message)
     }
   }
+
+  return cambio
 }
 
 // Elimina un lote y TODOS sus registros asociados en los procesos
