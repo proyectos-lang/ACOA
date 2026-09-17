@@ -2,7 +2,21 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { FileText } from "lucide-react"
+import { FileText, PackageCheck, History, Unlock, CheckCircle2, AlertTriangle } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useTransition } from "react"
+import { reabrirLoteAction } from "@/app/(dashboard)/empaque/[id]/actions"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { LoteConEmpaque } from "@/lib/db/empaque-registro"
 
@@ -16,7 +30,20 @@ function padOP(n: number) {
 const filtroCls =
   "rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
 
-export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
+export function EmpaqueListaClient({
+  lotes,
+  finalizados = [],
+  esAdmin = false,
+}: {
+  lotes: LoteConEmpaque[]
+  finalizados?: LoteConEmpaque[]
+  esAdmin?: boolean
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [vista, setVista] = React.useState<"proceso" | "historial">("proceso")
+  const [aviso, setAviso] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
+
   const [fLote, setFLote] = React.useState("")
   const [fOP, setFOP] = React.useState("")
   const [fDesde, setFDesde] = React.useState("")
@@ -24,7 +51,25 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
 
   const hayFiltros = fLote || fOP || fDesde || fHasta
 
-  const filtrados = lotes.filter((lote) => {
+  // La pestana decide sobre que conjunto se filtra
+  const base = vista === "proceso" ? lotes : finalizados
+
+  function reabrir(loteId: number) {
+    startTransition(async () => {
+      const res = await reabrirLoteAction(loteId)
+      if (res.error) setAviso({ tipo: "error", msg: res.error })
+      else {
+        setAviso({
+          tipo: "ok",
+          msg: "Lote reabierto: ya puedes corregir su empaque en la pestana En proceso",
+        })
+        router.refresh()
+      }
+      setTimeout(() => setAviso(null), 5000)
+    })
+  }
+
+  const filtrados = base.filter((lote) => {
     const nombreLote = (lote.descripcion ?? padLote(lote.numero_lote)).toLowerCase()
     if (fLote && !nombreLote.includes(fLote.toLowerCase())) return false
     if (fOP) {
@@ -45,6 +90,51 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
 
   return (
     <div className="space-y-4">
+      {aviso && (
+        <div
+          className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium ${
+            aviso.tipo === "ok"
+              ? "border border-green-200 bg-green-50 text-green-800"
+              : "border border-red-200 bg-red-50 text-red-800"
+          }`}
+        >
+          {aviso.tipo === "ok" ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+          ) : (
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+          )}
+          {aviso.msg}
+        </div>
+      )}
+
+      {/* ── Pestanas: en proceso / historial ────────────────── */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setVista("proceso")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+            vista === "proceso"
+              ? "bg-[#344966] text-white"
+              : "border border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+          }`}
+        >
+          <PackageCheck className="mr-2 inline h-4 w-4" />
+          En proceso ({lotes.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setVista("historial")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+            vista === "historial"
+              ? "bg-[#344966] text-white"
+              : "border border-stone-200 bg-white text-stone-600 hover:bg-stone-50"
+          }`}
+        >
+          <History className="mr-2 inline h-4 w-4" />
+          Historial ({finalizados.length})
+        </button>
+      </div>
+
       {/* ── Filtros ─────────────────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white p-4 flex flex-wrap items-end gap-3">
         <div className="space-y-0.5">
@@ -100,7 +190,7 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
           </button>
         )}
         <span className="ml-auto text-xs text-stone-400">
-          {filtrados.length} de {lotes.length} lotes
+          {filtrados.length} de {base.length} lotes
         </span>
       </div>
 
@@ -110,7 +200,9 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
           <p className="text-stone-400 text-sm">
             {hayFiltros
               ? "Ningún lote coincide con los filtros."
-              : "No hay lotes en proceso de empaque."}
+              : vista === "proceso"
+                ? "No hay lotes en proceso de empaque."
+                : "Todavía no hay lotes finalizados."}
           </p>
         </div>
       ) : (
@@ -158,6 +250,14 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-stone-600">
                         {lote.ultima_fecha_empaque ?? "—"}
+                        {vista === "historial" && lote.justificacion_empaque && (
+                          <span
+                            className="mt-0.5 block max-w-[180px] truncate font-sans text-[10px] text-amber-600"
+                            title={lote.justificacion_empaque}
+                          >
+                            {lote.justificacion_empaque}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -182,12 +282,48 @@ export function EmpaqueListaClient({ lotes }: { lotes: LoteConEmpaque[] }) {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <Link
-                          href={`/empaque/${lote.id}`}
-                          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-stone-100 transition-colors text-stone-500"
-                        >
-                          Abrir ficha →
-                        </Link>
+                        <div className="flex items-center gap-1">
+                          <Link
+                            href={`/empaque/${lote.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-stone-100 transition-colors text-stone-500"
+                          >
+                            {vista === "historial" ? "Ver detalle →" : "Abrir ficha →"}
+                          </Link>
+
+                          {/* Reabrir: devuelve el lote a empaque para corregirlo */}
+                          {vista === "historial" && esAdmin && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <button
+                                  type="button"
+                                  disabled={isPending}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+                                >
+                                  <Unlock className="h-3 w-3" /> Reabrir
+                                </button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Reabrir {lote.descripcion ?? padLote(lote.numero_lote)}
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    El lote vuelve a &quot;En proceso&quot; para poder corregir lo
+                                    empacado. Si su orden estaba terminada, vuelve a quedar en
+                                    empaque. El inventario ya cargado no se toca: cámbialo
+                                    editando o eliminando los registros.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => reabrir(lote.id)}>
+                                    Reabrir lote
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )

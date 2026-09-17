@@ -12,6 +12,9 @@ export interface LoteRow {
   estado: string
   url_imagen: string | null
   notas_diseno: string | null
+  // Solo se consulta donde hace falta (historial de empaque): por eso es
+  // opcional, las demas consultas no la traen
+  justificacion_empaque?: string | null
 }
 
 export const LOTE_ESTADO_LABEL: Record<string, string> = {

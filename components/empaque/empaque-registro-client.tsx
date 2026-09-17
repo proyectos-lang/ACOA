@@ -14,6 +14,7 @@ import {
   LayoutGrid,
   ListPlus,
   Boxes,
+  Unlock,
 } from "lucide-react"
 import type { OrdenProduccionRow } from "@/lib/db/orden-produccion"
 import type { CurvaTallaRow } from "@/lib/db/curva-talla"
@@ -24,6 +25,7 @@ import type { ConteoRow, ConteoDetalleRow } from "@/lib/db/conteo"
 import type { EmpaqueRegistroRow } from "@/lib/db/empaque-registro"
 import type { PersonaRow } from "@/lib/db/persona"
 import {
+  reabrirLoteAction,
   crearEmpaqueRegistroAction,
   eliminarEmpaqueRegistroAction,
   finalizarLoteAction,
@@ -48,6 +50,8 @@ interface Props {
   conteoDetalle: ConteoDetalleRow[]
   registros: EmpaqueRegistroRow[]
   empacadoras: PersonaRow[]
+  // Solo el administrador puede reabrir un lote finalizado
+  esAdmin?: boolean
 }
 
 function padOP(n: number) {
@@ -91,6 +95,7 @@ export function EmpaqueRegistroClient({
   conteoDetalle,
   registros,
   empacadoras,
+  esAdmin = false,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -316,6 +321,19 @@ export function EmpaqueRegistroClient({
     })
   }
 
+  const [isPendingReabrir, startReabrir] = useTransition()
+
+  function reabrir() {
+    startReabrir(async () => {
+      const res = await reabrirLoteAction(lote.id)
+      if (res.error) showToast("error", res.error)
+      else {
+        showToast("ok", "Lote reabierto: ya puedes corregir los registros")
+        router.refresh()
+      }
+    })
+  }
+
   const loteActivo = lote.estado === "empaque"
   const fieldCls =
     "w-full rounded-xl border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
@@ -323,6 +341,30 @@ export function EmpaqueRegistroClient({
   return (
     <div className="space-y-6">
       {toast && <Toast tipo={toast.tipo} msg={toast.msg} />}
+
+      {/* ── Lote finalizado: historial, solo lectura ─────────── */}
+      {lote.estado === "finalizado" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+          <div className="flex items-center gap-3 text-sm text-stone-600">
+            <PackageCheck className="h-4 w-4 shrink-0 text-stone-400" />
+            <span>
+              Este lote ya está finalizado. Lo ves como historial; para corregir lo empacado hay
+              que reabrirlo.
+            </span>
+          </div>
+          {esAdmin && (
+            <button
+              type="button"
+              onClick={reabrir}
+              disabled={isPendingReabrir}
+              className="flex shrink-0 items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-50"
+            >
+              <Unlock className="h-3.5 w-3.5" />
+              {isPendingReabrir ? "Reabriendo…" : "Reabrir para corregir"}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Alerta conteo no validado ────────────────────────── */}
       {!conteo?.validado && (

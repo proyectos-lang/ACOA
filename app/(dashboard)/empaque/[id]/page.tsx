@@ -1,4 +1,5 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
+import { getPermiso } from "@/lib/db/permiso"
 import { getLoteById } from "@/lib/db/lote"
 import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
@@ -15,7 +16,7 @@ export default async function EmpaqueFichaPage({
 }: {
   params: Promise<{ id: string }>
 }) {
-  await requirePermiso("mod_empaque")
+  const { session } = await requirePermiso("mod_empaque")
   const { id } = await params
   const loteId = parseInt(id, 10)
 
@@ -24,13 +25,15 @@ export default async function EmpaqueFichaPage({
 
   const conteo = await getConteoByLote(loteId)
 
-  const [orden, curvaTallas, conteoDetalle, registros, empacadoras] = await Promise.all([
-    getOrdenById(lote.orden_id),
-    getCurvaTallas(lote.orden_id),
-    conteo ? getConteoDetalle(conteo.id) : Promise.resolve([]),
-    getEmpaquePorLote(loteId),
-    listPersonas({ tipo_pago: "produccion", estado: "activo" }),
-  ])
+  const [orden, curvaTallas, conteoDetalle, registros, empacadoras, permiso] =
+    await Promise.all([
+      getOrdenById(lote.orden_id),
+      getCurvaTallas(lote.orden_id),
+      conteo ? getConteoDetalle(conteo.id) : Promise.resolve([]),
+      getEmpaquePorLote(loteId),
+      listPersonas({ tipo_pago: "produccion", estado: "activo" }),
+      getPermiso(session.userId),
+    ])
 
   if (!orden) notFound()
 
@@ -58,6 +61,7 @@ export default async function EmpaqueFichaPage({
         conteoDetalle={conteoDetalle}
         registros={registros}
         empacadoras={empacadoras}
+        esAdmin={permiso?.mod_usuarios === true}
       />
     </div>
   )

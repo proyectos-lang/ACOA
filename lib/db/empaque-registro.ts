@@ -133,11 +133,27 @@ export type LoteConEmpaque = LoteRow & {
 }
 
 export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
+  return getLotesPorEstadoEmpaque("empaque")
+}
+
+// Historial: lotes que ya se terminaron de empacar. Se consultan para
+// revisar lo hecho y, si hace falta, corregirlo.
+export async function getLotesFinalizados(input?: {
+  desde?: string
+  hasta?: string
+}): Promise<LoteConEmpaque[]> {
+  return getLotesPorEstadoEmpaque("finalizado", input)
+}
+
+async function getLotesPorEstadoEmpaque(
+  estado: "empaque" | "finalizado",
+  input?: { desde?: string; hasta?: string }
+): Promise<LoteConEmpaque[]> {
   const db = createVanessaClient()
   const { data: lotes, error } = await db
     .from("lote")
-    .select("id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado, url_imagen, notas_diseno")
-    .eq("estado", "empaque")
+    .select("id, corte_id, orden_id, numero_lote, descripcion, color, cantidad_programada, precio_empaque_unidad, estado, url_imagen, notas_diseno, justificacion_empaque")
+    .eq("estado", estado)
     .order("numero_lote", { ascending: false })
   if (error) throw new Error(error.message)
   if (!lotes?.length) return []
@@ -172,11 +188,22 @@ export async function getLotesEnEmpaque(): Promise<LoteConEmpaque[]> {
     ])
   )
 
-  return rows.map((l) => ({
+  const resultado = rows.map((l) => ({
     ...l,
     orden: opMap.get(l.orden_id) ?? { numero_op: 0, referencia: "—" },
     total_empacado: empMap.get(l.id) ?? 0,
     total_contado: conteoMap.get(l.id) ?? 0,
     ultima_fecha_empaque: fechaMap.get(l.id) ?? null,
   }))
+
+  if (!input?.desde && !input?.hasta) return resultado
+
+  // El filtro de fechas mira cuando se empaco, no cuando se creo el lote
+  return resultado.filter((l) => {
+    const f = l.ultima_fecha_empaque
+    if (!f) return false
+    if (input.desde && f < input.desde) return false
+    if (input.hasta && f > input.hasta) return false
+    return true
+  })
 }
