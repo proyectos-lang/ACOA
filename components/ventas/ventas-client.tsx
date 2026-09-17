@@ -21,6 +21,7 @@ import {
   History,
   Wallet,
   Building2,
+  BarChart3,
 } from "lucide-react"
 import type {
   VentaConDetalle,
@@ -43,6 +44,8 @@ import {
   RAZON_SOCIAL_COLOR,
 } from "@/lib/db/venta"
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
+import { VentasDashboard } from "@/components/ventas/ventas-dashboard"
+import type { DashboardVentas } from "@/lib/db/ventas-dashboard"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
 import {
   guardarVentaAction,
@@ -126,18 +129,20 @@ export function VentasClient({
   clientes,
   referencias,
   saldos,
+  dashboard,
 }: {
   ventas: VentaConDetalle[]
   clientes: ClienteRow[]
   referencias: ReferenciaVentaRow[]
   saldos: SaldoInventario[]
+  dashboard?: DashboardVentas
 }) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [isPending, startTransition] = useTransition()
-  const [vista, setVista] = React.useState<"registro" | "ventas" | "cartera" | "historial">(
-    "registro"
-  )
+  const [vista, setVista] = React.useState<
+    "dashboard" | "registro" | "ventas" | "cartera" | "historial"
+  >("dashboard")
 
   // ── Formulario de la venta ──
   const [ventaId, setVentaId] = React.useState<number | null>(null)
@@ -709,6 +714,7 @@ export function VentasClient({
       <div className="flex flex-wrap gap-2">
         {(
           [
+            { k: "dashboard", label: "Dashboard", icon: BarChart3 },
             { k: "registro", label: "Registrar venta", icon: ShoppingCart },
             { k: "ventas", label: `Ventas (${ventas.length})`, icon: FileSpreadsheet },
             { k: "cartera", label: `Cartera (${ventasCredito.length})`, icon: Wallet },
@@ -729,6 +735,8 @@ export function VentasClient({
           </button>
         ))}
       </div>
+
+      {vista === "dashboard" && dashboard && <VentasDashboard datos={dashboard} />}
 
       {vista === "registro" && (
         <div className="space-y-4">

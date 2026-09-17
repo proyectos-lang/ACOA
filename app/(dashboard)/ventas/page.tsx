@@ -1,5 +1,6 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
 import { listVentas, listClientes, listReferenciasVenta } from "@/lib/db/venta"
+import { getDashboardVentas } from "@/lib/db/ventas-dashboard"
 import { getSaldosInventario } from "@/lib/db/inventario-producto"
 import { VentasClient } from "@/components/ventas/ventas-client"
 
@@ -8,11 +9,12 @@ export const dynamic = "force-dynamic"
 export default async function VentasPage() {
   await requirePermiso("mod_ventas")
 
-  const [ventas, clientes, referencias, saldos] = await Promise.all([
+  const [ventas, clientes, referencias, saldos, dashboard] = await Promise.all([
     listVentas(),
     listClientes(),
     listReferenciasVenta(),
     getSaldosInventario(),
+    getDashboardVentas(),
   ])
 
   return (
@@ -30,6 +32,7 @@ export default async function VentasPage() {
         clientes={clientes}
         referencias={referencias}
         saldos={saldos}
+        dashboard={dashboard}
       />
     </div>
   )
