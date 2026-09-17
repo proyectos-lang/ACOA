@@ -160,6 +160,9 @@ export function VentasClient({
 
   // Cartera: abonos de la venta abierta
   const [abonoDe, setAbonoDe] = React.useState<VentaConDetalle | null>(null)
+  // El panel de abonos se renderiza bajo la tabla: sin esto queda fuera
+  // de pantalla al abrirlo y parece que el boton no hizo nada
+  const panelAbonosRef = React.useRef<HTMLDivElement | null>(null)
   const [abonos, setAbonos] = React.useState<VentaAbonoRow[]>([])
   const [abValor, setAbValor] = React.useState(0)
   const [abFecha, setAbFecha] = React.useState(hoyBogota())
@@ -452,6 +455,12 @@ export function VentasClient({
       setAbonos(r.abonos ?? [])
     })
   }
+
+  // Cuando se abre una factura, traer el panel a la vista
+  React.useEffect(() => {
+    if (!abonoDe) return
+    panelAbonosRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [abonoDe])
 
   function guardarAbono() {
     if (!abonoDe) return
@@ -1545,7 +1554,9 @@ export function VentasClient({
                       return (
                         <tr
                           key={v.id}
-                          className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
+                          className={`border-b border-stone-100 last:border-0 hover:bg-stone-50 ${
+                            abonoDe?.id === v.id ? "bg-[#344966]/5" : ""
+                          }`}
                         >
                           <td className="px-3 py-2 font-semibold text-stone-800">
                             {v.numero_documento}
@@ -1589,9 +1600,14 @@ export function VentasClient({
                           <td className="px-3 py-2">
                             <button
                               onClick={() => abrirAbonos(v)}
-                              className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                              className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs transition ${
+                                abonoDe?.id === v.id
+                                  ? "border-[#344966] bg-[#344966] text-white"
+                                  : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                              }`}
                             >
-                              <Wallet className="h-3 w-3" /> Abonos
+                              <Wallet className="h-3 w-3" />
+                              {abonoDe?.id === v.id ? "Abierta" : "Abonos"}
                             </button>
                           </td>
                         </tr>
@@ -1605,7 +1621,8 @@ export function VentasClient({
 
           {/* Abonos de la venta abierta */}
           {abonoDe && (
-            <Card className="p-4">
+            <div ref={panelAbonosRef} className="scroll-mt-4">
+            <Card className="p-4 ring-2 ring-[#344966]/20">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-semibold text-stone-700">
@@ -1721,6 +1738,7 @@ export function VentasClient({
                 </table>
               )}
             </Card>
+            </div>
           )}
         </div>
       )}
