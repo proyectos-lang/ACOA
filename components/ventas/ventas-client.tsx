@@ -559,6 +559,7 @@ export function VentasClient({
     return ventasCredito.filter((v) => {
       if (fDesde && v.fecha < fDesde) return false
       if (fHasta && v.fecha > fHasta) return false
+      if (fRazon && v.razon_social !== fRazon) return false
       if (fCliente) {
         const t = fCliente.toLowerCase()
         if (
@@ -570,7 +571,7 @@ export function VentasClient({
       }
       return true
     })
-  }, [ventasCredito, fDesde, fHasta, fCliente])
+  }, [ventasCredito, fDesde, fHasta, fCliente, fRazon])
 
   const saldoDe = (v: VentaConDetalle) => Number(v.total_valor) - Number(v.total_abonado)
   const totalPorCobrar = carteraFiltrada.reduce((s, v) => s + saldoDe(v), 0)
@@ -1511,6 +1512,40 @@ export function VentasClient({
                   placeholder="Buscar..."
                 />
               </div>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">
+                  Razon social
+                </label>
+                <select
+                  className={filtroCls}
+                  value={fRazon}
+                  onChange={(e) => setFRazon(e.target.value as RazonSocial | "")}
+                >
+                  <option value="">Todas</option>
+                  {RAZONES_SOCIALES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Cuanto debe cada razon social sobre lo filtrado */}
+            <div className="mt-3 flex flex-wrap gap-3 border-t border-stone-100 pt-3">
+              {RAZONES_SOCIALES.map((r) => {
+                const deLaRazon = carteraFiltrada.filter((v) => v.razon_social === r)
+                const saldo = deLaRazon.reduce((s, v) => s + saldoDe(v), 0)
+                return (
+                  <div key={r} className="flex items-center gap-2">
+                    <Badge className={RAZON_SOCIAL_COLOR[r]}>{r}</Badge>
+                    <span className="text-sm font-semibold text-amber-700">{pesos(saldo)}</span>
+                    <span className="text-xs text-stone-400">
+                      ({deLaRazon.length} factura{deLaRazon.length === 1 ? "" : "s"})
+                    </span>
+                  </div>
+                )
+              })}
             </div>
           </Card>
 
@@ -1522,6 +1557,7 @@ export function VentasClient({
                     {[
                       "Documento",
                       "Fecha",
+                      "Factura",
                       "Cliente",
                       "Vence",
                       "Total",
@@ -1542,7 +1578,7 @@ export function VentasClient({
                 <tbody>
                   {carteraFiltrada.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-sm text-stone-400">
+                      <td colSpan={10} className="px-3 py-8 text-center text-sm text-stone-400">
                         No hay ventas a credito pendientes
                       </td>
                     </tr>
@@ -1562,6 +1598,11 @@ export function VentasClient({
                             {v.numero_documento}
                           </td>
                           <td className="px-3 py-2 font-mono text-xs text-stone-600">{v.fecha}</td>
+                          <td className="px-3 py-2">
+                            <Badge className={RAZON_SOCIAL_COLOR[v.razon_social]}>
+                              {v.razon_social}
+                            </Badge>
+                          </td>
                           <td className="px-3 py-2 text-stone-700">
                             {v.cliente_nombre}
                             {v.ciudad ? (

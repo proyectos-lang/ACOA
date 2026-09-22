@@ -238,6 +238,8 @@ for (const [doc, r] of listos) {
     venta_id: venta.id,
     nivel: "factura",
     accion: "cargue historico PDF",
+    // Sin esto el historial no se puede filtrar por razon social
+    razon_social: "ACOA",
     descripcion: `Importada de ${r.archivo}. ${MARCA}. No descuenta inventario.`,
     total_valor: totalValorDoc,
     total_unidades: totalUnidades,
