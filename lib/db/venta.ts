@@ -492,18 +492,30 @@ export async function confirmarVenta(
   const lineas = (detalles ?? []) as VentaDetalleRow[]
   if (lineas.length === 0) throw new Error("La venta no tiene líneas")
 
+  // Si la venta nace de una orden de salida ya confirmada, el inventario
+  // YA se descargo con esa orden: volver a descontarlo lo duplicaria.
+  const { data: osRow } = await db
+    .from("orden_salida")
+    .select("id, numero, estado")
+    .eq("venta_id", ventaId)
+    .maybeSingle()
+  const ordenSalida = osRow as { id: number; numero: string; estado: string } | null
+  const yaDescargado = ordenSalida?.estado === "confirmada"
+
   // El inventario se lleva por referencia + talla: sin talla no hay contra
   // que descontar, asi que la venta no se puede confirmar.
-  const sinTallaRefs = lineas.filter((l) => !l.talla?.trim()).map((l) => l.referencia)
-  if (sinTallaRefs.length > 0) {
-    throw new Error(
-      `Indica la talla para descontar del inventario: ${[...new Set(sinTallaRefs)].join(", ")}`
-    )
+  if (!yaDescargado) {
+    const sinTallaRefs = lineas.filter((l) => !l.talla?.trim()).map((l) => l.referencia)
+    if (sinTallaRefs.length > 0) {
+      throw new Error(
+        `Indica la talla para descontar del inventario: ${[...new Set(sinTallaRefs)].join(", ")}`
+      )
+    }
   }
 
   // Antes de descontar nada, comprobar que haya disponible para todas las
   // lineas: la venta se confirma completa o no se confirma.
-  const faltantes = await verificarDisponible(lineas)
+  const faltantes = yaDescargado ? [] : await verificarDisponible(lineas)
   if (faltantes.length > 0) {
     const detalle = faltantes
       .map(
@@ -525,7 +537,7 @@ export async function confirmarVenta(
     referencia: string | null
   }>
 
-  for (const l of lineas) {
+  for (const l of yaDescargado ? [] : lineas) {
     const orden = ordenesRows.find(
       (o) => (o.referencia ?? "").trim().toUpperCase() === l.referencia.trim().toUpperCase()
     )
@@ -579,9 +591,12 @@ export async function confirmarVenta(
     nivel: "factura",
     accion: "confirmada",
     descripcion:
-      v.forma_pago === "credito"
-        ? `A credito${vencimiento ? `, vence el ${vencimiento}` : ""}. Descuenta inventario.`
-        : "Pago inmediato. Descuenta inventario.",
+      (v.forma_pago === "credito"
+        ? `A credito${vencimiento ? `, vence el ${vencimiento}` : ""}.`
+        : "Pago inmediato.") +
+      (yaDescargado
+        ? ` El inventario ya habia salido con la orden ${ordenSalida?.numero}.`
+        : " Descuenta inventario."),
     total_valor: Number(v.total_valor),
     total_unidades: v.total_unidades,
     usuario_id: creadoPor,
