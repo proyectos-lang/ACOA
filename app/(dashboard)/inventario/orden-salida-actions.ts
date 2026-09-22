@@ -19,7 +19,31 @@ import {
   type OrdenSalidaHistorialRow,
   type HistorialOSConOrden,
 } from "@/lib/db/orden-salida"
-import { guardarVenta, listReferenciasVenta } from "@/lib/db/venta"
+import { listReferenciasVenta } from "@/lib/db/venta"
+
+// Datos que se le pasan al formulario de registrar venta. No se guarda
+// nada: la venta la crea el usuario cuando decida hacerlo.
+export interface PrecargaVenta {
+  origen: string
+  orden_ids: number[]
+  cliente_id: number | null
+  cliente_nombre: string
+  ciudad: string | null
+  fecha: string
+  observacion: string
+  lineas: Array<{
+    referencia: string
+    descripcion: string | null
+    linea: string | null
+    categoria: string | null
+    talla: string
+    cantidad: number
+    valor_unidad: number
+  }>
+  sin_precio: string[]
+  lineas_consolidadas: number
+  lineas_originales: number
+}
 
 type ActionResult = {
   error?: string
@@ -31,6 +55,7 @@ type ActionResult = {
   historial?: OrdenSalidaHistorialRow[]
   historialGlobal?: HistorialOSConOrden[]
   aviso?: string
+  precarga?: PrecargaVenta
 }
 
 function revalidar() {
@@ -167,20 +192,21 @@ export async function cargarHistorialOrdenesAction(input?: {
   }
 }
 
-// ── Venta agrupada de varias ordenes ────────────────────────────
+// ── Preparar la venta desde ordenes de salida ───────────────────
 
-// Factura en un solo documento varias ordenes de salida del MISMO
-// cliente. Las lineas de la misma referencia y talla se suman, para que
-// la factura no repita el mismo item en varios renglones.
-export async function generarVentaAgrupadaAction(
+// Arma los datos para el formulario de registrar venta. NO crea nada:
+// la venta se guarda cuando el usuario la registre desde su modulo.
+// Acepta una orden o varias del mismo cliente (venta agrupada).
+export async function prepararVentaDesdeOrdenesAction(
   ordenIds: number[]
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
-  if (!(await esAdmin(session.userId))) {
+  if (ordenIds.length === 0) return { error: "Selecciona al menos una orden" }
+  // Agrupar varias es del administrador; facturar una sola no
+  if (ordenIds.length > 1 && !(await esAdmin(session.userId))) {
     return { error: "Solo el administrador puede agrupar órdenes en una venta" }
   }
-  if (ordenIds.length === 0) return { error: "Selecciona al menos una orden" }
 
   try {
     const ordenes = []
@@ -190,12 +216,9 @@ export async function generarVentaAgrupadaAction(
       ordenes.push(o)
     }
 
-    // Todas tienen que estar confirmadas y sin facturar
     const noConfirmadas = ordenes.filter((o) => o.estado !== "confirmada")
     if (noConfirmadas.length > 0) {
-      return {
-        error: `Confirma primero: ${noConfirmadas.map((o) => o.numero).join(", ")}`,
-      }
+      return { error: `Confirma primero: ${noConfirmadas.map((o) => o.numero).join(", ")}` }
     }
     const yaFacturadas = ordenes.filter((o) => o.venta_id)
     if (yaFacturadas.length > 0) {
@@ -206,7 +229,6 @@ export async function generarVentaAgrupadaAction(
       }
     }
 
-    // Un documento es de un solo cliente
     const clientes = [...new Set(ordenes.map((o) => o.cliente_nombre.trim().toUpperCase()))]
     if (clientes.length > 1) {
       return {
@@ -217,7 +239,7 @@ export async function generarVentaAgrupadaAction(
     const referencias = await listReferenciasVenta()
     const precioDe = new Map(referencias.map((r) => [r.referencia.trim().toUpperCase(), r]))
 
-    // Consolidar: la misma referencia y talla suma en una sola linea
+    // La misma referencia y talla va en una sola linea
     const consolidado = new Map<
       string,
       {
@@ -254,122 +276,51 @@ export async function generarVentaAgrupadaAction(
     if (lineas.length === 0) return { error: "Las órdenes no tienen líneas" }
 
     const base = ordenes[0]
-    // La factura lleva la fecha mas reciente de las ordenes agrupadas
     const fecha = ordenes.map((o) => o.fecha).sort().at(-1) ?? base.fecha
     const numeros = ordenes.map((o) => o.numero).join(", ")
 
-    const ventaId = await guardarVenta(
-      {
-        fecha,
+    return {
+      success: true,
+      precarga: {
+        origen: numeros,
+        orden_ids: ordenes.map((o) => o.id),
         cliente_id: base.cliente_id,
         cliente_nombre: base.cliente_nombre,
         ciudad: base.ciudad,
-        observacion: `Generada desde ${ordenes.length} orden(es) de salida: ${numeros}`,
+        fecha,
+        observacion: `Desde ${ordenes.length} orden(es) de salida: ${numeros}`,
         lineas,
+        sin_precio: [
+          ...new Set(lineas.filter((l) => !(l.valor_unidad > 0)).map((l) => l.referencia)),
+        ],
+        lineas_consolidadas: lineas.length,
+        lineas_originales: ordenes.reduce((s, o) => s + o.detalle.length, 0),
       },
-      session.userId
-    )
-
-    // Cada orden queda enlazada a la misma venta
-    for (const o of ordenes) {
-      await marcarVentaGenerada(o.id, ventaId, session.userId)
-    }
-
-    revalidar()
-
-    const sinPrecio = [
-      ...new Set(lineas.filter((l) => !(l.valor_unidad > 0)).map((l) => l.referencia)),
-    ]
-    const avisos: string[] = []
-    if (sinPrecio.length > 0) {
-      avisos.push(`Revisa el precio de: ${sinPrecio.join(", ")} (quedaron en $0)`)
-    }
-    const totalLineasOriginales = ordenes.reduce((s, o) => s + o.detalle.length, 0)
-    if (totalLineasOriginales > lineas.length) {
-      avisos.push(
-        `Se consolidaron ${totalLineasOriginales} líneas en ${lineas.length} (misma referencia y talla)`
-      )
-    }
-
-    return {
-      success: true,
-      ventaId,
-      aviso: avisos.length > 0 ? avisos.join(". ") : undefined,
     }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Error generando la venta agrupada" }
+    return { error: err instanceof Error ? err.message : "Error preparando la venta" }
   }
 }
 
-// ── Generar la venta desde la orden ─────────────────────────────
-
-// Crea la venta en BORRADOR con los datos de la orden ya cargados. No
-// descuenta inventario: eso ya lo hizo la orden de salida al confirmarse.
-export async function generarVentaDesdeOrdenAction(
-  ordenId: number
+// Enlaza las ordenes con la venta que el usuario acabo de registrar.
+// Se llama desde el modulo de ventas al guardar una venta precargada.
+export async function enlazarOrdenesConVentaAction(
+  ordenIds: number[],
+  ventaId: number
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    const orden = await getOrdenSalida(ordenId)
-    if (!orden) return { error: "Orden de salida no encontrada" }
-    if (orden.estado !== "confirmada") {
-      return { error: "Confirma la orden de salida antes de facturarla" }
+    for (const id of ordenIds) {
+      const o = await getOrdenSalida(id)
+      // Si alguna ya quedo facturada entre tanto, no se pisa
+      if (!o || o.venta_id) continue
+      await marcarVentaGenerada(id, ventaId, session.userId)
     }
-    if (orden.venta_id) {
-      return { error: `Esta orden ya se facturó con el documento ${orden.venta_documento}` }
-    }
-    if (orden.detalle.length === 0) return { error: "La orden no tiene líneas" }
-
-    // Los precios salen del maestro de referencias
-    const referencias = await listReferenciasVenta()
-    const precioDe = new Map(
-      referencias.map((r) => [r.referencia.trim().toUpperCase(), r])
-    )
-
-    const lineas = orden.detalle.map((d) => {
-      const ref = precioDe.get(d.referencia.trim().toUpperCase())
-      return {
-        referencia: d.referencia,
-        descripcion: d.descripcion ?? ref?.descripcion ?? null,
-        linea: ref?.linea ?? null,
-        categoria: ref?.categoria ?? null,
-        talla: d.talla,
-        cantidad: d.cantidad,
-        valor_unidad: Number(ref?.valor_unidad ?? 0),
-      }
-    })
-
-    const ventaId = await guardarVenta(
-      {
-        fecha: orden.fecha,
-        cliente_id: orden.cliente_id,
-        cliente_nombre: orden.cliente_nombre,
-        ciudad: orden.ciudad,
-        observacion: `Generada desde la orden de salida ${orden.numero}`,
-        lineas,
-      },
-      session.userId
-    )
-
-    await marcarVentaGenerada(ordenId, ventaId, session.userId)
     revalidar()
-
-    // Las referencias sin precio en el maestro quedan en cero: hay que
-    // completarlas antes de confirmar la venta
-    const sinPrecio = [
-      ...new Set(lineas.filter((l) => !(l.valor_unidad > 0)).map((l) => l.referencia)),
-    ]
-    return {
-      success: true,
-      ventaId,
-      aviso:
-        sinPrecio.length > 0
-          ? `Revisa el precio de: ${sinPrecio.join(", ")} (quedaron en $0)`
-          : undefined,
-    }
+    return { success: true }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Error generando la venta" }
+    return { error: err instanceof Error ? err.message : "Error enlazando las órdenes" }
   }
 }

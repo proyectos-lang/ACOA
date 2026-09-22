@@ -22,6 +22,7 @@ import {
   Wallet,
   Building2,
   BarChart3,
+  PackageMinus,
 } from "lucide-react"
 import type {
   VentaConDetalle,
@@ -44,6 +45,7 @@ import {
   RAZON_SOCIAL_COLOR,
 } from "@/lib/db/venta"
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
+import { enlazarOrdenesConVentaAction } from "@/app/(dashboard)/inventario/orden-salida-actions"
 import { VentasDashboard } from "@/components/ventas/ventas-dashboard"
 import type { DashboardVentas } from "@/lib/db/ventas-dashboard"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
@@ -154,6 +156,9 @@ export function VentasClient({
   const [observacion, setObservacion] = React.useState("")
   const [lineas, setLineas] = React.useState<LineaEdit[]>([nuevaLinea()])
   const [faltantes, setFaltantes] = React.useState<FaltanteInventario[]>([])
+  // Ordenes de salida que originaron esta venta: al guardarla se enlazan
+  const [origenOrdenes, setOrigenOrdenes] = React.useState<number[]>([])
+  const [origenTexto, setOrigenTexto] = React.useState("")
   const [formaPago, setFormaPago] = React.useState<FormaPago>("contado")
   const [diasCredito, setDiasCredito] = React.useState(30)
   const [razonSocial, setRazonSocial] = React.useState<RazonSocial>("ACOA")
@@ -193,6 +198,85 @@ export function VentasClient({
     setToast({ tipo, msg })
     setTimeout(() => setToast(null), 4000)
   }
+
+  // Precarga que deja el modulo de inventario al facturar ordenes de
+  // salida. Se consume una sola vez: no crea nada hasta que el usuario
+  // guarde la venta.
+  React.useEffect(() => {
+    let crudo: string | null = null
+    try {
+      crudo = sessionStorage.getItem("vanessa_precarga_venta")
+      if (crudo) sessionStorage.removeItem("vanessa_precarga_venta")
+    } catch {
+      return
+    }
+    if (!crudo) return
+
+    try {
+      const p = JSON.parse(crudo) as {
+        origen: string
+        orden_ids: number[]
+        cliente_id: number | null
+        cliente_nombre: string
+        ciudad: string | null
+        fecha: string
+        observacion: string
+        lineas: Array<{
+          referencia: string
+          descripcion: string | null
+          linea: string | null
+          categoria: string | null
+          talla: string
+          cantidad: number
+          valor_unidad: number
+        }>
+        sin_precio: string[]
+        lineas_consolidadas: number
+        lineas_originales: number
+      }
+
+      setVentaId(null)
+      setFecha(p.fecha)
+      setClienteId(p.cliente_id)
+      setClienteNombre(p.cliente_nombre)
+      setCiudad(p.ciudad ?? "")
+      setObservacion(p.observacion)
+      setOrigenOrdenes(p.orden_ids)
+      setOrigenTexto(p.origen)
+      setLineas(
+        p.lineas.map((l) => ({
+          key: Math.random().toString(36).slice(2),
+          referencia: l.referencia,
+          descripcion: l.descripcion ?? "",
+          linea: l.linea ?? "",
+          categoria: l.categoria ?? "",
+          talla: l.talla,
+          cantidad: l.cantidad,
+          valor_unidad: l.valor_unidad,
+        }))
+      )
+      setVista("registro")
+
+      const partes: string[] = []
+      if (p.lineas_originales > p.lineas_consolidadas) {
+        partes.push(
+          `${p.lineas_originales} líneas se consolidaron en ${p.lineas_consolidadas}`
+        )
+      }
+      if (p.sin_precio.length > 0) {
+        partes.push(`revisa el precio de ${p.sin_precio.join(", ")} (quedó en $0)`)
+      }
+      aviso(
+        "ok",
+        `Datos cargados desde ${p.origen}. ${partes.join(" · ")}${
+          partes.length ? ". " : ""
+        }Revisa y guarda para registrar la venta.`
+      )
+    } catch {
+      aviso("error", "No se pudieron leer los datos de la orden de salida")
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Consecutivo al abrir el formulario en blanco
   React.useEffect(() => {
@@ -267,6 +351,8 @@ export function VentasClient({
     setFormaPago("contado")
     setDiasCredito(30)
     setRazonSocial("ACOA")
+    setOrigenOrdenes([])
+    setOrigenTexto("")
   }
 
   function cargarVenta(v: VentaConDetalle) {
@@ -330,6 +416,12 @@ export function VentasClient({
       if (r.ventaId) setVentaId(r.ventaId)
       // El numero definitivo lo asigna la base de datos al crear
       if (r.documento) setDocumento(r.documento)
+      // Las ordenes de salida quedan marcadas como facturadas
+      if (r.ventaId && origenOrdenes.length > 0) {
+        await enlazarOrdenesConVentaAction(origenOrdenes, r.ventaId)
+        setOrigenOrdenes([])
+        setOrigenTexto("")
+      }
       // El historial cacheado queda viejo tras guardar
       setHCargado(false)
       router.refresh()
@@ -372,6 +464,12 @@ export function VentasClient({
         aviso("error", g.error ?? "Error guardando la venta")
         return
       }
+      if (origenOrdenes.length > 0) {
+        await enlazarOrdenesConVentaAction(origenOrdenes, g.ventaId)
+        setOrigenOrdenes([])
+        setOrigenTexto("")
+      }
+
       const c = await confirmarVentaAction(g.ventaId)
       if (c.error) {
         aviso("error", c.error)
@@ -895,6 +993,18 @@ export function VentasClient({
               </div>
             </div>
 
+            {/* De donde vienen los datos, cuando se facturo una salida */}
+            {origenTexto && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
+                <PackageMinus className="h-4 w-4 shrink-0" />
+                <span>
+                  Datos cargados desde la(s) orden(es) de salida{" "}
+                  <strong>{origenTexto}</strong>. La venta aún no se ha registrado: revisa y
+                  guarda.
+                </span>
+              </div>
+            )}
+
             {/* Forma de pago: contado o credito */}
             <div className="mt-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
               <p className="mb-2 text-[11px] font-medium uppercase text-stone-500">
@@ -1043,7 +1153,18 @@ export function VentasClient({
                             disabled={!l.referencia}
                           >
                             <option value="">Talla</option>
-                            {tallasDe(l.referencia).map((t) => (
+                            {/* La talla que ya trae la linea se conserva aunque
+                                hoy no tenga saldo: viene de una orden de salida
+                                que ya descargo ese producto */}
+                            {[
+                              ...new Set(
+                                [...tallasDe(l.referencia), ...(l.talla ? [l.talla] : [])].map(
+                                  (t) => t.trim()
+                                )
+                              ),
+                            ]
+                              .sort((a, b) => a.localeCompare(b, "es", { numeric: true }))
+                              .map((t) => (
                               <option key={t} value={t}>
                                 {t}
                               </option>

@@ -39,9 +39,8 @@ import {
   anularOrdenSalidaAction,
   eliminarOrdenSalidaAction,
   verificarDisponibleSalidaAction,
-  generarVentaDesdeOrdenAction,
+  prepararVentaDesdeOrdenesAction,
   cargarHistorialOrdenesAction,
-  generarVentaAgrupadaAction,
 } from "@/app/(dashboard)/inventario/orden-salida-actions"
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import { Card } from "@/components/ui/card"
@@ -338,18 +337,19 @@ export function OrdenSalidaClient({
     })
   }
 
-  function generarVenta(id: number) {
+  // Lleva al formulario de registrar venta con los datos cargados. No
+  // crea la venta: eso lo hace el usuario desde el modulo de ventas.
+  function irARegistrarVenta(ids: number[]) {
     startTransition(async () => {
-      const r = await generarVentaDesdeOrdenAction(id)
+      const r = await prepararVentaDesdeOrdenesAction(ids)
       if (r.error) return aviso("error", r.error)
-      aviso(
-        "ok",
-        r.aviso
-          ? `Venta creada en borrador. ${r.aviso}`
-          : "Venta creada en borrador con los datos de la orden"
-      )
-      router.refresh()
-      // Llevar al usuario a la venta recien creada
+      if (!r.precarga) return aviso("error", "No se pudo preparar la venta")
+
+      try {
+        sessionStorage.setItem("vanessa_precarga_venta", JSON.stringify(r.precarga))
+      } catch {
+        return aviso("error", "El navegador no permitió pasar los datos a ventas")
+      }
       router.push("/ventas")
     })
   }
@@ -524,19 +524,7 @@ export function OrdenSalidaClient({
       aviso("error", "Las órdenes seleccionadas son de clientes distintos")
       return
     }
-    startTransition(async () => {
-      const r = await generarVentaAgrupadaAction(seleccionadas.map((o) => o.id))
-      if (r.error) return aviso("error", r.error)
-      aviso(
-        "ok",
-        r.aviso
-          ? `Venta creada en borrador. ${r.aviso}`
-          : `Venta creada en borrador con ${seleccionadas.length} orden(es)`
-      )
-      setSeleccion(new Set())
-      router.refresh()
-      router.push("/ventas")
-    })
+    irARegistrarVenta(seleccionadas.map((o) => o.id))
   }
 
   // ── Imprimible de la orden ──
@@ -994,11 +982,11 @@ export function OrdenSalidaClient({
 
                       {o.estado === "confirmada" && !o.venta_id && (
                         <button
-                          onClick={() => generarVenta(o.id)}
+                          onClick={() => irARegistrarVenta([o.id])}
                           disabled={isPending}
                           className="flex items-center gap-1 rounded-lg bg-[#15803d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
                         >
-                          <Receipt className="h-3 w-3" /> Generar venta
+                          <Receipt className="h-3 w-3" /> Facturar
                         </button>
                       )}
 
@@ -1187,7 +1175,7 @@ export function OrdenSalidaClient({
                     className="flex items-center gap-2 rounded-xl bg-[#15803d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
                   >
                     <Receipt className="h-4 w-4" />
-                    Generar venta agrupada
+                    Facturar juntas
                   </button>
                 </div>
               </div>
