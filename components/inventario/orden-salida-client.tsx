@@ -18,6 +18,8 @@ import {
   PackageMinus,
   ChevronRight,
   ChevronDown,
+  Users,
+  Layers,
 } from "lucide-react"
 import type { ClienteRow, ReferenciaVentaRow } from "@/lib/db/venta"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
@@ -39,6 +41,7 @@ import {
   verificarDisponibleSalidaAction,
   generarVentaDesdeOrdenAction,
   cargarHistorialOrdenesAction,
+  generarVentaAgrupadaAction,
 } from "@/app/(dashboard)/inventario/orden-salida-actions"
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import { Card } from "@/components/ui/card"
@@ -101,7 +104,9 @@ export function OrdenSalidaClient({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
-  const [vista, setVista] = React.useState<"nueva" | "ordenes" | "historial">("ordenes")
+  const [vista, setVista] = React.useState<
+    "nueva" | "ordenes" | "agrupar" | "historial"
+  >("ordenes")
 
   // Formulario
   const [ordenId, setOrdenId] = React.useState<number | null>(null)
@@ -119,6 +124,20 @@ export function OrdenSalidaClient({
   const [fHasta, setFHasta] = React.useState("")
   const [fTexto, setFTexto] = React.useState("")
   const [fEstado, setFEstado] = React.useState("")
+
+  // Agrupacion por cliente: que ordenes se van a facturar juntas
+  const [seleccion, setSeleccion] = React.useState<Set<number>>(new Set())
+  const [gDesde, setGDesde] = React.useState("")
+  const [gHasta, setGHasta] = React.useState("")
+
+  function alternarSeleccion(id: number) {
+    setSeleccion((prev) => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id)
+      else s.add(id)
+      return s
+    })
+  }
 
   // Historial
   const [historial, setHistorial] = React.useState<HistorialOSConOrden[]>([])
@@ -415,6 +434,111 @@ export function OrdenSalidaClient({
     })
   }, [ordenes, fDesde, fHasta, fEstado, fTexto])
 
+  // ── Agrupacion por cliente ──
+  // Solo se pueden agrupar las ordenes confirmadas que aun no se facturaron
+  const agrupables = React.useMemo(
+    () =>
+      ordenes.filter((o) => {
+        if (o.estado !== "confirmada" || o.venta_id) return false
+        if (gDesde && o.fecha < gDesde) return false
+        if (gHasta && o.fecha > gHasta) return false
+        return true
+      }),
+    [ordenes, gDesde, gHasta]
+  )
+
+  // Un grupo por cliente y fecha: es la unidad que se factura junta
+  const gruposCliente = React.useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        clave: string
+        cliente: string
+        ciudad: string | null
+        fecha: string
+        ordenes: OrdenSalidaConDetalle[]
+        unidades: number
+      }
+    >()
+    for (const o of agrupables) {
+      const cliente = o.cliente_nombre.trim().toUpperCase()
+      const clave = `${cliente}|${o.fecha}`
+      let g = map.get(clave)
+      if (!g) {
+        g = { clave, cliente: o.cliente_nombre, ciudad: o.ciudad, fecha: o.fecha, ordenes: [], unidades: 0 }
+        map.set(clave, g)
+      }
+      g.ordenes.push(o)
+      g.unidades += o.total_unidades
+    }
+    return [...map.values()].sort(
+      (a, b) => b.fecha.localeCompare(a.fecha) || a.cliente.localeCompare(b.cliente, "es")
+    )
+  }, [agrupables])
+
+  // Lo seleccionado tiene que ser de un solo cliente para poder facturarse
+  const seleccionadas = React.useMemo(
+    () => agrupables.filter((o) => seleccion.has(o.id)),
+    [agrupables, seleccion]
+  )
+  const clientesSeleccionados = [
+    ...new Set(seleccionadas.map((o) => o.cliente_nombre.trim().toUpperCase())),
+  ]
+  const unidadesSeleccionadas = seleccionadas.reduce((s, o) => s + o.total_unidades, 0)
+
+  // Cuantas lineas quedarian tras consolidar referencia + talla
+  const lineasConsolidadas = React.useMemo(() => {
+    const k = new Set<string>()
+    for (const o of seleccionadas) {
+      for (const d of o.detalle) {
+        k.add(`${d.referencia.trim().toUpperCase()}|${d.talla.trim().toUpperCase()}`)
+      }
+    }
+    return k.size
+  }, [seleccionadas])
+  const lineasOriginales = seleccionadas.reduce((s, o) => s + o.detalle.length, 0)
+
+  function seleccionarGrupo(g: { ordenes: OrdenSalidaConDetalle[] }) {
+    const ids = g.ordenes.map((o) => o.id)
+    const todas = ids.every((id) => seleccion.has(id))
+    setSeleccion((prev) => {
+      const s = new Set(prev)
+      // Al elegir un grupo se limpia lo de otros clientes: un documento
+      // es de un solo cliente
+      if (!todas) {
+        s.clear()
+        for (const id of ids) s.add(id)
+      } else {
+        for (const id of ids) s.delete(id)
+      }
+      return s
+    })
+  }
+
+  function generarVentaAgrupada() {
+    if (seleccionadas.length === 0) {
+      aviso("error", "Selecciona las órdenes que vas a facturar")
+      return
+    }
+    if (clientesSeleccionados.length > 1) {
+      aviso("error", "Las órdenes seleccionadas son de clientes distintos")
+      return
+    }
+    startTransition(async () => {
+      const r = await generarVentaAgrupadaAction(seleccionadas.map((o) => o.id))
+      if (r.error) return aviso("error", r.error)
+      aviso(
+        "ok",
+        r.aviso
+          ? `Venta creada en borrador. ${r.aviso}`
+          : `Venta creada en borrador con ${seleccionadas.length} orden(es)`
+      )
+      setSeleccion(new Set())
+      router.refresh()
+      router.push("/ventas")
+    })
+  }
+
   // ── Imprimible de la orden ──
   function imprimir(o: OrdenSalidaConDetalle) {
     const filas = o.detalle
@@ -500,6 +624,9 @@ export function OrdenSalidaClient({
           [
             { k: "nueva" as const, label: ordenId ? "Editando orden" : "Nueva orden", icon: PackageMinus },
             { k: "ordenes" as const, label: `Ordenes (${ordenes.length})`, icon: FileText },
+            ...(esAdmin
+              ? [{ k: "agrupar" as const, label: "Agrupar por cliente", icon: Users }]
+              : []),
             ...(esAdmin
               ? [{ k: "historial" as const, label: "Historial", icon: History }]
               : []),
@@ -959,6 +1086,205 @@ export function OrdenSalidaClient({
                   </div>
                 </Card>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Agrupar por cliente ── */}
+      {vista === "agrupar" && esAdmin && (
+        <div className="space-y-4">
+          <Card className="p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Desde</label>
+                <input
+                  type="date"
+                  className={filtroCls}
+                  value={gDesde}
+                  onChange={(e) => {
+                    setGDesde(e.target.value)
+                    setSeleccion(new Set())
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Hasta</label>
+                <input
+                  type="date"
+                  className={filtroCls}
+                  value={gHasta}
+                  onChange={(e) => {
+                    setGHasta(e.target.value)
+                    setSeleccion(new Set())
+                  }}
+                />
+              </div>
+              {(gDesde || gHasta) && (
+                <button
+                  onClick={() => {
+                    setGDesde("")
+                    setGHasta("")
+                    setSeleccion(new Set())
+                  }}
+                  className="rounded-xl border border-stone-200 px-3 py-2 text-xs font-medium text-stone-500 hover:bg-stone-50"
+                >
+                  Limpiar fechas
+                </button>
+              )}
+              <p className="ml-auto text-xs text-stone-400">
+                Solo se listan las órdenes confirmadas que aún no se han facturado
+              </p>
+            </div>
+          </Card>
+
+          {/* Resumen de lo seleccionado */}
+          {seleccionadas.length > 0 && (
+            <Card
+              className={`p-4 ${
+                clientesSeleccionados.length > 1
+                  ? "border-red-200 bg-red-50"
+                  : "border-[#344966]/30 bg-[#344966]/5"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  {clientesSeleccionados.length > 1 ? (
+                    <p className="flex items-center gap-2 text-sm font-semibold text-red-800">
+                      <AlertTriangle className="h-4 w-4" />
+                      Hay órdenes de {clientesSeleccionados.length} clientes distintos: una venta
+                      es de un solo cliente
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-stone-800">
+                        {seleccionadas.length} orden(es) de {clientesSeleccionados[0]}
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        {miles(unidadesSeleccionadas)} unidades ·{" "}
+                        {lineasOriginales === lineasConsolidadas ? (
+                          <>{lineasConsolidadas} línea(s)</>
+                        ) : (
+                          <>
+                            {lineasOriginales} líneas se consolidan en{" "}
+                            <strong>{lineasConsolidadas}</strong> (misma referencia y talla)
+                          </>
+                        )}
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSeleccion(new Set())}
+                    className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-50"
+                  >
+                    Quitar selección
+                  </button>
+                  <button
+                    onClick={generarVentaAgrupada}
+                    disabled={isPending || clientesSeleccionados.length > 1}
+                    className="flex items-center gap-2 rounded-xl bg-[#15803d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
+                  >
+                    <Receipt className="h-4 w-4" />
+                    Generar venta agrupada
+                  </button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {gruposCliente.length === 0 ? (
+            <Card className="p-12 text-center">
+              <Users className="mx-auto mb-3 h-10 w-10 text-stone-300" />
+              <p className="text-sm text-stone-400">
+                No hay órdenes confirmadas pendientes de facturar en ese rango.
+              </p>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              {gruposCliente.map((g) => {
+                const idsGrupo = g.ordenes.map((o) => o.id)
+                const todas = idsGrupo.every((id) => seleccion.has(id))
+                const algunas = idsGrupo.some((id) => seleccion.has(id))
+                return (
+                  <Card key={g.clave} className="p-4">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <label className="flex cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={todas}
+                          ref={(el) => {
+                            if (el) el.indeterminate = algunas && !todas
+                          }}
+                          onChange={() => seleccionarGrupo(g)}
+                          className="h-4 w-4 cursor-pointer accent-[#344966]"
+                        />
+                        <span>
+                          <span className="font-semibold text-stone-800">{g.cliente}</span>
+                          {g.ciudad && (
+                            <span className="ml-1.5 text-xs text-stone-400">{g.ciudad}</span>
+                          )}
+                          <span className="block text-xs text-stone-500">
+                            {g.fecha} · {g.ordenes.length} orden(es) · {miles(g.unidades)} unidades
+                          </span>
+                        </span>
+                      </label>
+                      <Badge className="bg-[#344966]/10 text-[#344966]">
+                        <Layers className="mr-1 inline h-3 w-3" />
+                        {g.ordenes.length === 1 ? "1 orden" : `${g.ordenes.length} órdenes`}
+                      </Badge>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-lg border border-stone-100">
+                      <table className="w-full text-xs">
+                        <thead className="bg-stone-50">
+                          <tr>
+                            <th className="w-10 px-3 py-1.5" />
+                            {["Orden", "Motivo", "Lineas", "Unidades"].map((h) => (
+                              <th
+                                key={h}
+                                className="px-3 py-1.5 text-left font-semibold uppercase text-stone-500"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.ordenes.map((o) => (
+                            <tr
+                              key={o.id}
+                              className={`border-t border-stone-100 ${
+                                seleccion.has(o.id) ? "bg-[#344966]/5" : ""
+                              }`}
+                            >
+                              <td className="px-3 py-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={seleccion.has(o.id)}
+                                  onChange={() => alternarSeleccion(o.id)}
+                                  className="h-4 w-4 cursor-pointer accent-[#344966]"
+                                />
+                              </td>
+                              <td className="px-3 py-1.5 font-mono font-semibold text-stone-800">
+                                {o.numero}
+                              </td>
+                              <td className="px-3 py-1.5 text-stone-500">{o.motivo}</td>
+                              <td className="px-3 py-1.5 text-stone-600">
+                                {o.detalle.length}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-stone-800">
+                                {miles(o.total_unidades)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                )
+              })}
             </div>
           )}
         </div>

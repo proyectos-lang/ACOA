@@ -167,6 +167,140 @@ export async function cargarHistorialOrdenesAction(input?: {
   }
 }
 
+// ── Venta agrupada de varias ordenes ────────────────────────────
+
+// Factura en un solo documento varias ordenes de salida del MISMO
+// cliente. Las lineas de la misma referencia y talla se suman, para que
+// la factura no repita el mismo item en varios renglones.
+export async function generarVentaAgrupadaAction(
+  ordenIds: number[]
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+  if (!(await esAdmin(session.userId))) {
+    return { error: "Solo el administrador puede agrupar órdenes en una venta" }
+  }
+  if (ordenIds.length === 0) return { error: "Selecciona al menos una orden" }
+
+  try {
+    const ordenes = []
+    for (const id of ordenIds) {
+      const o = await getOrdenSalida(id)
+      if (!o) return { error: `Orden ${id} no encontrada` }
+      ordenes.push(o)
+    }
+
+    // Todas tienen que estar confirmadas y sin facturar
+    const noConfirmadas = ordenes.filter((o) => o.estado !== "confirmada")
+    if (noConfirmadas.length > 0) {
+      return {
+        error: `Confirma primero: ${noConfirmadas.map((o) => o.numero).join(", ")}`,
+      }
+    }
+    const yaFacturadas = ordenes.filter((o) => o.venta_id)
+    if (yaFacturadas.length > 0) {
+      return {
+        error: `Ya facturadas: ${yaFacturadas
+          .map((o) => `${o.numero} (doc. ${o.venta_documento})`)
+          .join(", ")}`,
+      }
+    }
+
+    // Un documento es de un solo cliente
+    const clientes = [...new Set(ordenes.map((o) => o.cliente_nombre.trim().toUpperCase()))]
+    if (clientes.length > 1) {
+      return {
+        error: `Las órdenes son de clientes distintos (${clientes.join(", ")}): agrúpalas por cliente`,
+      }
+    }
+
+    const referencias = await listReferenciasVenta()
+    const precioDe = new Map(referencias.map((r) => [r.referencia.trim().toUpperCase(), r]))
+
+    // Consolidar: la misma referencia y talla suma en una sola linea
+    const consolidado = new Map<
+      string,
+      {
+        referencia: string
+        descripcion: string | null
+        linea: string | null
+        categoria: string | null
+        talla: string
+        cantidad: number
+        valor_unidad: number
+      }
+    >()
+    for (const o of ordenes) {
+      for (const d of o.detalle) {
+        const key = `${d.referencia.trim().toUpperCase()}|${d.talla.trim().toUpperCase()}`
+        const ref = precioDe.get(d.referencia.trim().toUpperCase())
+        const actual = consolidado.get(key)
+        if (actual) {
+          actual.cantidad += d.cantidad
+        } else {
+          consolidado.set(key, {
+            referencia: d.referencia,
+            descripcion: d.descripcion ?? ref?.descripcion ?? null,
+            linea: ref?.linea ?? null,
+            categoria: ref?.categoria ?? null,
+            talla: d.talla,
+            cantidad: d.cantidad,
+            valor_unidad: Number(ref?.valor_unidad ?? 0),
+          })
+        }
+      }
+    }
+    const lineas = [...consolidado.values()]
+    if (lineas.length === 0) return { error: "Las órdenes no tienen líneas" }
+
+    const base = ordenes[0]
+    // La factura lleva la fecha mas reciente de las ordenes agrupadas
+    const fecha = ordenes.map((o) => o.fecha).sort().at(-1) ?? base.fecha
+    const numeros = ordenes.map((o) => o.numero).join(", ")
+
+    const ventaId = await guardarVenta(
+      {
+        fecha,
+        cliente_id: base.cliente_id,
+        cliente_nombre: base.cliente_nombre,
+        ciudad: base.ciudad,
+        observacion: `Generada desde ${ordenes.length} orden(es) de salida: ${numeros}`,
+        lineas,
+      },
+      session.userId
+    )
+
+    // Cada orden queda enlazada a la misma venta
+    for (const o of ordenes) {
+      await marcarVentaGenerada(o.id, ventaId, session.userId)
+    }
+
+    revalidar()
+
+    const sinPrecio = [
+      ...new Set(lineas.filter((l) => !(l.valor_unidad > 0)).map((l) => l.referencia)),
+    ]
+    const avisos: string[] = []
+    if (sinPrecio.length > 0) {
+      avisos.push(`Revisa el precio de: ${sinPrecio.join(", ")} (quedaron en $0)`)
+    }
+    const totalLineasOriginales = ordenes.reduce((s, o) => s + o.detalle.length, 0)
+    if (totalLineasOriginales > lineas.length) {
+      avisos.push(
+        `Se consolidaron ${totalLineasOriginales} líneas en ${lineas.length} (misma referencia y talla)`
+      )
+    }
+
+    return {
+      success: true,
+      ventaId,
+      aviso: avisos.length > 0 ? avisos.join(". ") : undefined,
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Error generando la venta agrupada" }
+  }
+}
+
 // ── Generar la venta desde la orden ─────────────────────────────
 
 // Crea la venta en BORRADOR con los datos de la orden ya cargados. No
