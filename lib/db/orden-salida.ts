@@ -66,6 +66,38 @@ export const ESTADO_OS_COLOR: Record<EstadoOrdenSalida, string> = {
   anulada: "bg-red-100 text-red-800",
 }
 
+// Lo que ve el usuario. Una orden confirmada ya descargo inventario,
+// pero mientras no se facture sigue siendo trabajo pendiente: se
+// distingue de la que ya tiene su venta.
+export type EtapaOrdenSalida =
+  | "borrador"
+  | "pendiente_facturar"
+  | "facturada"
+  | "anulada"
+
+export const ETAPA_OS_LABEL: Record<EtapaOrdenSalida, string> = {
+  borrador: "Borrador",
+  pendiente_facturar: "Pendiente por facturar",
+  facturada: "Facturada",
+  anulada: "Anulada",
+}
+
+export const ETAPA_OS_COLOR: Record<EtapaOrdenSalida, string> = {
+  borrador: "bg-stone-100 text-stone-700",
+  pendiente_facturar: "bg-amber-100 text-amber-800",
+  facturada: "bg-emerald-100 text-emerald-800",
+  anulada: "bg-red-100 text-red-800",
+}
+
+export function etapaDeOrden(o: {
+  estado: EstadoOrdenSalida
+  venta_id: number | null
+}): EtapaOrdenSalida {
+  if (o.estado === "anulada") return "anulada"
+  if (o.estado === "borrador") return "borrador"
+  return o.venta_id ? "facturada" : "pendiente_facturar"
+}
+
 export const MOTIVOS_ORDEN_SALIDA = [
   "Despacho a cliente",
   "Traslado",

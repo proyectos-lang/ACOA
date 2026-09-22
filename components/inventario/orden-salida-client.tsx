@@ -29,8 +29,9 @@ import type {
   HistorialOSConOrden,
 } from "@/lib/db/orden-salida"
 import {
-  ESTADO_OS_LABEL,
-  ESTADO_OS_COLOR,
+  ETAPA_OS_LABEL,
+  ETAPA_OS_COLOR,
+  etapaDeOrden,
   MOTIVOS_ORDEN_SALIDA,
 } from "@/lib/db/orden-salida"
 import {
@@ -306,11 +307,15 @@ export function OrdenSalidaClient({
         router.refresh()
         return aviso("error", c.error)
       }
-      aviso("ok", "Orden confirmada: el inventario ya se descontó")
+      aviso(
+        "ok",
+        "Orden confirmada: el inventario se descontó y queda pendiente por facturar"
+      )
       limpiar()
       setHCargado(false)
       router.refresh()
       setVista("ordenes")
+      setFEstado("pendiente_facturar")
     })
   }
 
@@ -420,7 +425,7 @@ export function OrdenSalidaClient({
     return ordenes.filter((o) => {
       if (fDesde && o.fecha < fDesde) return false
       if (fHasta && o.fecha > fHasta) return false
-      if (fEstado && o.estado !== fEstado) return false
+      if (fEstado && etapaDeOrden(o) !== fEstado) return false
       if (fTexto) {
         const t = fTexto.toLowerCase()
         if (
@@ -562,7 +567,7 @@ export function OrdenSalidaClient({
           <h1>ORDEN DE SALIDA DE INVENTARIO</h1>
           <div style="font-size:10px;color:#78716c">ACOA</div>
         </div>
-        <div class="num">${o.numero}<div style="font-size:10px;font-weight:normal;color:#78716c">${ESTADO_OS_LABEL[o.estado]}</div></div>
+        <div class="num">${o.numero}<div style="font-size:10px;font-weight:normal;color:#78716c">${ETAPA_OS_LABEL[etapaDeOrden(o)]}</div></div>
       </div>
       <div class="meta">
         <div><span class="et">Fecha:</span> ${o.fecha}</div>
@@ -866,7 +871,8 @@ export function OrdenSalidaClient({
             </div>
             <p className="mt-2 text-xs text-stone-400">
               El borrador no toca el inventario. Al confirmar, cada linea genera una salida por
-              referencia y talla.
+              referencia y talla, y la orden queda <strong>pendiente por facturar</strong> hasta
+              que le generes la venta.
             </p>
           </Card>
         </div>
@@ -915,13 +921,54 @@ export function OrdenSalidaClient({
                 >
                   <option value="">Todos</option>
                   <option value="borrador">Borrador</option>
-                  <option value="confirmada">Confirmada</option>
+                  <option value="pendiente_facturar">Pendiente por facturar</option>
+                  <option value="facturada">Facturada</option>
                   <option value="anulada">Anulada</option>
                 </select>
               </div>
               <span className="ml-auto text-xs text-stone-400">
                 {filtradas.length} de {ordenes.length}
               </span>
+            </div>
+          </Card>
+
+          {/* Cuantas ordenes hay en cada etapa */}
+          <Card className="p-0">
+            <div className="flex flex-wrap divide-x divide-stone-100">
+              {(
+                [
+                  ["pendiente_facturar", "Pendientes por facturar"],
+                  ["facturada", "Facturadas"],
+                  ["borrador", "Borradores"],
+                ] as const
+              ).map(([etapa, titulo]) => {
+                const delEtapa = ordenes.filter((o) => etapaDeOrden(o) === etapa)
+                const unidades = delEtapa.reduce((s, o) => s + o.total_unidades, 0)
+                return (
+                  <button
+                    key={etapa}
+                    type="button"
+                    onClick={() => setFEstado(fEstado === etapa ? "" : etapa)}
+                    className={`min-w-[170px] flex-1 px-4 py-3 text-left transition ${
+                      fEstado === etapa ? "bg-[#344966]/5" : "hover:bg-stone-50"
+                    }`}
+                  >
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-stone-400">
+                      {titulo}
+                    </p>
+                    <p
+                      className={`mt-0.5 text-xl font-bold ${
+                        etapa === "pendiente_facturar" && delEtapa.length > 0
+                          ? "text-amber-700"
+                          : "text-stone-900"
+                      }`}
+                    >
+                      {delEtapa.length}
+                    </p>
+                    <p className="text-xs text-stone-400">{miles(unidades)} unidades</p>
+                  </button>
+                )
+              })}
             </div>
           </Card>
 
@@ -938,12 +985,12 @@ export function OrdenSalidaClient({
                     <div className="min-w-[220px]">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono font-semibold text-stone-800">{o.numero}</span>
-                        <Badge className={ESTADO_OS_COLOR[o.estado]}>
-                          {ESTADO_OS_LABEL[o.estado]}
+                        <Badge className={ETAPA_OS_COLOR[etapaDeOrden(o)]}>
+                          {ETAPA_OS_LABEL[etapaDeOrden(o)]}
                         </Badge>
                         {o.venta_documento && (
                           <Badge className="bg-sky-100 text-sky-800">
-                            Facturada: {o.venta_documento}
+                            Doc. {o.venta_documento}
                           </Badge>
                         )}
                       </div>
@@ -986,7 +1033,7 @@ export function OrdenSalidaClient({
                           disabled={isPending}
                           className="flex items-center gap-1 rounded-lg bg-[#15803d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
                         >
-                          <Receipt className="h-3 w-3" /> Facturar
+                          <Receipt className="h-3 w-3" /> Generar venta
                         </button>
                       )}
 
@@ -1175,7 +1222,7 @@ export function OrdenSalidaClient({
                     className="flex items-center gap-2 rounded-xl bg-[#15803d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#166534] disabled:opacity-50"
                   >
                     <Receipt className="h-4 w-4" />
-                    Facturar juntas
+                    Generar venta agrupada
                   </button>
                 </div>
               </div>
