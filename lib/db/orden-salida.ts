@@ -251,16 +251,41 @@ export type HistorialOSConOrden = OrdenSalidaHistorialRow & {
   fecha_orden: string
 }
 
+// El historial se consulta agrupado por orden, asi que se traen las
+// ordenes mas recientes COMPLETAS: cortar por evento dejaria alguna con
+// su detalle a medias sin que se note.
+const ORDENES_EN_HISTORIAL = 200
+
 export async function getHistorialOrdenesSalida(input?: {
   nivel?: "cabecera" | "detalle" | null
 }): Promise<HistorialOSConOrden[]> {
   const db = createVanessaClient()
 
+  // 1) Las ordenes mas recientes
+  const { data: recientes, error: errOrd } = await db
+    .from("orden_salida")
+    .select("id, numero, cliente_nombre, fecha")
+    .order("id", { ascending: false })
+    .limit(ORDENES_EN_HISTORIAL)
+  if (errOrd) throw new Error(errOrd.message)
+  const ordenes = (recientes ?? []) as Array<{
+    id: number
+    numero: string
+    cliente_nombre: string
+    fecha: string
+  }>
+  if (ordenes.length === 0) return []
+
+  // 2) Todos sus eventos, sin cortar ninguna a la mitad
   let q = db
     .from("orden_salida_historial")
     .select("*")
+    .in(
+      "orden_salida_id",
+      ordenes.map((o) => o.id)
+    )
     .order("creado_en", { ascending: false })
-    .limit(3000)
+    .limit(20000)
   if (input?.nivel) q = q.eq("nivel", input.nivel)
 
   const { data, error } = await q
@@ -268,19 +293,7 @@ export async function getHistorialOrdenesSalida(input?: {
   const filas = (data ?? []) as OrdenSalidaHistorialRow[]
   if (filas.length === 0) return []
 
-  const { data: ordenes } = await db
-    .from("orden_salida")
-    .select("id, numero, cliente_nombre, fecha")
-    .in("id", [...new Set(filas.map((f) => f.orden_salida_id))])
-
-  const porId = new Map(
-    ((ordenes ?? []) as Array<{
-      id: number
-      numero: string
-      cliente_nombre: string
-      fecha: string
-    }>).map((o) => [o.id, o])
-  )
+  const porId = new Map(ordenes.map((o) => [o.id, o]))
 
   return filas.map((f) => {
     const o = porId.get(f.orden_salida_id)

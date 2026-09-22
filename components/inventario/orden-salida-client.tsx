@@ -16,6 +16,8 @@ import {
   History,
   X,
   PackageMinus,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react"
 import type { ClienteRow, ReferenciaVentaRow } from "@/lib/db/venta"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
@@ -120,8 +122,19 @@ export function OrdenSalidaClient({
 
   // Historial
   const [historial, setHistorial] = React.useState<HistorialOSConOrden[]>([])
-  const [hNivel, setHNivel] = React.useState<"cabecera" | "detalle" | "">("")
   const [hCargado, setHCargado] = React.useState(false)
+  const [hTexto, setHTexto] = React.useState("")
+  // Ordenes cuyo detalle esta desplegado
+  const [abiertas, setAbiertas] = React.useState<Set<number>>(new Set())
+
+  function alternarOrden(id: number) {
+    setAbiertas((prev) => {
+      const s = new Set(prev)
+      if (s.has(id)) s.delete(id)
+      else s.add(id)
+      return s
+    })
+  }
 
   const aviso = (tipo: "ok" | "error", msg: string) => {
     setToast({ tipo, msg })
@@ -322,9 +335,9 @@ export function OrdenSalidaClient({
     })
   }
 
-  const cargarHistorial = React.useCallback((nivel: "cabecera" | "detalle" | "") => {
+  const cargarHistorial = React.useCallback(() => {
     startTransition(async () => {
-      const r = await cargarHistorialOrdenesAction({ nivel: nivel || null })
+      const r = await cargarHistorialOrdenesAction()
       if (r.error) return aviso("error", r.error)
       setHistorial(r.historialGlobal ?? [])
       setHCargado(true)
@@ -333,9 +346,55 @@ export function OrdenSalidaClient({
   }, [])
 
   React.useEffect(() => {
-    if (vista === "historial" && !hCargado) cargarHistorial(hNivel)
+    if (vista === "historial" && !hCargado) cargarHistorial()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista, hCargado])
+
+  // El historial se agrupa por orden: se listan las cabeceras y el detalle
+  // de cada una se despliega al abrirla.
+  const historialPorOrden = React.useMemo(() => {
+    const map = new Map<
+      number,
+      {
+        orden_salida_id: number
+        numero: string
+        cliente_nombre: string
+        fecha_orden: string
+        cabecera: HistorialOSConOrden[]
+        detalle: HistorialOSConOrden[]
+        ultimo: string
+      }
+    >()
+    for (const h of historial) {
+      let g = map.get(h.orden_salida_id)
+      if (!g) {
+        g = {
+          orden_salida_id: h.orden_salida_id,
+          numero: h.numero,
+          cliente_nombre: h.cliente_nombre,
+          fecha_orden: h.fecha_orden,
+          cabecera: [],
+          detalle: [],
+          ultimo: h.creado_en,
+        }
+        map.set(h.orden_salida_id, g)
+      }
+      if (h.nivel === "cabecera") g.cabecera.push(h)
+      else g.detalle.push(h)
+      if (h.creado_en > g.ultimo) g.ultimo = h.creado_en
+    }
+    // La orden con el movimiento mas reciente va primero
+    return [...map.values()].sort((a, b) => b.ultimo.localeCompare(a.ultimo))
+  }, [historial])
+
+  const historialFiltrado = React.useMemo(() => {
+    if (!hTexto.trim()) return historialPorOrden
+    const t = hTexto.trim().toLowerCase()
+    return historialPorOrden.filter(
+      (g) =>
+        g.numero.toLowerCase().includes(t) || g.cliente_nombre.toLowerCase().includes(t)
+    )
+  }, [historialPorOrden, hTexto])
 
   // ── Listado filtrado ──
   const filtradas = React.useMemo(() => {
@@ -910,116 +969,218 @@ export function OrdenSalidaClient({
         <div className="space-y-4">
           <Card className="p-4">
             <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-stone-500">Nivel</label>
-                <select
-                  className={filtroCls}
-                  value={hNivel}
-                  onChange={(e) => {
-                    const n = e.target.value as "cabecera" | "detalle" | ""
-                    setHNivel(n)
-                    cargarHistorial(n)
-                  }}
-                >
-                  <option value="">Todo</option>
-                  <option value="cabecera">Cabecera</option>
-                  <option value="detalle">Detalle</option>
-                </select>
+              <div className="min-w-[220px] flex-1">
+                <label className="block text-[11px] font-medium text-stone-500">
+                  Orden o cliente
+                </label>
+                <input
+                  className={`${filtroCls} w-full`}
+                  value={hTexto}
+                  onChange={(e) => setHTexto(e.target.value)}
+                  placeholder="Buscar..."
+                />
               </div>
               <button
-                onClick={() => cargarHistorial(hNivel)}
+                onClick={() => cargarHistorial()}
                 disabled={isPending}
                 className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               >
                 Actualizar
               </button>
               <p className="text-xs text-stone-400">
-                {historial.length} evento(s) &middot; cabecera es el ciclo de la orden; detalle,
-                cada movimiento de producto
+                {historialFiltrado.length} orden(es) &middot; abre una para ver el detalle de sus
+                movimientos
               </p>
             </div>
           </Card>
 
           <Card className="p-0">
-            <div className="max-h-[600px] overflow-auto">
-              <table className="w-full min-w-[900px] text-sm">
+            <div className="max-h-[620px] overflow-auto">
+              <table className="w-full min-w-[820px] text-sm">
                 <thead className="sticky top-0 bg-stone-50">
                   <tr className="border-b border-stone-200">
-                    {[
-                      "Fecha y hora",
-                      "Orden",
-                      "Cliente",
-                      "Nivel",
-                      "Accion",
-                      "Detalle",
-                      "Usuario",
-                    ].map((h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
-                      >
-                        {h}
-                      </th>
-                    ))}
+                    {["", "Orden", "Cliente", "Fecha", "Eventos", "Ultimo movimiento"].map(
+                      (h, i) => (
+                        <th
+                          key={`${h}_${i}`}
+                          className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
+                        >
+                          {h}
+                        </th>
+                      )
+                    )}
                   </tr>
                 </thead>
                 <tbody>
-                  {historial.length === 0 ? (
+                  {historialFiltrado.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-8 text-center text-sm text-stone-400">
-                        {hCargado ? "No hay eventos registrados" : "Cargando..."}
+                      <td colSpan={6} className="px-3 py-8 text-center text-sm text-stone-400">
+                        {hCargado ? "No hay ordenes registradas" : "Cargando..."}
                       </td>
                     </tr>
                   ) : (
-                    historial.map((h) => (
-                      <tr
-                        key={h.id}
-                        className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
-                      >
-                        <td className="px-3 py-2 font-mono text-[11px] text-stone-500">
-                          {new Date(h.creado_en).toLocaleString("es-CO", {
-                            timeZone: "America/Bogota",
-                          })}
-                        </td>
-                        <td className="px-3 py-2 font-mono font-semibold text-stone-800">
-                          {h.numero}
-                        </td>
-                        <td className="px-3 py-2 text-stone-600">{h.cliente_nombre}</td>
-                        <td className="px-3 py-2">
-                          <Badge
-                            className={
-                              h.nivel === "cabecera"
-                                ? "bg-[#344966]/10 text-[#344966]"
-                                : "bg-stone-100 text-stone-600"
-                            }
+                    historialFiltrado.map((g) => {
+                      const abierta = abiertas.has(g.orden_salida_id)
+                      const eventos = g.cabecera.length + g.detalle.length
+                      return (
+                        <React.Fragment key={g.orden_salida_id}>
+                          <tr
+                            onClick={() => alternarOrden(g.orden_salida_id)}
+                            className={`cursor-pointer border-b border-stone-100 transition-colors hover:bg-stone-50 ${
+                              abierta ? "bg-[#344966]/5" : ""
+                            }`}
                           >
-                            {h.nivel}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 text-stone-700">{h.accion}</td>
-                        <td className="px-3 py-2 text-xs text-stone-500">
-                          {h.nivel === "detalle" ? (
-                            <span>
-                              <strong className="text-stone-700">{h.referencia}</strong>
-                              {h.talla ? ` talla ${h.talla}` : ""} &middot; {miles(h.cantidad ?? 0)}{" "}
-                              und
-                            </span>
-                          ) : (
-                            <span>
-                              {h.descripcion}
-                              {h.total_unidades != null && (
+                            <td className="px-3 py-2 text-stone-400">
+                              {abierta ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-mono font-semibold text-stone-800">
+                              {g.numero}
+                            </td>
+                            <td className="px-3 py-2 text-stone-700">{g.cliente_nombre}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-stone-600">
+                              {g.fecha_orden}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-stone-500">
+                              {eventos} evento{eventos === 1 ? "" : "s"}
+                              {g.detalle.length > 0 && (
                                 <span className="ml-1 text-stone-400">
-                                  ({miles(h.total_unidades)} und)
+                                  ({g.detalle.length} de producto)
                                 </span>
                               )}
-                            </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-[11px] text-stone-500">
+                              {new Date(g.ultimo).toLocaleString("es-CO", {
+                                timeZone: "America/Bogota",
+                              })}
+                            </td>
+                          </tr>
+
+                          {abierta && (
+                            <tr className="border-b border-stone-100 bg-stone-50/60">
+                              <td colSpan={6} className="px-3 py-3">
+                                {/* Ciclo de la orden */}
+                                {g.cabecera.length > 0 && (
+                                  <div className="mb-3">
+                                    <p className="mb-1 text-[11px] font-semibold uppercase text-stone-500">
+                                      Ciclo de la orden
+                                    </p>
+                                    <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-stone-50">
+                                          <tr>
+                                            {["Fecha y hora", "Accion", "Descripcion", "Usuario"].map(
+                                              (h) => (
+                                                <th
+                                                  key={h}
+                                                  className="px-3 py-1.5 text-left font-semibold uppercase text-stone-500"
+                                                >
+                                                  {h}
+                                                </th>
+                                              )
+                                            )}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {g.cabecera.map((h) => (
+                                            <tr key={h.id} className="border-t border-stone-100">
+                                              <td className="px-3 py-1.5 font-mono text-[11px] text-stone-500">
+                                                {new Date(h.creado_en).toLocaleString("es-CO", {
+                                                  timeZone: "America/Bogota",
+                                                })}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-medium text-stone-700">
+                                                {h.accion}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-stone-500">
+                                                {h.descripcion ?? "—"}
+                                                {h.total_unidades != null && (
+                                                  <span className="ml-1 text-stone-400">
+                                                    ({miles(h.total_unidades)} und)
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-stone-500">
+                                                {h.usuario_nombre ?? "—"}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Movimientos de producto */}
+                                {g.detalle.length > 0 ? (
+                                  <div>
+                                    <p className="mb-1 text-[11px] font-semibold uppercase text-stone-500">
+                                      Movimientos de producto
+                                    </p>
+                                    <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-stone-50">
+                                          <tr>
+                                            {[
+                                              "Fecha y hora",
+                                              "Accion",
+                                              "Referencia",
+                                              "Talla",
+                                              "Cantidad",
+                                              "Usuario",
+                                            ].map((h) => (
+                                              <th
+                                                key={h}
+                                                className="px-3 py-1.5 text-left font-semibold uppercase text-stone-500"
+                                              >
+                                                {h}
+                                              </th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {g.detalle.map((h) => (
+                                            <tr key={h.id} className="border-t border-stone-100">
+                                              <td className="px-3 py-1.5 font-mono text-[11px] text-stone-500">
+                                                {new Date(h.creado_en).toLocaleString("es-CO", {
+                                                  timeZone: "America/Bogota",
+                                                })}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-stone-600">
+                                                {h.accion}
+                                              </td>
+                                              <td className="px-3 py-1.5 font-semibold text-stone-800">
+                                                {h.referencia ?? "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-stone-700">
+                                                {h.talla ?? "—"}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-right tabular-nums text-stone-800">
+                                                {miles(h.cantidad ?? 0)}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-stone-500">
+                                                {h.usuario_nombre ?? "—"}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-stone-400">
+                                    Esta orden no tiene movimientos de producto registrados.
+                                  </p>
+                                )}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-stone-500">
-                          {h.usuario_nombre ?? "—"}
-                        </td>
-                      </tr>
-                    ))
+                        </React.Fragment>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
