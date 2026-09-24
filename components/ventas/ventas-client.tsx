@@ -159,6 +159,8 @@ export function VentasClient({
   // Ordenes de salida que originaron esta venta: al guardarla se enlazan
   const [origenOrdenes, setOrigenOrdenes] = React.useState<number[]>([])
   const [origenTexto, setOrigenTexto] = React.useState("")
+  // Se esta corrigiendo una factura ya confirmada
+  const [editandoConfirmada, setEditandoConfirmada] = React.useState(false)
   const [formaPago, setFormaPago] = React.useState<FormaPago>("contado")
   const [diasCredito, setDiasCredito] = React.useState(30)
   const [razonSocial, setRazonSocial] = React.useState<RazonSocial>("ACOA")
@@ -353,6 +355,7 @@ export function VentasClient({
     setRazonSocial("ACOA")
     setOrigenOrdenes([])
     setOrigenTexto("")
+    setEditandoConfirmada(false)
   }
 
   function cargarVenta(v: VentaConDetalle) {
@@ -380,6 +383,13 @@ export function VentasClient({
     )
     setFaltantes([])
     setVista("registro")
+    setEditandoConfirmada(v.estado === "confirmada")
+    if (v.estado === "confirmada") {
+      aviso(
+        "ok",
+        `Editando la factura ${v.numero_documento}, que ya está confirmada. Al guardar se rehacen sus movimientos de inventario.`
+      )
+    }
   }
 
   function payload() {
@@ -762,6 +772,118 @@ export function VentasClient({
     URL.revokeObjectURL(url)
   }
 
+  // Factura de una venta, en hoja carta
+  function imprimirFactura(v: VentaConDetalle) {
+    const filas = v.detalle
+      .map(
+        (d) =>
+          `<tr><td>${d.referencia}</td><td>${d.descripcion ?? ""}</td><td class="c">${
+            d.talla ?? "-"
+          }</td><td class="r">${d.cantidad.toLocaleString("es-CO")}</td><td class="r">${pesos(
+            Number(d.valor_unidad)
+          )}</td><td class="r">${pesos(Number(d.valor_total))}</td></tr>`
+      )
+      .join("")
+
+    const saldo = Number(v.total_valor) - Number(v.total_abonado)
+    const w = window.open("", "_blank")
+    if (!w) return
+    w.document.write(`<html><head><title>Factura ${v.numero_documento}</title><style>
+      @page { size: letter; margin: 14mm }
+      body { font-family: Arial, sans-serif; font-size: 11px; color: #1c1917 }
+      .cab { display: flex; justify-content: space-between; align-items: flex-start;
+             border-bottom: 2px solid #344966; padding-bottom: 8px; margin-bottom: 12px }
+      h1 { font-size: 17px; margin: 0; color: #344966 }
+      .num { text-align: right }
+      .num .doc { font-size: 15px; font-weight: bold }
+      .meta { display: flex; gap: 32px; margin-bottom: 12px }
+      .meta div { margin-bottom: 2px }
+      .et { display: inline-block; width: 86px; color: #78716c }
+      table { width: 100%; border-collapse: collapse; margin-top: 6px }
+      th { background: #344966; color: #fff; padding: 6px; text-align: left; font-size: 10px }
+      td { border-bottom: 1px solid #e7e5e4; padding: 5px 6px }
+      td.r { text-align: right } td.c { text-align: center }
+      tfoot td { font-weight: bold; border-top: 2px solid #344966 }
+      .tot { margin-top: 10px; margin-left: auto; width: 250px }
+      .tot div { display: flex; justify-content: space-between; padding: 3px 0 }
+      .tot .grande { font-size: 13px; font-weight: bold; border-top: 1px solid #344966;
+                     padding-top: 5px; color: #344966 }
+      .firmas { margin-top: 44px; display: flex; gap: 40px }
+      .firma { flex: 1; border-top: 1px solid #78716c; padding-top: 4px;
+               text-align: center; font-size: 10px; color: #57534e }
+      .pie { margin-top: 16px; font-size: 9px; color: #a8a29e }
+    </style></head><body>
+      <div class="cab">
+        <div>
+          <h1>${v.razon_social}</h1>
+          <div style="font-size:10px;color:#78716c">Factura de venta</div>
+        </div>
+        <div class="num">
+          <div class="doc">N° ${v.numero_documento}</div>
+          <div style="font-size:10px;color:#78716c">${ESTADO_VENTA_LABEL[v.estado]} &middot; ${
+            FORMA_PAGO_LABEL[v.forma_pago]
+          }</div>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div>
+          <div><span class="et">Cliente:</span> <strong>${v.cliente_nombre}</strong></div>
+          <div><span class="et">Ciudad:</span> ${v.ciudad ?? "-"}</div>
+        </div>
+        <div>
+          <div><span class="et">Fecha:</span> ${v.fecha}</div>
+          ${
+            v.forma_pago === "credito"
+              ? `<div><span class="et">Vence:</span> ${v.fecha_vencimiento ?? "-"} (${
+                  v.dias_credito
+                } dias)</div>`
+              : ""
+          }
+        </div>
+      </div>
+
+      <table>
+        <thead><tr>
+          <th>Referencia</th><th>Descripcion</th>
+          <th style="text-align:center">Talla</th>
+          <th style="text-align:right">Cant.</th>
+          <th style="text-align:right">Vr. unidad</th>
+          <th style="text-align:right">Total</th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+        <tfoot><tr>
+          <td colspan="3">TOTAL</td>
+          <td class="r">${v.total_unidades.toLocaleString("es-CO")}</td>
+          <td></td>
+          <td class="r">${pesos(Number(v.total_valor))}</td>
+        </tr></tfoot>
+      </table>
+
+      <div class="tot">
+        <div><span>Subtotal</span><span>${pesos(Number(v.total_valor))}</span></div>
+        ${
+          v.forma_pago === "credito"
+            ? `<div><span>Abonado</span><span>${pesos(Number(v.total_abonado))}</span></div>
+               <div class="grande"><span>Saldo</span><span>${pesos(saldo)}</span></div>`
+            : `<div class="grande"><span>Total</span><span>${pesos(
+                Number(v.total_valor)
+              )}</span></div>`
+        }
+      </div>
+
+      ${v.observacion ? `<p style="margin-top:12px;font-size:10px;color:#78716c">${v.observacion}</p>` : ""}
+
+      <div class="firmas">
+        <div class="firma">Elabor&oacute;</div>
+        <div class="firma">Recibe (cliente)</div>
+      </div>
+      <p class="pie">Documento generado el ${hoyBogota()}</p>
+      <script>window.addEventListener("load", function(){ window.print() })<\/script>
+    </body></html>`)
+    w.document.close()
+  }
+
   function imprimir() {
     const filas = filasPlanas
       .map(
@@ -992,6 +1114,18 @@ export function VentasClient({
                 />
               </div>
             </div>
+
+            {/* Correccion de una factura ya confirmada */}
+            {editandoConfirmada && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>
+                  Esta factura ya está <strong>confirmada</strong>. Al guardar se rehacen sus
+                  salidas de inventario con el detalle nuevo; revisa los abonos si cambia el
+                  total.
+                </span>
+              </div>
+            )}
 
             {/* De donde vienen los datos, cuando se facturo una salida */}
             {origenTexto && (
@@ -1506,14 +1640,20 @@ export function VentasClient({
                     )}
                   </div>
                   <div className="flex gap-2">
-                    {v.estado === "borrador" && (
-                      <button
-                        onClick={() => cargarVenta(v)}
-                        className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
-                      >
-                        <Pencil className="h-3 w-3" /> Editar
-                      </button>
-                    )}
+                    <button
+                      onClick={() => imprimirFactura(v)}
+                      className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                    >
+                      <Printer className="h-3 w-3" /> Factura
+                    </button>
+                    {/* La factura se corrige en cualquier estado; al guardar,
+                        si estaba confirmada se rehacen sus movimientos */}
+                    <button
+                      onClick={() => cargarVenta(v)}
+                      className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                    >
+                      <Pencil className="h-3 w-3" /> Editar
+                    </button>
                     {v.estado === "confirmada" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
@@ -1760,6 +1900,21 @@ export function VentasClient({
                             )}
                           </td>
                           <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => imprimirFactura(v)}
+                              title="Descargar la factura en PDF"
+                              className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                            >
+                              <Printer className="h-3 w-3" /> Factura
+                            </button>
+                            <button
+                              onClick={() => cargarVenta(v)}
+                              title="Editar esta factura"
+                              className="flex items-center gap-1 rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
                             <button
                               onClick={() => abrirAbonos(v)}
                               className={`flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs transition ${
@@ -1771,6 +1926,7 @@ export function VentasClient({
                               <Wallet className="h-3 w-3" />
                               {abonoDe?.id === v.id ? "Abierta" : "Abonos"}
                             </button>
+                            </div>
                           </td>
                         </tr>
                       )

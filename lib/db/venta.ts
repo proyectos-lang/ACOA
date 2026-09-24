@@ -276,17 +276,23 @@ export async function listVentas(input?: {
   const ventas = (data ?? []) as VentaRow[]
   if (ventas.length === 0) return []
 
-  const { data: detalles } = await db
-    .from("venta_detalle")
-    .select(DETALLE_COLS)
-    .in(
-      "venta_id",
-      ventas.map((v) => v.id)
-    )
-    .order("id")
+  // El detalle se pide por bloques: Supabase corta en 1000 filas por
+  // consulta, y con cientos de ventas eso dejaba a la mayoria sin sus
+  // lineas (se veian con el total pero sin detalle).
+  const ids = ventas.map((v) => v.id)
+  const detalles: VentaDetalleRow[] = []
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data: bloque } = await db
+      .from("venta_detalle")
+      .select(DETALLE_COLS)
+      .in("venta_id", ids.slice(i, i + 100))
+      .order("id")
+      .limit(10000)
+    detalles.push(...((bloque ?? []) as VentaDetalleRow[]))
+  }
 
   const porVenta = new Map<number, VentaDetalleRow[]>()
-  for (const d of (detalles ?? []) as VentaDetalleRow[]) {
+  for (const d of detalles) {
     const arr = porVenta.get(d.venta_id) ?? []
     arr.push(d)
     porVenta.set(d.venta_id, arr)
@@ -350,15 +356,31 @@ export async function guardarVenta(
   let ventaId = input.id ?? null
 
   if (ventaId) {
-    // Solo se edita mientras esté en borrador
     const { data: actual } = await db
       .from("venta")
       .select("estado")
       .eq("id", ventaId)
       .maybeSingle()
-    if ((actual as { estado: string } | null)?.estado === "confirmada") {
-      throw new Error("La venta ya fue confirmada y descontó inventario; anúlala para cambiarla")
+    const estadoActual = (actual as { estado: string } | null)?.estado
+
+    // Una venta confirmada se puede corregir. Sus movimientos de
+    // inventario se retiran antes de reescribir el detalle: el nuevo
+    // detalle los vuelve a generar mas abajo, asi el inventario refleja
+    // lo que realmente quedo facturado y no se descuadra.
+    if (estadoActual === "confirmada") {
+      const { data: previos } = await db
+        .from("venta_detalle")
+        .select("inventrans_id")
+        .eq("venta_id", ventaId)
+      const movIds = ((previos ?? []) as Array<{ inventrans_id: number | null }>)
+        .map((d) => d.inventrans_id)
+        .filter((x): x is number => x != null)
+      if (movIds.length > 0) {
+        const { error: errMov } = await db.from("inventrans").delete().in("id", movIds)
+        if (errMov) throw new Error(errMov.message)
+      }
     }
+
     const { error } = await db.from("venta").update(cabecera).eq("id", ventaId)
     if (error) throw new Error(error.message)
     await db.from("venta_detalle").delete().eq("venta_id", ventaId)
@@ -392,6 +414,19 @@ export async function guardarVenta(
   }))
   const { error: errDet } = await db.from("venta_detalle").insert(filas)
   if (errDet) throw new Error(errDet.message)
+
+  // Si se edito una venta ya confirmada, se rehacen sus salidas de
+  // inventario con el detalle nuevo
+  if (input.id) {
+    const { data: actual } = await db
+      .from("venta")
+      .select("estado")
+      .eq("id", ventaId)
+      .maybeSingle()
+    if ((actual as { estado: string } | null)?.estado === "confirmada") {
+      await regenerarMovimientosVenta(ventaId as number, creadoPor)
+    }
+  }
 
   await registrarHistorial({
     venta_id: ventaId as number,
@@ -963,4 +998,81 @@ export async function getDocumentoDeVenta(ventaId: number): Promise<string | und
     .eq("id", ventaId)
     .maybeSingle()
   return (data as { numero_documento: string } | null)?.numero_documento
+}
+
+// Rehace las salidas de inventario de una venta confirmada tras editarla.
+// Respeta el caso de las ventas que nacen de una orden de salida: ahi el
+// inventario ya salio con la orden y no se debe descontar de nuevo.
+async function regenerarMovimientosVenta(
+  ventaId: number,
+  creadoPor: number
+): Promise<void> {
+  const db = createVanessaClient()
+
+  const { data: osRow } = await db
+    .from("orden_salida")
+    .select("estado")
+    .eq("venta_id", ventaId)
+    .maybeSingle()
+  if ((osRow as { estado: string } | null)?.estado === "confirmada") return
+
+  const { data: venta } = await db
+    .from("venta")
+    .select("id, numero_documento, fecha, cliente_nombre, ciudad")
+    .eq("id", ventaId)
+    .maybeSingle()
+  const v = venta as {
+    id: number
+    numero_documento: string
+    fecha: string
+    cliente_nombre: string
+    ciudad: string | null
+  } | null
+  if (!v) return
+
+  const { data: detalles } = await db
+    .from("venta_detalle")
+    .select(DETALLE_COLS)
+    .eq("venta_id", ventaId)
+  const lineas = (detalles ?? []) as VentaDetalleRow[]
+
+  const { data: ordenes } = await db
+    .from("orden_produccion")
+    .select("id, numero_op, referencia")
+    .order("numero_op", { ascending: false })
+  const ops = (ordenes ?? []) as Array<{
+    id: number
+    numero_op: number
+    referencia: string | null
+  }>
+
+  for (const l of lineas) {
+    if (!l.talla?.trim()) continue
+    const op = ops.find(
+      (o) => (o.referencia ?? "").trim().toUpperCase() === l.referencia.trim().toUpperCase()
+    )
+    const { data: mov } = await db
+      .from("inventrans")
+      .insert({
+        tipo: "salida",
+        motivo: `Venta ${v.numero_documento}`,
+        orden_id: op?.id ?? null,
+        numero_op: op?.numero_op ?? null,
+        referencia: l.referencia,
+        lote_id: null,
+        lote_nombre: null,
+        prenda_nombre: null,
+        talla: l.talla.trim(),
+        color: null,
+        cantidad: l.cantidad,
+        fecha: v.fecha,
+        observacion: `${v.cliente_nombre}${v.ciudad ? ` · ${v.ciudad}` : ""}`,
+        creado_por: creadoPor,
+      })
+      .select("id")
+      .single()
+    if (mov) {
+      await db.from("venta_detalle").update({ inventrans_id: mov.id }).eq("id", l.id)
+    }
+  }
 }
