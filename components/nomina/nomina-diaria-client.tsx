@@ -151,9 +151,14 @@ function ConfigTab({
 
   const grupos: Array<{ titulo: string; nota?: string; campos: Array<[string, string, string]> }> = [
     {
-      titulo: "Pago del personal de empaque",
-      nota: "El personal con cargo EMPACADOR se paga a destajo: prendas empacadas × este valor.",
-      campos: [["valor_prenda_empaque", "Valor por prenda empacada", "$"]],
+      titulo: "Pago del personal de producción",
+      nota:
+        "El personal con cargo EMPACADOR se paga a destajo (prendas empacadas × valor por prenda). " +
+        "Sus horas extra se liquidan con el valor hora, que tambien se puede fijar por persona en Personal.",
+      campos: [
+        ["valor_prenda_empaque", "Valor por prenda empacada", "$"],
+        ["valor_hora_produccion", "Valor hora producción", "$"],
+      ],
     },
     {
       titulo: "Parámetros legales 2026",

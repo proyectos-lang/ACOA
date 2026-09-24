@@ -15,6 +15,8 @@ export interface ConfigNominaGeneral {
   id: number
   vigente_desde: string
   valor_prenda_empaque: number
+  // Valor hora por defecto del personal de produccion
+  valor_hora_produccion: number
   salario_minimo: number
   auxilio_transporte: number
   tope_auxilio_smmlv: number
@@ -69,6 +71,8 @@ export interface NominaPersona {
   es_empacador: boolean
   salario: number
   valor_dia: number
+  // Con el que se liquidan sus horas extra
+  valor_hora: number
   dias: DiaNomina[]
   total_dias_trabajados: number
   total_unidades: number
@@ -148,7 +152,7 @@ export async function getNominaDiaria(input: {
 
   let qPersonas = db
     .from("persona")
-    .select("id, nombre, documento, cargo, salario, tipo_pago, dias_mes, estado")
+    .select("id, nombre, documento, cargo, salario, tipo_pago, dias_mes, horas_dia, valor_hora, estado")
     .eq("estado", "activo")
     .order("nombre")
   if (input.personaId) qPersonas = qPersonas.eq("id", input.personaId)
@@ -163,6 +167,8 @@ export async function getNominaDiaria(input: {
     salario: number
     tipo_pago: string
     dias_mes: number
+    horas_dia: number | null
+    valor_hora: number | null
   }>
   if (personas.length === 0) return { personas: [], config }
 
@@ -242,11 +248,22 @@ export async function getNominaDiaria(input: {
 
   const valorPrenda = Number(config?.valor_prenda_empaque) || 0
   const diasParaDominical = Number(config?.dias_semana_para_dominical) || 6
+  // Valor hora del personal de produccion: el de la persona manda; si no
+  // lo tiene se usa el de la configuracion (9.000 por defecto)
+  const valorHoraProduccion = Number(config?.valor_hora_produccion) || 9000
 
   const resultado: NominaPersona[] = personas.map((p) => {
     const empacador = esCargoEmpaque(p.cargo)
     const diasMes = p.dias_mes > 0 ? p.dias_mes : 30
     const valorDia = empacador ? 0 : Math.round(Number(p.salario) / diasMes)
+
+    // Las horas de quien trabaja por produccion se pagan al valor hora;
+    // las de sueldo, a la parte proporcional de su jornada
+    const esProduccion = p.tipo_pago === "produccion"
+    const horasDia = Number(p.horas_dia) > 0 ? Number(p.horas_dia) : 8
+    const valorHora = esProduccion
+      ? Number(p.valor_hora) || valorHoraProduccion
+      : Number(p.valor_hora) || Math.round(valorDia / horasDia)
 
     // Días trabajados por semana, para la regla del domingo
     const trabajadosPorSemana = new Map<string, number>()
@@ -287,6 +304,14 @@ export async function getNominaDiaria(input: {
         } else {
           detalle = "Sin empaque registrado"
         }
+        // Las horas extra del empacador se pagan al valor hora, aparte
+        // de lo que gane a destajo
+        if (a && a.extra > 0) {
+          const pagoExtra = Math.round(a.extra * valorHora * 1.25)
+          base += pagoExtra
+          detalle += ` · ${a.extra} h extra ($${pagoExtra.toLocaleString("es-CO")})`
+          if (concepto === "sin_pago") concepto = "jornada"
+        }
       } else if (asistio) {
         base = valorDia
         concepto = "jornada"
@@ -296,7 +321,12 @@ export async function getNominaDiaria(input: {
           concepto = esDomingo ? "dominical_trabajado" : "festivo_trabajado"
           detalle = `${esDomingo ? "Dominical" : "Festivo"} trabajado ×${factorDominical}`
         }
-        if (a && a.extra > 0) detalle += ` · ${a.extra} h extra`
+        if (a && a.extra > 0) {
+          // La hora extra diurna lleva recargo del 25%
+          const pagoExtra = Math.round(a.extra * valorHora * 1.25)
+          base += pagoExtra
+          detalle += ` · ${a.extra} h extra ($${pagoExtra.toLocaleString("es-CO")})`
+        }
       } else if (esDomingo) {
         // Descanso dominical remunerado al completar la semana
         const completos = trabajadosPorSemana.get(claveSemana(f)) ?? 0
@@ -386,6 +416,7 @@ export async function getNominaDiaria(input: {
       es_empacador: empacador,
       salario: Number(p.salario),
       valor_dia: valorDia,
+      valor_hora: valorHora,
       dias,
       total_dias_trabajados: totalDiasTrabajados,
       total_unidades: totalUnidades,
