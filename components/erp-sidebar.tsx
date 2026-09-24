@@ -93,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Liquidación Empaque", href: "/liquidacion-empaque", icon: ClipboardCheck, permisoKey: "mod_empaque"  },
       { nombre: "Inventario",       href: "/inventario",    icon: Boxes,         permisoKey: "mod_empaque"          },
       { nombre: "Órdenes de salida", href: "/inventario/ordenes-salida", icon: PackageMinus, permisoKey: "mod_empaque" },
+      { nombre: "Conteo físico",    href: "/inventario/conteo-fisico", icon: ClipboardList, permisoKey: "mod_empaque" },
       { nombre: "Pagos",            href: "/pagos",         icon: Wallet,        permisoKey: "ver_costos"           },
       { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
     ],
