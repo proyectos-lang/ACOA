@@ -1,6 +1,7 @@
 import { requirePermiso } from "@/lib/auth/require-permiso"
 import { MODULOS, listHistorial } from "@/lib/db/historial"
 import { HistorialClient } from "@/components/historial/historial-client"
+import { HistorialConDevolucion } from "@/components/historial/historial-con-devolucion"
 
 export default async function HistorialPage() {
   // Exclusivo del administrador: se reutiliza el permiso de Usuarios
@@ -15,11 +16,12 @@ export default async function HistorialPage() {
         <h1 className="text-2xl font-bold text-stone-900">Historial de registros</h1>
         <p className="text-sm text-stone-500">
           Todos los registros de cada módulo, incluidos los lotes que ya avanzaron de proceso.
-          Como administrador puedes editar cualquier valor línea por línea.
+          Como administrador puedes editar cualquier valor línea por línea, o devolver un lote
+          al proceso anterior.
         </p>
       </div>
 
-      <HistorialClient
+      <HistorialConDevolucion
         modulos={MODULOS}
         moduloInicial={moduloInicial}
         registrosIniciales={registros}
