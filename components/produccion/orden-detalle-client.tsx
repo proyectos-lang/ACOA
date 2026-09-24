@@ -29,7 +29,7 @@ import {
   eliminarLoteAction,
   deleteOpMaterialAction,
   guardarMaterialesOPAction,
-  enviarADisenoAction,
+  enviarACorteAction,
   crearCategoriaAction,
 } from "@/app/(dashboard)/produccion/[id]/actions"
 import type { OpMaterialBatchFila } from "@/lib/db/op-material"
@@ -2637,12 +2637,12 @@ export function OrdenDetalleClient({
     showToast(msg.startsWith("Error") ? "error" : "ok", msg)
   }
 
-  function handleEnviarDiseno() {
+  function handleEnviarCorte() {
     startEnvio(async () => {
-      const res = await enviarADisenoAction(orden.id)
+      const res = await enviarACorteAction(orden.id)
       setConfirmEnvio(false)
       if (res.error) showToast("error", res.error)
-      else { showToast("ok", "Orden enviada a Diseño"); router.refresh() }
+      else { showToast("ok", "Orden enviada a Corte"); router.refresh() }
     })
   }
 
@@ -2692,7 +2692,7 @@ export function OrdenDetalleClient({
             style={{ backgroundColor: "#344966" }}
           >
             <Send className="h-4 w-4" />
-            Enviar a Diseño
+            Enviar a Corte
           </button>
         )}
       </div>
@@ -2773,20 +2773,20 @@ export function OrdenDetalleClient({
         </TabsContent>
       </Tabs>
 
-      {/* Confirm enviar a diseño */}
+      {/* Confirm enviar a corte */}
       <AlertDialog open={confirmEnvio} onOpenChange={setConfirmEnvio}>
         <AlertDialogContent className="rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Enviar a Diseño?</AlertDialogTitle>
+            <AlertDialogTitle>¿Enviar a Corte?</AlertDialogTitle>
             <AlertDialogDescription>
-              La orden {padOP(orden.numero_op)} pasará al estado "Diseño". Asegúrate de que la
-              curva de tallas esté completa antes de continuar.
+              La orden {padOP(orden.numero_op)} y sus lotes pasarán a Corte. Asegúrate de que la
+              curva de tallas y los lotes estén completos antes de continuar.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleEnviarDiseno}
+              onClick={handleEnviarCorte}
               disabled={isPendingEnvio}
               className="rounded-xl text-white"
               style={{ backgroundColor: "#344966" }}

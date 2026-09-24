@@ -14,7 +14,7 @@ import { getHojaCostos, updateHojaCostos, VALORES_FIJOS } from "@/lib/db/hoja-co
 import { insertOpTelas, deleteOpTela, getOpTelas } from "@/lib/db/op-tela"
 import { batchSaveSlotLotes, getOpTelaLotes } from "@/lib/db/op-tela-lote"
 import { createLoteDesdeOP, upsertLoteDesdeGrid, deleteLoteCascada,
-  type AjusteLote,
+  type AjusteLote, getLotesByOrden,
 } from "@/lib/db/lote"
 import { createCategoria } from "@/lib/db/categoria"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
@@ -421,16 +421,32 @@ export async function eliminarLoteAction(
 
 // ── Transición de estado ──────────────────────────────────────────────────────
 
-export async function enviarADisenoAction(ordenId: number): Promise<ActionResult> {
+// La OP aprobada pasa directamente a Corte. El paso por Diseño quedo
+// fuera del flujo: se retomara cuando se reactive ese modulo.
+export async function enviarACorteAction(ordenId: number): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    await cambiarEstado(ordenId, "diseno")
+    const lotes = await getLotesByOrden(ordenId)
+    if (lotes.length === 0) {
+      return {
+        error:
+          "Esta orden aún no tiene lotes. Créalos desde la pestaña Curva antes de enviarla a corte.",
+      }
+    }
+
+    await cambiarEstado(ordenId, "corte")
     revalidatePath(`/produccion/${ordenId}`)
     revalidatePath("/produccion")
+    revalidatePath("/corte")
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error cambiando estado" }
   }
+}
+
+/** @deprecated Diseño salio del flujo: la OP va de programada a corte. */
+export async function enviarADisenoAction(ordenId: number): Promise<ActionResult> {
+  return enviarACorteAction(ordenId)
 }

@@ -85,7 +85,6 @@ const NAV_GROUPS: NavGroup[] = [
       { nombre: "Seguimiento",      href: "/seguimiento",   icon: BarChart3,     permisoKey: "mod_seguimiento"      },
       { nombre: "Orden Producción", href: "/produccion",    icon: ClipboardList, permisoKey: "mod_orden_produccion" },
       { nombre: "Materiales",       href: "/materiales",    icon: Database,      permisoKey: "mod_orden_produccion" },
-      { nombre: "Diseño",           href: "/diseno",        icon: Palette,       permisoKey: "mod_diseno"           },
       { nombre: "Corte",            href: "/corte",         icon: Scissors,      permisoKey: "mod_corte"            },
       { nombre: "Estampación",      href: "/estampacion",   icon: Printer,       permisoKey: "mod_estampacion"      },
       { nombre: "Confección",       href: "/confeccion",    icon: Layers,        permisoKey: "mod_confeccion"       },

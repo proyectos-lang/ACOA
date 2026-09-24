@@ -57,7 +57,8 @@ const STAGE_META: Record<
   terminada:   { label: "Terminada",   bg: "bg-blue-100",    text: "text-blue-700",    border: "border-blue-300",    hex: "#2563eb", pipelineHex: "#60a5fa" },
 }
 
-const PIPELINE_STAGES: Stage[] = ["programada", "diseno", "corte", "estampacion", "confeccion", "conteo", "empaque"]
+// Diseño salio del flujo: la OP va de programada directo a corte
+const PIPELINE_STAGES: Stage[] = ["programada", "corte", "estampacion", "confeccion", "conteo", "empaque"]
 
 const COP = new Intl.NumberFormat("es-CO", {
   style: "currency",

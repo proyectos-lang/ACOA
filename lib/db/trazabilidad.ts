@@ -3,6 +3,9 @@ import { createVanessaClient } from "@/lib/supabase/vanessa"
 // Trazabilidad 360 de las órdenes de producción: estado actual, avance por
 // lote y prenda, línea de tiempo por etapa y tiempos de proceso (lead time).
 
+// Diseño salio del flujo (la OP va de programada a corte), pero la etapa
+// se conserva aqui: las ordenes que ya pasaron por ahi tienen su fecha de
+// aprobacion y perderian ese hito de su historia.
 export const ETAPAS = [
   { key: "diseno", label: "Diseño", color: "#a855f7" },
   { key: "corte", label: "Corte", color: "#f59e0b" },

@@ -3,6 +3,8 @@ import { deleteLoteCascada } from "@/lib/db/lote"
 
 export type EstadoOP =
   | "programada"
+  // "diseno" salio del flujo: la OP va de programada a corte. Se conserva
+  // en el tipo porque hay ordenes historicas con ese estado.
   | "diseno"
   | "corte"
   | "estampacion"

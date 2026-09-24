@@ -25,7 +25,7 @@ import {
   aprobarDisenoAction,
   guardarLoteDisenoAction,
   aprobarYEnviarEstampacionAction,
-} from "@/app/(dashboard)/diseno/[id]/actions"
+} from "@/app/(dashboard)/_diseno_desactivado/[id]/actions"
 import {
   AlertDialog,
   AlertDialogAction,
