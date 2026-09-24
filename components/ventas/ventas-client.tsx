@@ -713,6 +713,8 @@ export function VentasClient({
       estado: EstadoVenta
       forma_pago: FormaPago
       razon_social: RazonSocial
+      // La venta completa, para imprimir o editar desde la fila
+      venta: VentaConDetalle
     }> = []
     for (const v of ventasFiltradas) {
       for (const d of v.detalle) {
@@ -731,11 +733,19 @@ export function VentasClient({
           estado: v.estado,
           forma_pago: v.forma_pago,
           razon_social: v.razon_social,
+          venta: v,
         })
       }
     }
     return filas
   }, [ventasFiltradas])
+
+  // Una factura ocupa varias filas de la tabla plana: las acciones solo
+  // se dibujan en la primera linea de cada documento
+  function esPrimeraLineaDelDoc(i: number): boolean {
+    if (i === 0) return true
+    return filasPlanas[i - 1].documento !== filasPlanas[i].documento
+  }
 
   function exportarExcel() {
     const encabezados = [
@@ -1544,9 +1554,10 @@ export function VentasClient({
                       "Factura",
                       "Pago",
                       "Estado",
-                    ].map((h) => (
+                      "",
+                    ].map((h, i) => (
                       <th
-                        key={h}
+                        key={`${h}_${i}`}
                         className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
                       >
                         {h}
@@ -1557,7 +1568,7 @@ export function VentasClient({
                 <tbody>
                   {filasPlanas.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-3 py-8 text-center text-sm text-stone-400">
+                      <td colSpan={15} className="px-3 py-8 text-center text-sm text-stone-400">
                         No hay ventas registradas con esos filtros
                       </td>
                     </tr>
@@ -1594,6 +1605,28 @@ export function VentasClient({
                           <Badge className={ESTADO_VENTA_COLOR[f.estado]}>
                             {ESTADO_VENTA_LABEL[f.estado]}
                           </Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          {/* Las acciones son del documento, no de la linea:
+                              se muestran una sola vez por factura */}
+                          {esPrimeraLineaDelDoc(i) && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => imprimirFactura(f.venta)}
+                                title={`Descargar la factura ${f.documento} en PDF`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => cargarVenta(f.venta)}
+                                title={`Editar la factura ${f.documento}`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))
