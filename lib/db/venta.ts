@@ -881,9 +881,14 @@ export async function getHistorialGlobal(input?: {
   if (input?.razon_social) qc = qc.eq("razon_social", input.razon_social)
   const { count: total } = await qc
 
+  // Se ordena por el documento, de mayor a menor: venta_id sigue el mismo
+  // orden que el numero de factura, y ordenar por el en la base mantiene
+  // coherente la paginacion (ordenar solo en memoria daria paginas sueltas).
+  // Dentro de cada factura, sus eventos van del mas reciente al mas antiguo.
   let q = db
     .from("venta_historial")
     .select("*")
+    .order("venta_id", { ascending: false })
     .order("creado_en", { ascending: false })
     .range(desdeFila, desdeFila + porPagina - 1)
   if (input?.nivel) q = q.eq("nivel", input.nivel)
