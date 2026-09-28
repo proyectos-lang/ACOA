@@ -852,26 +852,48 @@ export async function getHistorialVenta(ventaId: number): Promise<VentaHistorial
 }
 
 // Historial global, para la pestana de historial del modulo
+// El historial puede tener muchas mas filas de las que se pueden traer
+// de una vez: se pagina y se devuelve el total para poder recorrerlo.
+export interface PaginaHistorial {
+  filas: HistorialConVenta[]
+  total: number
+  pagina: number
+  por_pagina: number
+}
+
 export async function getHistorialGlobal(input?: {
   nivel?: "factura" | "detalle" | null
   razon_social?: RazonSocial | null
   desde?: string
   hasta?: string
-}): Promise<HistorialConVenta[]> {
+  pagina?: number
+  por_pagina?: number
+}): Promise<PaginaHistorial> {
   const db = createVanessaClient()
+
+  const porPagina = Math.min(Math.max(input?.por_pagina ?? 200, 20), 1000)
+  const pagina = Math.max(input?.pagina ?? 1, 1)
+  const desdeFila = (pagina - 1) * porPagina
+
+  // Cuantas filas hay en total con esos filtros
+  let qc = db.from("venta_historial").select("*", { count: "exact", head: true })
+  if (input?.nivel) qc = qc.eq("nivel", input.nivel)
+  if (input?.razon_social) qc = qc.eq("razon_social", input.razon_social)
+  const { count: total } = await qc
 
   let q = db
     .from("venta_historial")
     .select("*")
     .order("creado_en", { ascending: false })
-    .limit(2000)
+    .range(desdeFila, desdeFila + porPagina - 1)
   if (input?.nivel) q = q.eq("nivel", input.nivel)
   if (input?.razon_social) q = q.eq("razon_social", input.razon_social)
 
   const { data, error } = await q
   if (error) throw new Error(error.message)
   const filas = (data ?? []) as VentaHistorialRow[]
-  if (filas.length === 0) return []
+  const vacio = { filas: [], total: total ?? 0, pagina, por_pagina: porPagina }
+  if (filas.length === 0) return vacio
 
   const { data: ventas } = await db
     .from("venta")
@@ -901,11 +923,13 @@ export async function getHistorialGlobal(input?: {
   })
 
   // El filtro por fecha es sobre la fecha de la venta
-  return conVenta.filter((h) => {
+  const filtradas = conVenta.filter((h) => {
     if (input?.desde && h.fecha_venta && h.fecha_venta < input.desde) return false
     if (input?.hasta && h.fecha_venta && h.fecha_venta > input.hasta) return false
     return true
   })
+
+  return { filas: filtradas, total: total ?? 0, pagina, por_pagina: porPagina }
 }
 
 // ── Cartera: abonos de las ventas a credito ─────────────────────

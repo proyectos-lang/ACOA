@@ -68,6 +68,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { nombre: "Dashboard",     href: "/",              icon: LayoutDashboard, permisoKey: null               },
       { nombre: "Ventas",        href: "/ventas",        icon: ShoppingCart,    permisoKey: "mod_ventas"       },
+      { nombre: "Productos",     href: "/productos",     icon: Package,         permisoKey: "mod_ventas"       },
       { nombre: "Usuarios",      href: "/usuarios",      icon: Users,           permisoKey: "mod_usuarios"     },
       { nombre: "Personal",      href: "/personal",      icon: UserCheck,       permisoKey: "mod_personal"     },
       { nombre: "Asistencia",    href: "/asistencia",    icon: Clock,           permisoKey: "mod_asistencia"   },

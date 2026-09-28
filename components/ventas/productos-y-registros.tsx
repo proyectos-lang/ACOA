@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Save,
   Plus,
+  Printer,
 } from "lucide-react"
 import type {
   ReferenciaVentaRow,
@@ -277,14 +278,17 @@ export function MaestroProductos({
 
 export function RegistroVentas({
   empresa,
-  titulo,
   descripcion,
   onMsg,
+  onImprimir,
+  onCambiarEmpresa,
 }: {
   empresa: EmpresaProducto | null
-  titulo: string
   descripcion: string
   onMsg: (tipo: "ok" | "error", msg: string) => void
+  // Imprime la factura completa: la reimpresion siempre es del documento
+  onImprimir?: (ventaId: number) => void
+  onCambiarEmpresa?: (e: EmpresaProducto | null) => void
 }) {
   const [isPending, startTransition] = useTransition()
   const [ventas, setVentas] = React.useState<VentaPorEmpresa[]>([])
@@ -473,6 +477,25 @@ export function RegistroVentas({
               placeholder="Buscar..."
             />
           </div>
+          {onCambiarEmpresa && (
+            <div>
+              <label className="block text-[11px] font-medium text-stone-500">Ver</label>
+              <select
+                className={filtroCls}
+                value={empresa ?? ""}
+                onChange={(e) =>
+                  onCambiarEmpresa((e.target.value || null) as EmpresaProducto | null)
+                }
+              >
+                <option value="">Global (todo)</option>
+                {EMPRESAS.map((e) => (
+                  <option key={e} value={e}>
+                    Solo {e}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={exportar}
             className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50"
@@ -496,6 +519,7 @@ export function RegistroVentas({
                   "Unidades",
                   empresa ? `Valor ${empresa}` : "Valor",
                   "Estado",
+                  "",
                 ].map((h, i) => (
                   <th
                     key={`${h}_${i}`}
@@ -509,7 +533,7 @@ export function RegistroVentas({
             <tbody>
               {filtradas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-3 py-8 text-center text-sm text-stone-400">
+                  <td colSpan={9} className="px-3 py-8 text-center text-sm text-stone-400">
                     {cargado ? "Sin facturas en este registro" : "Cargando..."}
                   </td>
                 </tr>
@@ -563,11 +587,25 @@ export function RegistroVentas({
                             {ESTADO_VENTA_LABEL[v.estado]}
                           </Badge>
                         </td>
+                        <td className="px-3 py-2">
+                          {onImprimir && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                onImprimir(v.id)
+                              }}
+                              title={`Reimprimir la factura ${v.numero_documento}`}
+                              className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                            >
+                              <Printer className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
 
                       {ab && (
                         <tr className="border-b border-stone-100 bg-stone-50/60">
-                          <td colSpan={8} className="px-3 py-3">
+                          <td colSpan={9} className="px-3 py-3">
                             <div className="overflow-hidden rounded-lg border border-stone-200 bg-white">
                               <table className="w-full text-xs">
                                 <thead className="bg-stone-50">

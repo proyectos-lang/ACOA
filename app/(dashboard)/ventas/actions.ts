@@ -38,6 +38,9 @@ type ActionResult = {
   abonos?: VentaAbonoRow[]
   historial?: VentaHistorialRow[]
   historialGlobal?: HistorialConVenta[]
+  totalHistorial?: number
+  pagina?: number
+  porPagina?: number
 }
 
 function revalidar() {
@@ -285,13 +288,21 @@ export async function cargarHistorialGlobalAction(input?: {
   razon_social?: RazonSocial | null
   desde?: string
   hasta?: string
+  pagina?: number
+  por_pagina?: number
 }): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    const historialGlobal = await getHistorialGlobal(input)
-    return { success: true, historialGlobal }
+    const p = await getHistorialGlobal(input)
+    return {
+      success: true,
+      historialGlobal: p.filas,
+      totalHistorial: p.total,
+      pagina: p.pagina,
+      porPagina: p.por_pagina,
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error cargando el historial" }
   }

@@ -35,6 +35,7 @@ import type {
   EstadoVenta,
   FormaPago,
   RazonSocial,
+  EmpresaProducto,
   VentaAbonoRow,
   HistorialConVenta,
 } from "@/lib/db/venta"
@@ -49,7 +50,7 @@ import {
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import { enlazarOrdenesConVentaAction } from "@/app/(dashboard)/inventario/orden-salida-actions"
 import { VentasDashboard } from "@/components/ventas/ventas-dashboard"
-import { MaestroProductos, RegistroVentas } from "@/components/ventas/productos-y-registros"
+import { RegistroVentas } from "@/components/ventas/productos-y-registros"
 import type { DashboardVentas } from "@/lib/db/ventas-dashboard"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
 import {
@@ -146,15 +147,10 @@ export function VentasClient({
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [vista, setVista] = React.useState<
-    | "dashboard"
-    | "registro"
-    | "ventas"
-    | "global"
-    | "acoa"
-    | "productos"
-    | "cartera"
-    | "historial"
+    "dashboard" | "registro" | "consulta" | "cartera" | "historial"
   >("dashboard")
+  // Que empresa se ve en el registro: null = global
+  const [empresaRegistro, setEmpresaRegistro] = React.useState<EmpresaProducto | null>(null)
 
   // ── Formulario de la venta ──
   const [ventaId, setVentaId] = React.useState<number | null>(null)
@@ -191,6 +187,10 @@ export function VentasClient({
   const [hNivel, setHNivel] = React.useState<"factura" | "detalle" | "">("")
   const [hRazon, setHRazon] = React.useState<RazonSocial | "">("")
   const [hCargado, setHCargado] = React.useState(false)
+  // Paginacion del historial: puede tener mas filas de las que caben
+  const [hPagina, setHPagina] = React.useState(1)
+  const [hPorPagina, setHPorPagina] = React.useState(200)
+  const [hTotal, setHTotal] = React.useState(0)
 
   // ── Filtros de la cartera ──
   const [fDesde, setFDesde] = React.useState("")
@@ -507,8 +507,8 @@ export function VentasClient({
       )
       limpiarFormulario()
       router.refresh()
-      // El credito queda en cartera; el contado se ve en la lista de ventas
-      setVista(eraCredito ? "cartera" : "ventas")
+      // El credito queda en cartera; el contado se ve en el registro
+      setVista(eraCredito ? "cartera" : "consulta")
       setHCargado(false)
     })
   }
@@ -628,17 +628,27 @@ export function VentasClient({
 
   // ── Historial ──
   const cargarHistorial = React.useCallback(
-    (nivel: "factura" | "detalle" | "", razon: RazonSocial | "" = "") => {
+    (
+      nivel: "factura" | "detalle" | "",
+      razon: RazonSocial | "" = "",
+      pagina = 1,
+      porPagina = 200
+    ) => {
       startTransition(async () => {
         const r = await cargarHistorialGlobalAction({
           nivel: nivel || null,
           razon_social: razon || null,
+          pagina,
+          por_pagina: porPagina,
         })
         if (r.error) {
           aviso("error", r.error)
           return
         }
         setHistorial(r.historialGlobal ?? [])
+        setHTotal(r.totalHistorial ?? 0)
+        setHPagina(r.pagina ?? pagina)
+        setHPorPagina(r.porPagina ?? porPagina)
         setHCargado(true)
       })
     },
@@ -647,7 +657,7 @@ export function VentasClient({
   )
 
   React.useEffect(() => {
-    if (vista === "historial" && !hCargado) cargarHistorial(hNivel, hRazon)
+    if (vista === "historial" && !hCargado) cargarHistorial(hNivel, hRazon, 1, hPorPagina)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista, hCargado])
 
@@ -973,10 +983,7 @@ export function VentasClient({
           [
             { k: "dashboard", label: "Dashboard", icon: BarChart3 },
             { k: "registro", label: "Registrar venta", icon: ShoppingCart },
-            { k: "ventas", label: `Ventas (${ventas.length})`, icon: FileSpreadsheet },
-            { k: "global", label: "Registro global", icon: Layers },
-            { k: "acoa", label: "Registro ACOA", icon: Building2 },
-            { k: "productos", label: `Productos (${referencias.length})`, icon: Package },
+            { k: "consulta", label: `Registro (${ventas.length})`, icon: FileSpreadsheet },
             { k: "cartera", label: `Cartera (${ventasCredito.length})`, icon: Wallet },
             { k: "historial", label: "Historial", icon: History },
           ] as const
@@ -998,29 +1005,21 @@ export function VentasClient({
 
       {vista === "dashboard" && dashboard && <VentasDashboard datos={dashboard} />}
 
-      {vista === "global" && (
+      {vista === "consulta" && (
         <RegistroVentas
-          empresa={null}
-          titulo="Registro de ventas global"
-          descripcion="Todas las facturas con sus productos"
+          empresa={empresaRegistro}
+          descripcion={
+            empresaRegistro
+              ? `Solo los productos de ${empresaRegistro}`
+              : "Todas las facturas con sus productos"
+          }
           onMsg={aviso}
-        />
-      )}
-
-      {vista === "acoa" && (
-        <RegistroVentas
-          empresa="ACOA"
-          titulo="Registro de ventas ACOA"
-          descripcion="Solo los productos de ACOA"
-          onMsg={aviso}
-        />
-      )}
-
-      {vista === "productos" && (
-        <MaestroProductos
-          referencias={referencias}
-          onMsg={aviso}
-          onRefrescar={() => router.refresh()}
+          onCambiarEmpresa={setEmpresaRegistro}
+          onImprimir={(ventaId) => {
+            const v = ventas.find((x) => x.id === ventaId)
+            if (v) imprimirFactura(v)
+            else aviso("error", "No se encontró la factura")
+          }}
         />
       )}
 
@@ -1457,342 +1456,6 @@ export function VentasClient({
         </div>
       )}
 
-      {vista === "ventas" && (
-        <div className="space-y-4">
-          {/* Totales */}
-          <Card className="p-4">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <div>
-                <p className="text-[11px] uppercase text-stone-400">Documentos</p>
-                <p className="text-xl font-bold text-stone-900">{ventasFiltradas.length}</p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase text-stone-400">Lineas</p>
-                <p className="text-xl font-bold text-stone-900">{filasPlanas.length}</p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase text-stone-400">Unidades</p>
-                <p className="text-xl font-bold text-stone-900">
-                  {unidadesCartera.toLocaleString("es-CO")}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase text-stone-400">Total</p>
-                <p className="text-xl font-bold text-[#344966]">{pesos(totalCartera)}</p>
-              </div>
-            </div>
-
-            {/* Cuanto factura cada razon social */}
-            <div className="mt-4 flex flex-wrap gap-3 border-t border-stone-100 pt-3">
-              {RAZONES_SOCIALES.map((r) => {
-                const deLaRazon = ventasFiltradas.filter(
-                  (v) => v.razon_social === r && v.estado !== "anulada"
-                )
-                const valor = deLaRazon.reduce((s, v) => s + Number(v.total_valor), 0)
-                return (
-                  <div key={r} className="flex items-center gap-2">
-                    <Badge className={RAZON_SOCIAL_COLOR[r]}>{r}</Badge>
-                    <span className="text-sm font-semibold text-stone-800">{pesos(valor)}</span>
-                    <span className="text-xs text-stone-400">
-                      ({deLaRazon.length} factura{deLaRazon.length === 1 ? "" : "s"})
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
-
-          {/* Filtros */}
-          <Card className="p-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-[11px] font-medium text-stone-500">Desde</label>
-                <input
-                  type="date"
-                  className={filtroCls}
-                  value={fDesde}
-                  onChange={(e) => setFDesde(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-stone-500">Hasta</label>
-                <input
-                  type="date"
-                  className={filtroCls}
-                  value={fHasta}
-                  onChange={(e) => setFHasta(e.target.value)}
-                />
-              </div>
-              <div className="min-w-[200px] flex-1">
-                <label className="block text-[11px] font-medium text-stone-500">
-                  Cliente, ciudad o documento
-                </label>
-                <input
-                  className={`${filtroCls} w-full`}
-                  value={fCliente}
-                  onChange={(e) => setFCliente(e.target.value)}
-                  placeholder="Buscar..."
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-stone-500">Estado</label>
-                <select
-                  className={filtroCls}
-                  value={fEstado}
-                  onChange={(e) => setFEstado(e.target.value)}
-                >
-                  <option value="">Todos</option>
-                  <option value="borrador">Borrador</option>
-                  <option value="confirmada">Confirmada</option>
-                  <option value="anulada">Anulada</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-medium text-stone-500">
-                  Razon social
-                </label>
-                <select
-                  className={filtroCls}
-                  value={fRazon}
-                  onChange={(e) => setFRazon(e.target.value as RazonSocial | "")}
-                >
-                  <option value="">Todas</option>
-                  {RAZONES_SOCIALES.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                onClick={exportarExcel}
-                className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50"
-              >
-                <FileSpreadsheet className="h-4 w-4" /> Excel
-              </button>
-              <button
-                onClick={imprimir}
-                className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50"
-              >
-                <Printer className="h-4 w-4" /> Imprimir
-              </button>
-            </div>
-          </Card>
-
-          {/* Tabla plana, como el formato de CARTERA */}
-          <Card className="p-0">
-            <div className="max-h-[560px] overflow-auto">
-              <table className="w-full min-w-[1000px] text-sm">
-                <thead className="sticky top-0 bg-stone-50">
-                  <tr className="border-b border-stone-200">
-                    {[
-                      "Fecha",
-                      "Documento",
-                      "Cliente",
-                      "Ciudad",
-                      "Ref.",
-                      "Descripcion",
-                      "Linea",
-                      "Categoria",
-                      "Cant.",
-                      "Vr. unidad",
-                      "Total",
-                      "Factura",
-                      "Pago",
-                      "Estado",
-                      "",
-                    ].map((h, i) => (
-                      <th
-                        key={`${h}_${i}`}
-                        className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-500"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filasPlanas.length === 0 ? (
-                    <tr>
-                      <td colSpan={15} className="px-3 py-8 text-center text-sm text-stone-400">
-                        No hay ventas registradas con esos filtros
-                      </td>
-                    </tr>
-                  ) : (
-                    filasPlanas.map((f, i) => (
-                      <tr
-                        key={`${f.documento}_${f.referencia}_${f.cantidad}_${i}`}
-                        className="border-b border-stone-100 last:border-0 hover:bg-stone-50"
-                      >
-                        <td className="px-3 py-2 font-mono text-xs text-stone-600">{f.fecha}</td>
-                        <td className="px-3 py-2 font-semibold text-stone-800">{f.documento}</td>
-                        <td className="px-3 py-2 text-stone-700">{f.cliente}</td>
-                        <td className="px-3 py-2 text-stone-500">{f.ciudad}</td>
-                        <td className="px-3 py-2 font-semibold text-stone-800">{f.referencia}</td>
-                        <td className="px-3 py-2 text-xs text-stone-500">{f.descripcion}</td>
-                        <td className="px-3 py-2 text-xs text-stone-500">{f.linea}</td>
-                        <td className="px-3 py-2 text-xs text-stone-500">{f.categoria}</td>
-                        <td className="px-3 py-2 text-right text-stone-800">{f.cantidad}</td>
-                        <td className="px-3 py-2 text-right text-stone-600">{pesos(f.valor)}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-stone-900">
-                          {pesos(f.total)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge className={RAZON_SOCIAL_COLOR[f.razon_social]}>
-                            {f.razon_social}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge className={FORMA_PAGO_COLOR[f.forma_pago]}>
-                            {f.forma_pago === "credito" ? "Credito" : "Contado"}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2">
-                          <Badge className={ESTADO_VENTA_COLOR[f.estado]}>
-                            {ESTADO_VENTA_LABEL[f.estado]}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2">
-                          {/* Las acciones son del documento, no de la linea:
-                              se muestran una sola vez por factura */}
-                          {esPrimeraLineaDelDoc(i) && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => imprimirFactura(f.venta)}
-                                title={`Descargar la factura ${f.documento} en PDF`}
-                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
-                              >
-                                <Printer className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => cargarVenta(f.venta)}
-                                title={`Editar la factura ${f.documento}`}
-                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* Documentos con sus acciones */}
-          <Card className="p-4">
-            <h2 className="mb-3 text-sm font-semibold text-stone-700">Documentos</h2>
-            <div className="max-h-[420px] space-y-2 overflow-auto">
-              {ventasFiltradas.map((v) => (
-                <div
-                  key={v.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 p-3"
-                >
-                  <div className="min-w-[220px]">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-stone-800">{v.numero_documento}</span>
-                      <Badge className={ESTADO_VENTA_COLOR[v.estado]}>
-                        {ESTADO_VENTA_LABEL[v.estado]}
-                      </Badge>
-                      <Badge className={FORMA_PAGO_COLOR[v.forma_pago]}>
-                        {FORMA_PAGO_LABEL[v.forma_pago]}
-                      </Badge>
-                      <Badge className={RAZON_SOCIAL_COLOR[v.razon_social]}>
-                        {v.razon_social}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-stone-500">
-                      {v.fecha} &middot; {v.cliente_nombre}
-                      {v.ciudad ? ` - ${v.ciudad}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-stone-900">{pesos(Number(v.total_valor))}</p>
-                    <p className="text-xs text-stone-500">{v.total_unidades} unidades</p>
-                    {v.forma_pago === "credito" && v.estado === "confirmada" && (
-                      <p className="text-xs text-amber-700">
-                        Saldo: {pesos(Number(v.total_valor) - Number(v.total_abonado))}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => imprimirFactura(v)}
-                      className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
-                    >
-                      <Printer className="h-3 w-3" /> Factura
-                    </button>
-                    {/* La factura se corrige en cualquier estado; al guardar,
-                        si estaba confirmada se rehacen sus movimientos */}
-                    <button
-                      onClick={() => cargarVenta(v)}
-                      className="flex items-center gap-1 rounded-lg border border-stone-200 px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
-                    >
-                      <Pencil className="h-3 w-3" /> Editar
-                    </button>
-                    {v.estado === "confirmada" && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <button className="flex items-center gap-1 rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50">
-                            <Ban className="h-3 w-3" /> Anular
-                          </button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Anular la venta {v.numero_documento}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Se devuelven {v.total_unidades} unidades al inventario y la venta
-                              queda marcada como anulada.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => anular(v.id)}>
-                              Anular
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <button className="rounded-lg p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-600">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            Eliminar la venta {v.numero_documento}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Se devuelve el inventario que haya descontado y el documento se borra.
-                            Solo el administrador puede hacerlo.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => eliminar(v.id)}>
-                            Eliminar
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                </div>
-              ))}
-              {ventasFiltradas.length === 0 && (
-                <p className="py-6 text-center text-sm text-stone-400">
-                  No hay documentos con esos filtros
-                </p>
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
 
       {vista === "cartera" && (
         <div className="space-y-4">
@@ -2151,7 +1814,7 @@ export function VentasClient({
                   onChange={(e) => {
                     const n = e.target.value as "factura" | "detalle" | ""
                     setHNivel(n)
-                    cargarHistorial(n, hRazon)
+                    cargarHistorial(n, hRazon, 1, hPorPagina)
                   }}
                 >
                   <option value="">Todo</option>
@@ -2169,7 +1832,7 @@ export function VentasClient({
                   onChange={(e) => {
                     const r = e.target.value as RazonSocial | ""
                     setHRazon(r)
-                    cargarHistorial(hNivel, r)
+                    cargarHistorial(hNivel, r, 1, hPorPagina)
                   }}
                 >
                   <option value="">Todas</option>
@@ -2181,15 +1844,33 @@ export function VentasClient({
                 </select>
               </div>
               <button
-                onClick={() => cargarHistorial(hNivel, hRazon)}
+                onClick={() => cargarHistorial(hNivel, hRazon, hPagina, hPorPagina)}
                 disabled={isPending}
                 className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-600 hover:bg-stone-50 disabled:opacity-50"
               >
                 Actualizar
               </button>
+              <div>
+                <label className="block text-[11px] font-medium text-stone-500">Por pagina</label>
+                <select
+                  className={filtroCls}
+                  value={hPorPagina}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setHPorPagina(n)
+                    cargarHistorial(hNivel, hRazon, 1, n)
+                  }}
+                >
+                  {[100, 200, 500, 1000].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <p className="text-xs text-stone-400">
-                {historial.length} evento(s) &middot; a nivel factura se ve el ciclo del
-                documento; a nivel detalle, las lineas vendidas
+                {hTotal.toLocaleString("es-CO")} evento(s) en total &middot; a nivel factura se ve
+                el ciclo del documento; a nivel detalle, las lineas vendidas
               </p>
             </div>
           </Card>
@@ -2288,6 +1969,60 @@ export function VentasClient({
                 </tbody>
               </table>
             </div>
+
+            {/* Paginacion: el historial crece sin limite */}
+            {hTotal > hPorPagina && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 px-4 py-3">
+                <p className="text-xs text-stone-500">
+                  Mostrando{" "}
+                  <strong>
+                    {((hPagina - 1) * hPorPagina + 1).toLocaleString("es-CO")}–
+                    {Math.min(hPagina * hPorPagina, hTotal).toLocaleString("es-CO")}
+                  </strong>{" "}
+                  de {hTotal.toLocaleString("es-CO")}
+                </p>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => cargarHistorial(hNivel, hRazon, 1, hPorPagina)}
+                    disabled={hPagina === 1 || isPending}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    Primera
+                  </button>
+                  <button
+                    onClick={() => cargarHistorial(hNivel, hRazon, hPagina - 1, hPorPagina)}
+                    disabled={hPagina === 1 || isPending}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    Anterior
+                  </button>
+                  <span className="px-2 text-xs text-stone-500">
+                    Página {hPagina} de {Math.max(1, Math.ceil(hTotal / hPorPagina))}
+                  </span>
+                  <button
+                    onClick={() => cargarHistorial(hNivel, hRazon, hPagina + 1, hPorPagina)}
+                    disabled={hPagina >= Math.ceil(hTotal / hPorPagina) || isPending}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    Siguiente
+                  </button>
+                  <button
+                    onClick={() =>
+                      cargarHistorial(
+                        hNivel,
+                        hRazon,
+                        Math.ceil(hTotal / hPorPagina),
+                        hPorPagina
+                      )
+                    }
+                    disabled={hPagina >= Math.ceil(hTotal / hPorPagina) || isPending}
+                    className="rounded-lg border border-stone-200 px-2.5 py-1.5 text-xs text-stone-600 hover:bg-stone-50 disabled:opacity-40"
+                  >
+                    Última
+                  </button>
+                </div>
+              </div>
+            )}
           </Card>
         </div>
       )}
