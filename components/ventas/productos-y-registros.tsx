@@ -14,6 +14,7 @@ import {
   Save,
   Plus,
   Printer,
+  Pencil,
 } from "lucide-react"
 import type {
   ReferenciaVentaRow,
@@ -281,6 +282,7 @@ export function RegistroVentas({
   descripcion,
   onMsg,
   onImprimir,
+  onEditar,
   onCambiarEmpresa,
 }: {
   empresa: EmpresaProducto | null
@@ -288,6 +290,7 @@ export function RegistroVentas({
   onMsg: (tipo: "ok" | "error", msg: string) => void
   // Imprime la factura completa: la reimpresion siempre es del documento
   onImprimir?: (ventaId: number) => void
+  onEditar?: (ventaId: number) => void
   onCambiarEmpresa?: (e: EmpresaProducto | null) => void
 }) {
   const [isPending, startTransition] = useTransition()
@@ -588,18 +591,32 @@ export function RegistroVentas({
                           </Badge>
                         </td>
                         <td className="px-3 py-2">
-                          {onImprimir && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                onImprimir(v.id)
-                              }}
-                              title={`Reimprimir la factura ${v.numero_documento}`}
-                              className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
-                            >
-                              <Printer className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {onImprimir && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onImprimir(v.id)
+                                }}
+                                title={`Reimprimir la factura ${v.numero_documento}`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                              >
+                                <Printer className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onEditar && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onEditar(v.id)
+                                }}
+                                title={`Editar la factura ${v.numero_documento}`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
 

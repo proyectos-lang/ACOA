@@ -1020,6 +1020,11 @@ export function VentasClient({
             if (v) imprimirFactura(v)
             else aviso("error", "No se encontró la factura")
           }}
+          onEditar={(ventaId) => {
+            const v = ventas.find((x) => x.id === ventaId)
+            if (v) cargarVenta(v)
+            else aviso("error", "No se encontró la factura")
+          }}
         />
       )}
 
