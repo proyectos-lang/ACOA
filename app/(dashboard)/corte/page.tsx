@@ -3,6 +3,10 @@ import { listOPsEnCorte } from "@/lib/db/corte"
 import { getReporteCortes } from "@/lib/db/reporte-corte"
 import { CorteTabs } from "@/components/corte/corte-tabs"
 
+// El cortador guarda y vuelve a entrar: la ficha no se puede servir
+// desde cache o veria sus capas viejas
+export const dynamic = "force-dynamic"
+
 export default async function CortePage() {
   await requirePermiso("mod_corte")
 

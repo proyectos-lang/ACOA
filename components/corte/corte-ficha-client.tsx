@@ -402,9 +402,18 @@ function CapasCortadasSection({
     const comentarios: Record<string, string> = {}
     for (const r of opTelaLotes) {
       const k = keyDe(r.slot, r.fila ?? 0, r.lote_nombre)
-      const guardado = corteCapas.find(
-        (c) => c.slot === r.slot && c.fila === (r.fila ?? 0) && c.lote_nombre === r.lote_nombre
-      )
+      // Las capas se guardan una sola vez (en el material de referencia)
+      // porque son las mismas para todos los materiales. Al cargarlas se
+      // busca primero la del mismo slot y, si no existe, la de cualquier
+      // otro: sin esto los materiales 2 y 3 volvian a mostrar la capa
+      // programada y se perdia de vista lo que el cortador registro.
+      const guardado =
+        corteCapas.find(
+          (c) => c.slot === r.slot && c.fila === (r.fila ?? 0) && c.lote_nombre === r.lote_nombre
+        ) ??
+        corteCapas.find(
+          (c) => c.fila === (r.fila ?? 0) && c.lote_nombre === r.lote_nombre
+        )
       reales[k] = String(guardado ? guardado.capas_reales : r.capas)
       comentarios[k] = guardado?.comentario ?? ""
     }

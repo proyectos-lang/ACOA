@@ -13,6 +13,10 @@ import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
 
+// El cortador guarda y vuelve a entrar: la ficha no se puede servir
+// desde cache o veria sus capas viejas
+export const dynamic = "force-dynamic"
+
 export default async function CorteFichaPage({
   params,
 }: {
