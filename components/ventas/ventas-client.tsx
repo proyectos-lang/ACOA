@@ -23,6 +23,8 @@ import {
   Building2,
   BarChart3,
   PackageMinus,
+  Layers,
+  Package,
 } from "lucide-react"
 import type {
   VentaConDetalle,
@@ -47,6 +49,7 @@ import {
 import { ReferenciaCombobox } from "@/components/ui/referencia-combobox"
 import { enlazarOrdenesConVentaAction } from "@/app/(dashboard)/inventario/orden-salida-actions"
 import { VentasDashboard } from "@/components/ventas/ventas-dashboard"
+import { MaestroProductos, RegistroVentas } from "@/components/ventas/productos-y-registros"
 import type { DashboardVentas } from "@/lib/db/ventas-dashboard"
 import type { SaldoInventario } from "@/lib/db/inventario-producto"
 import {
@@ -143,7 +146,14 @@ export function VentasClient({
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [isPending, startTransition] = useTransition()
   const [vista, setVista] = React.useState<
-    "dashboard" | "registro" | "ventas" | "cartera" | "historial"
+    | "dashboard"
+    | "registro"
+    | "ventas"
+    | "global"
+    | "acoa"
+    | "productos"
+    | "cartera"
+    | "historial"
   >("dashboard")
 
   // ── Formulario de la venta ──
@@ -336,6 +346,8 @@ export function VentasClient({
       linea: r?.linea ?? "",
       categoria: r?.categoria ?? "",
       valor_unidad: r?.valor_unidad ?? 0,
+      // El producto define a que empresa va esta linea
+      empresa: r?.empresa ?? "ACOA",
       talla: "",
     })
   }
@@ -940,7 +952,12 @@ export function VentasClient({
               (s.referencia ?? "").trim().toUpperCase() === r.referencia.trim().toUpperCase()
           )
           .reduce((acc, s) => acc + s.disponible, 0)
-        return { referencia: r.referencia, descripcion: r.descripcion, disponible }
+        return {
+          referencia: r.referencia,
+          descripcion: r.descripcion,
+          disponible,
+          empresa: r.empresa,
+        }
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [referencias, saldos]
@@ -957,6 +974,9 @@ export function VentasClient({
             { k: "dashboard", label: "Dashboard", icon: BarChart3 },
             { k: "registro", label: "Registrar venta", icon: ShoppingCart },
             { k: "ventas", label: `Ventas (${ventas.length})`, icon: FileSpreadsheet },
+            { k: "global", label: "Registro global", icon: Layers },
+            { k: "acoa", label: "Registro ACOA", icon: Building2 },
+            { k: "productos", label: `Productos (${referencias.length})`, icon: Package },
             { k: "cartera", label: `Cartera (${ventasCredito.length})`, icon: Wallet },
             { k: "historial", label: "Historial", icon: History },
           ] as const
@@ -977,6 +997,32 @@ export function VentasClient({
       </div>
 
       {vista === "dashboard" && dashboard && <VentasDashboard datos={dashboard} />}
+
+      {vista === "global" && (
+        <RegistroVentas
+          empresa={null}
+          titulo="Registro de ventas global"
+          descripcion="Todas las facturas con sus productos"
+          onMsg={aviso}
+        />
+      )}
+
+      {vista === "acoa" && (
+        <RegistroVentas
+          empresa="ACOA"
+          titulo="Registro de ventas ACOA"
+          descripcion="Solo los productos de ACOA"
+          onMsg={aviso}
+        />
+      )}
+
+      {vista === "productos" && (
+        <MaestroProductos
+          referencias={referencias}
+          onMsg={aviso}
+          onRefrescar={() => router.refresh()}
+        />
+      )}
 
       {vista === "registro" && (
         <div className="space-y-4">

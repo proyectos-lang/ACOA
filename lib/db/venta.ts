@@ -13,6 +13,17 @@ export type FormaPago = "contado" | "credito"
 // Razon social que emite la factura
 export type RazonSocial = "ACOA" | "GOODFATHER"
 
+// Empresa a la que pertenece cada producto. Define en que contabilidad
+// entra la linea de la venta.
+export type EmpresaProducto = "ACOA" | "GOODFATHER"
+
+export const EMPRESAS: EmpresaProducto[] = ["ACOA", "GOODFATHER"]
+
+export const EMPRESA_COLOR: Record<EmpresaProducto, string> = {
+  ACOA: "bg-[#344966]/10 text-[#344966]",
+  GOODFATHER: "bg-violet-100 text-violet-800",
+}
+
 export const RAZONES_SOCIALES: RazonSocial[] = ["ACOA", "GOODFATHER"]
 
 export const RAZON_SOCIAL_COLOR: Record<RazonSocial, string> = {
@@ -74,6 +85,7 @@ export interface ReferenciaVentaRow {
   linea: string | null
   categoria: string | null
   valor_unidad: number
+  empresa: EmpresaProducto
   activo: boolean
 }
 
@@ -88,6 +100,8 @@ export interface VentaDetalleRow {
   cantidad: number
   valor_unidad: number
   valor_total: number
+  // Empresa del producto al momento de registrar la venta
+  empresa: EmpresaProducto
   inventrans_id: number | null
 }
 
@@ -138,7 +152,7 @@ export const ESTADO_VENTA_COLOR: Record<EstadoVenta, string> = {
 const VENTA_COLS =
   "id, numero_documento, fecha, cliente_id, cliente_nombre, ciudad, estado, total_unidades, total_valor, observacion, creado_en, confirmada_en, forma_pago, dias_credito, fecha_vencimiento, total_abonado, razon_social"
 const DETALLE_COLS =
-  "id, venta_id, referencia, descripcion, linea, categoria, talla, cantidad, valor_unidad, valor_total, inventrans_id"
+  "id, venta_id, referencia, descripcion, linea, categoria, talla, cantidad, valor_unidad, valor_total, empresa, inventrans_id"
 
 // ── Clientes ────────────────────────────────────────────────────
 
@@ -204,7 +218,7 @@ export async function listReferenciasVenta(): Promise<ReferenciaVentaRow[]> {
   const db = createVanessaClient()
   const { data, error } = await db
     .from("referencia_venta")
-    .select("id, referencia, descripcion, linea, categoria, valor_unidad, activo")
+    .select("id, referencia, descripcion, linea, categoria, valor_unidad, empresa, activo")
     .eq("activo", true)
     .order("referencia")
   if (error) throw new Error(error.message)
@@ -218,6 +232,7 @@ export async function upsertReferenciaVenta(
     linea?: string | null
     categoria?: string | null
     valor_unidad: number
+    empresa?: EmpresaProducto
   },
   creadoPor: number
 ): Promise<void> {
@@ -235,6 +250,7 @@ export async function upsertReferenciaVenta(
     linea: input.linea?.trim() || null,
     categoria: input.categoria?.trim() || null,
     valor_unidad: input.valor_unidad,
+    ...(input.empresa ? { empresa: input.empresa } : {}),
   }
 
   if (existente) {
@@ -309,6 +325,7 @@ export interface LineaVentaInput {
   talla?: string | null
   cantidad: number
   valor_unidad: number
+  empresa?: EmpresaProducto
 }
 
 // Crea o actualiza una venta en borrador con sus líneas
@@ -401,6 +418,19 @@ export async function guardarVenta(
     ventaId = data.id
   }
 
+  // La empresa sale del maestro de productos: es lo que separa la
+  // contabilidad de ACOA de la de GOODFATHER
+  const { data: maestro } = await db
+    .from("referencia_venta")
+    .select("referencia, empresa")
+    .limit(5000)
+  const empresaDe = new Map(
+    ((maestro ?? []) as Array<{ referencia: string; empresa: EmpresaProducto }>).map((r) => [
+      r.referencia.trim().toUpperCase(),
+      r.empresa,
+    ])
+  )
+
   const filas = input.lineas.map((l) => ({
     venta_id: ventaId,
     referencia: l.referencia.trim().toUpperCase(),
@@ -411,6 +441,8 @@ export async function guardarVenta(
     cantidad: l.cantidad,
     valor_unidad: l.valor_unidad,
     valor_total: l.cantidad * l.valor_unidad,
+    empresa:
+      l.empresa ?? empresaDe.get(l.referencia.trim().toUpperCase()) ?? "ACOA",
   }))
   const { error: errDet } = await db.from("venta_detalle").insert(filas)
   if (errDet) throw new Error(errDet.message)
@@ -1074,5 +1106,120 @@ async function regenerarMovimientosVenta(
     if (mov) {
       await db.from("venta_detalle").update({ inventrans_id: mov.id }).eq("id", l.id)
     }
+  }
+}
+
+// ── Registro de ventas por empresa (doble contabilidad) ─────────
+
+// Una factura vista desde una empresa: solo sus lineas y sus totales.
+// El registro global es la factura completa; el de ACOA muestra la misma
+// factura pero con lo que le corresponde a ACOA.
+export interface VentaPorEmpresa {
+  id: number
+  numero_documento: string
+  fecha: string
+  cliente_nombre: string
+  ciudad: string | null
+  estado: EstadoVenta
+  forma_pago: FormaPago
+  razon_social: RazonSocial
+  // Totales de la factura completa
+  total_valor_documento: number
+  total_unidades_documento: number
+  // Totales de las lineas de esta empresa
+  total_valor: number
+  total_unidades: number
+  detalle: VentaDetalleRow[]
+  // La factura mezcla productos de las dos empresas
+  mixta: boolean
+}
+
+export async function getVentasPorEmpresa(input?: {
+  empresa?: EmpresaProducto | null
+  desde?: string
+  hasta?: string
+  estado?: string | null
+}): Promise<VentaPorEmpresa[]> {
+  const ventas = await listVentas({
+    desde: input?.desde,
+    hasta: input?.hasta,
+    estado: input?.estado,
+  })
+
+  const filas: VentaPorEmpresa[] = []
+  for (const v of ventas) {
+    const empresasEnFactura = new Set(v.detalle.map((d) => d.empresa ?? "ACOA"))
+    const lineas = input?.empresa
+      ? v.detalle.filter((d) => (d.empresa ?? "ACOA") === input.empresa)
+      : v.detalle
+
+    // Sin lineas de esa empresa, la factura no aparece en su registro
+    if (input?.empresa && lineas.length === 0) continue
+
+    filas.push({
+      id: v.id,
+      numero_documento: v.numero_documento,
+      fecha: v.fecha,
+      cliente_nombre: v.cliente_nombre,
+      ciudad: v.ciudad,
+      estado: v.estado,
+      forma_pago: v.forma_pago,
+      razon_social: v.razon_social,
+      total_valor_documento: Number(v.total_valor),
+      total_unidades_documento: v.total_unidades,
+      total_valor: lineas.reduce((s, d) => s + Number(d.valor_total), 0),
+      total_unidades: lineas.reduce((s, d) => s + d.cantidad, 0),
+      detalle: lineas,
+      mixta: empresasEnFactura.size > 1,
+    })
+  }
+  return filas
+}
+
+// Resumen de cuanto vende cada empresa sobre lo consultado
+export interface ResumenEmpresa {
+  empresa: EmpresaProducto
+  facturas: number
+  unidades: number
+  valor: number
+}
+
+export async function getResumenPorEmpresa(input?: {
+  desde?: string
+  hasta?: string
+}): Promise<{ resumen: ResumenEmpresa[]; mixtas: number; total: number }> {
+  const ventas = await listVentas({ desde: input?.desde, hasta: input?.hasta })
+  const activas = ventas.filter((v) => v.estado !== "anulada")
+
+  const acc = new Map<EmpresaProducto, ResumenEmpresa & { docs: Set<number> }>()
+  for (const e of EMPRESAS) {
+    acc.set(e, { empresa: e, facturas: 0, unidades: 0, valor: 0, docs: new Set() })
+  }
+
+  let mixtas = 0
+  for (const v of activas) {
+    const empresas = new Set(v.detalle.map((d) => d.empresa ?? "ACOA"))
+    if (empresas.size > 1) mixtas++
+    for (const d of v.detalle) {
+      const e = (d.empresa ?? "ACOA") as EmpresaProducto
+      const a = acc.get(e)
+      if (!a) continue
+      a.unidades += d.cantidad
+      a.valor += Number(d.valor_total)
+      a.docs.add(v.id)
+    }
+  }
+
+  const resumen = [...acc.values()].map((a) => ({
+    empresa: a.empresa,
+    facturas: a.docs.size,
+    unidades: a.unidades,
+    valor: a.valor,
+  }))
+
+  return {
+    resumen,
+    mixtas,
+    total: activas.reduce((s, v) => s + Number(v.total_valor), 0),
   }
 }

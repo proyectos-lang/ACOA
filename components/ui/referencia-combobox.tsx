@@ -10,6 +10,8 @@ export interface ReferenciaOpcion {
   descripcion?: string | null
   // Disponible en inventario, para verlo al elegir
   disponible?: number
+  // Empresa del producto: define en que contabilidad entra la linea
+  empresa?: string | null
 }
 
 // Combobox de referencias con busqueda por codigo o descripcion. El valor
@@ -146,6 +148,17 @@ export function ReferenciaCombobox({
                     <span className="shrink-0 text-xs font-semibold text-stone-800">
                       {o.referencia}
                     </span>
+                    {o.empresa && (
+                      <span
+                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          o.empresa === "GOODFATHER"
+                            ? "bg-violet-100 text-violet-800"
+                            : "bg-[#344966]/10 text-[#344966]"
+                        }`}
+                      >
+                        {o.empresa === "GOODFATHER" ? "GF" : o.empresa}
+                      </span>
+                    )}
                     {o.descripcion && (
                       <span className="truncate text-[11px] text-stone-400">{o.descripcion}</span>
                     )}
