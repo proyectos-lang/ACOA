@@ -30,11 +30,15 @@ export interface CorteCapaRealInput {
 
 export async function getCorteCapasReales(ordenId: number): Promise<CorteCapaRealRow[]> {
   const db = createVanessaClient()
+  // Sin limit() Supabase corta en 1000 filas: una OP con muchos colores x
+  // lotes perderia parte de las capas reales y la ficha volveria a mostrar
+  // las programadas
   const { data, error } = await db
     .from("corte_capa_real")
     .select("*")
     .eq("orden_id", ordenId)
     .order("id")
+    .limit(20000)
   if (error) throw new Error(error.message)
   return (data ?? []) as unknown as CorteCapaRealRow[]
 }

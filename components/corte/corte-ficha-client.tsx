@@ -424,6 +424,29 @@ function CapasCortadasSection({
   React.useEffect(() => { setEstado(buildInicial()) }, [buildInicial])
   const { reales, comentarios } = estado
 
+  // Cambios escritos que todavia no estan en la base: se compara contra lo
+  // que se cargo del servidor, para avisar antes de que el cortador salga
+  const hayCambiosSinGuardar = React.useMemo(() => {
+    const base = buildInicial()
+    const claves = new Set([...Object.keys(base.reales), ...Object.keys(reales)])
+    for (const k of claves) {
+      if ((reales[k] ?? "") !== (base.reales[k] ?? "")) return true
+      if ((comentarios[k] ?? "") !== (base.comentarios[k] ?? "")) return true
+    }
+    return false
+  }, [buildInicial, reales, comentarios])
+
+  // Aviso del navegador al cerrar o recargar con datos sin guardar
+  React.useEffect(() => {
+    if (!hayCambiosSinGuardar) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", handler)
+    return () => window.removeEventListener("beforeunload", handler)
+  }, [hayCambiosSinGuardar])
+
   const programada = React.useCallback(
     (slot: number, fila: number, lote: string) =>
       opTelaLotes.find(
@@ -578,8 +601,60 @@ function CapasCortadasSection({
 
   if (slots.length === 0) return null
 
-  // Imprimible de la ficha de la OP con los colores y capas actuales de corte
+  // Imprimir GUARDA primero: el cortador escribia las capas, imprimia (el
+  // papel salia bien porque se armaba con el estado en memoria) y al volver
+  // a la ficha veia otra vez las programadas, porque nunca habia pulsado
+  // "Guardar avance". Ahora lo impreso es siempre lo que quedo guardado.
   function imprimirFichaActualizada() {
+    if (yaConfirmado) {
+      const w = window.open("", "_blank")
+      if (!w) {
+        onMsg("error", "Permite las ventanas emergentes para imprimir")
+        return
+      }
+      escribirImpresion(w)
+      return
+    }
+
+
+    const payload = construirPayload()
+    if (!payload) return
+
+    // La ventana se abre YA, con el gesto del usuario todavia vivo: si se
+    // abriera despues del await el navegador la bloquearia como emergente.
+    // Si las emergentes estan bloqueadas igual se GUARDA: perder el registro
+    // del cortador es mucho peor que quedarse sin el papel.
+    const w = window.open("", "_blank")
+    if (w) {
+      w.document.write(
+        '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">' +
+          "<title>Guardando…</title></head><body style=\"font-family:Arial,sans-serif;padding:24px;color:#555\">" +
+          "Guardando las capas registradas…</body></html>"
+      )
+    }
+
+    startTransition(async () => {
+      const res = await guardarCapasCorteAction(orden.id, payload, tallasCount)
+      if (res.error) {
+        if (w) w.close()
+        onMsg("error", res.error)
+        return
+      }
+      if (w) {
+        onMsg("ok", "Capas guardadas — abriendo la impresión")
+        escribirImpresion(w)
+      } else {
+        onMsg(
+          "ok",
+          "Capas guardadas. Permite las ventanas emergentes para imprimir la ficha"
+        )
+      }
+      router.refresh()
+    })
+  }
+
+  // Imprimible de la ficha de la OP con los colores y capas actuales de corte
+  function escribirImpresion(w: Window) {
     const esc = (t: string | null | undefined) =>
       (t ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
@@ -691,11 +766,8 @@ function CapasCortadasSection({
   <script>window.addEventListener("load",function(){setTimeout(function(){window.print()},250)})<\/script>
 </body></html>`
 
-    const w = window.open("", "_blank")
-    if (!w) {
-      onMsg("error", "Permite las ventanas emergentes para imprimir")
-      return
-    }
+    // Se reabre el documento para reemplazar el "Guardando…" provisional
+    w.document.open()
     w.document.write(html)
     w.document.close()
     w.focus()
@@ -707,8 +779,13 @@ function CapasCortadasSection({
   return (
     <div className="rounded-2xl border border-stone-200 bg-white p-5 space-y-4">
       <div className="flex items-center justify-between gap-3 border-b border-stone-100 pb-2">
-        <h2 className="text-sm font-semibold text-stone-700">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
           Capas cortadas — confirmación por tela, color y lote
+          {hayCambiosSinGuardar && !yaConfirmado && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+              Cambios sin guardar
+            </span>
+          )}
         </h2>
         <div className="flex items-center gap-3">
           <span className="text-xs text-stone-500">
@@ -719,11 +796,16 @@ function CapasCortadasSection({
           <button
             type="button"
             onClick={imprimirFichaActualizada}
-            className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors shrink-0"
-            title="Imprime la ficha de la OP con los colores y capas actuales"
+            disabled={isPending}
+            className="flex items-center gap-1.5 rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-medium text-stone-600 hover:bg-stone-50 transition-colors shrink-0 disabled:opacity-60"
+            title={
+              yaConfirmado
+                ? "Imprime la ficha de la OP con los colores y capas registrados"
+                : "Guarda las capas registradas y abre la impresión"
+            }
           >
             <Printer className="h-3.5 w-3.5" />
-            Imprimir ficha actualizada
+            {yaConfirmado ? "Imprimir ficha actualizada" : "Guardar e imprimir ficha"}
           </button>
         </div>
       </div>
