@@ -15,6 +15,8 @@ import {
   Plus,
   Printer,
   Pencil,
+  Ban,
+  Trash2,
 } from "lucide-react"
 import type {
   ReferenciaVentaRow,
@@ -283,7 +285,10 @@ export function RegistroVentas({
   onMsg,
   onImprimir,
   onEditar,
+  onAnular,
+  onEliminar,
   onCambiarEmpresa,
+  recargarToken,
 }: {
   empresa: EmpresaProducto | null
   descripcion: string
@@ -291,7 +296,13 @@ export function RegistroVentas({
   // Imprime la factura completa: la reimpresion siempre es del documento
   onImprimir?: (ventaId: number) => void
   onEditar?: (ventaId: number) => void
+  // Anular conserva el documento y devuelve el inventario; eliminar lo
+  // borra y libera el consecutivo
+  onAnular?: (ventaId: number) => void
+  onEliminar?: (ventaId: number) => void
   onCambiarEmpresa?: (e: EmpresaProducto | null) => void
+  // Cambia su valor para forzar la recarga de la tabla tras anular o eliminar
+  recargarToken?: number
 }) {
   const [isPending, startTransition] = useTransition()
   const [ventas, setVentas] = React.useState<VentaPorEmpresa[]>([])
@@ -326,7 +337,7 @@ export function RegistroVentas({
     setCargado(false)
     cargar(fDesde, fHasta)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empresa])
+  }, [empresa, recargarToken])
 
   const filtradas = React.useMemo(() => {
     const q = fTexto.trim().toLowerCase()
@@ -614,6 +625,30 @@ export function RegistroVentas({
                                 className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-stone-50 hover:text-stone-700"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onAnular && v.estado !== "anulada" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onAnular(v.id)
+                                }}
+                                title={`Anular la factura ${v.numero_documento} — conserva el documento y devuelve el inventario`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-amber-50 hover:text-amber-700"
+                              >
+                                <Ban className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onEliminar && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onEliminar(v.id)
+                                }}
+                                title={`Eliminar la factura ${v.numero_documento} — borra el documento y libera el consecutivo`}
+                                className="rounded-lg border border-stone-200 p-1.5 text-stone-500 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </div>

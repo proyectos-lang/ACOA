@@ -513,12 +513,26 @@ export function VentasClient({
     })
   }
 
+  // Anular y eliminar son irreversibles: se confirman en un dialogo que
+  // dice que pasa con el inventario, la cartera y el consecutivo
+  const [aConfirmar, setAConfirmar] = React.useState<{
+    tipo: "anular" | "eliminar"
+    venta: VentaConDetalle
+  } | null>(null)
+  // Cambia al anular o eliminar para que el Registro recargue su tabla
+  const [regToken, setRegToken] = React.useState(0)
+  // Motivo de la eliminacion: queda en el rastro de auditoria
+  const [motivoElim, setMotivoElim] = React.useState("")
+
   function anular(id: number) {
     startTransition(async () => {
       const r = await anularVentaAction(id)
       if (r.error) aviso("error", r.error)
       else {
         aviso("ok", "Venta anulada y devuelta al inventario")
+        setAConfirmar(null)
+        setRegToken((t) => t + 1)
+        setHCargado(false)
         router.refresh()
       }
     })
@@ -526,10 +540,14 @@ export function VentasClient({
 
   function eliminar(id: number) {
     startTransition(async () => {
-      const r = await eliminarVentaAction(id)
+      const r = await eliminarVentaAction(id, motivoElim)
       if (r.error) aviso("error", r.error)
       else {
-        aviso("ok", "Venta eliminada")
+        aviso("ok", "Factura eliminada y consecutivo liberado")
+        setAConfirmar(null)
+        setMotivoElim("")
+        setRegToken((t) => t + 1)
+        setHCargado(false)
         router.refresh()
       }
     })
@@ -1025,6 +1043,17 @@ export function VentasClient({
             if (v) cargarVenta(v)
             else aviso("error", "No se encontró la factura")
           }}
+          onAnular={(ventaId) => {
+            const v = ventas.find((x) => x.id === ventaId)
+            if (v) setAConfirmar({ tipo: "anular", venta: v })
+            else aviso("error", "No se encontró la factura")
+          }}
+          onEliminar={(ventaId) => {
+            const v = ventas.find((x) => x.id === ventaId)
+            if (v) setAConfirmar({ tipo: "eliminar", venta: v })
+            else aviso("error", "No se encontró la factura")
+          }}
+          recargarToken={regToken}
         />
       )}
 
@@ -2031,6 +2060,95 @@ export function VentasClient({
           </Card>
         </div>
       )}
+
+      {/* ── Confirmar anulación o eliminación de una factura ───────── */}
+      <AlertDialog
+        open={aConfirmar != null}
+        onOpenChange={(abierto) => {
+          if (!abierto) {
+            setAConfirmar(null)
+            setMotivoElim("")
+          }
+        }}
+      >
+        <AlertDialogContent>
+          {aConfirmar && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {aConfirmar.tipo === "anular"
+                    ? `¿Anular la factura ${aConfirmar.venta.numero_documento}?`
+                    : `¿Eliminar la factura ${aConfirmar.venta.numero_documento}?`}
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      <strong className="text-stone-700">
+                        {aConfirmar.venta.cliente_nombre}
+                      </strong>{" "}
+                      &middot; {pesos(Number(aConfirmar.venta.total_valor))} &middot;{" "}
+                      {Number(aConfirmar.venta.total_unidades).toLocaleString("es-CO")} und
+                    </p>
+                    {aConfirmar.tipo === "anular" ? (
+                      <ul className="list-disc space-y-1 pl-5 text-stone-600">
+                        <li>El documento se conserva marcado como anulado.</li>
+                        <li>Lo que se descontó vuelve al inventario.</li>
+                        <li>El consecutivo no se libera: el número queda usado.</li>
+                      </ul>
+                    ) : (
+                      <ul className="list-disc space-y-1 pl-5 text-stone-600">
+                        <li>La factura y su detalle se borran por completo.</li>
+                        <li>Lo que se descontó vuelve al inventario.</li>
+                        <li>
+                          Se libera el consecutivo: si es la última factura, su
+                          número se vuelve a usar en la siguiente venta.
+                        </li>
+                        {Number(aConfirmar.venta.total_abonado) > 0 && (
+                          <li className="text-red-600">
+                            Se borran los abonos registrados por{" "}
+                            {pesos(Number(aConfirmar.venta.total_abonado))}.
+                          </li>
+                        )}
+                      </ul>
+                    )}
+                    {aConfirmar.tipo === "eliminar" && (
+                      <input
+                        value={motivoElim}
+                        onChange={(e) => setMotivoElim(e.target.value)}
+                        placeholder="Motivo de la eliminación (opcional)"
+                        className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
+                      />
+                    )}
+                    <p className="text-stone-500">Esta acción no se puede deshacer.</p>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isPending}>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isPending}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (aConfirmar.tipo === "anular") anular(aConfirmar.venta.id)
+                    else eliminar(aConfirmar.venta.id)
+                  }}
+                  className={
+                    aConfirmar.tipo === "anular"
+                      ? "bg-amber-600 hover:bg-amber-700"
+                      : "bg-red-600 hover:bg-red-700"
+                  }
+                >
+                  {isPending
+                    ? "Procesando…"
+                    : aConfirmar.tipo === "anular"
+                      ? "Anular la factura"
+                      : "Eliminar la factura"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

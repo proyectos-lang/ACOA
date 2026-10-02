@@ -713,12 +713,58 @@ export async function anularVenta(ventaId: number): Promise<void> {
   })
 }
 
-export async function eliminarVenta(ventaId: number): Promise<void> {
+export async function eliminarVenta(
+  ventaId: number,
+  eliminadoPor?: number,
+  motivo?: string | null
+): Promise<void> {
   const db = createVanessaClient()
+
+  // Guardar el rastro ANTES de borrar: venta_historial se va en cascada,
+  // asi que sin esto no quedaria constancia de la factura ni de quien la
+  // elimino. venta_eliminada no tiene FK a venta, por eso sobrevive.
+  const { data: cab } = await db.from("venta").select(VENTA_COLS).eq("id", ventaId).maybeSingle()
+  const { data: det } = await db
+    .from("venta_detalle")
+    .select(DETALLE_COLS)
+    .eq("venta_id", ventaId)
+    .order("id")
+    .limit(10000)
+
+  if (cab) {
+    const v = cab as unknown as VentaRow
+    // Si la tabla de rastro todavia no existe (script 45 sin correr) la
+    // eliminacion no se bloquea: se pierde el rastro, no la operacion
+    const { error: errRastro } = await db.from("venta_eliminada").insert({
+      venta_id: v.id,
+      numero_documento: v.numero_documento,
+      fecha: v.fecha,
+      cliente_nombre: v.cliente_nombre,
+      razon_social: v.razon_social,
+      forma_pago: v.forma_pago,
+      estado_anterior: v.estado,
+      total_valor: v.total_valor,
+      total_unidades: v.total_unidades,
+      total_abonado: v.total_abonado,
+      detalle: det ?? [],
+      motivo: motivo ?? null,
+      eliminado_por: eliminadoPor ?? null,
+    })
+    if (errRastro) {
+      console.error("No se pudo guardar el rastro de la factura eliminada:", errRastro.message)
+    }
+  }
+
   // Devolver el inventario antes de borrar
   await anularVenta(ventaId)
   const { error } = await db.from("venta").delete().eq("id", ventaId)
   if (error) throw new Error(error.message)
+
+  // Liberar el consecutivo: la secuencia vuelve al mayor documento que
+  // quedo, asi que al borrar la ultima factura su numero se reutiliza.
+  // Borrar una del medio deja el hueco, que es lo correcto: los numeros
+  // ya emitidos no se reasignan.
+  await db.rpc("ajustar_consecutivo_venta")
 }
 
 // ── Consecutivo del documento ───────────────────────────────────

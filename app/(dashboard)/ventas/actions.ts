@@ -126,7 +126,10 @@ export async function anularVentaAction(ventaId: number): Promise<ActionResult> 
   }
 }
 
-export async function eliminarVentaAction(ventaId: number): Promise<ActionResult> {
+export async function eliminarVentaAction(
+  ventaId: number,
+  motivo?: string
+): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
   if (!(await esAdmin(session.userId))) {
@@ -134,7 +137,7 @@ export async function eliminarVentaAction(ventaId: number): Promise<ActionResult
   }
 
   try {
-    await eliminarVenta(ventaId)
+    await eliminarVenta(ventaId, session.userId, motivo?.trim() || null)
     revalidar()
     return { success: true }
   } catch (err) {
