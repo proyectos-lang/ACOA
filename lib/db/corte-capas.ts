@@ -73,3 +73,43 @@ export async function batchSaveCorteCapasReales(
   const { error } = await db.from("corte_capa_real").insert(rows)
   if (error) throw new Error(error.message)
 }
+
+// Desglose por color de UN lote, con lo que corte registro realmente.
+// Estampacion y los procesos siguientes solo recibian cantidad_programada
+// (un total), asi que no veian que un color habia cambiado o desaparecido:
+// un lote donde el cortador subio un color y bajo otro llegaba con el total
+// intacto y los colores originales.
+export interface ColorRealLote {
+  color: string
+  capas_programadas: number
+  capas_reales: number
+  unidades: number
+  comentario: string | null
+  cambio: boolean
+}
+
+export async function getColoresRealesDeLote(
+  ordenId: number,
+  loteNombre: string,
+  tallasCount: number
+): Promise<ColorRealLote[]> {
+  const filas = await getCorteCapasReales(ordenId)
+  const delLote = filas.filter((f) => f.lote_nombre === loteNombre)
+  if (delLote.length === 0) return []
+
+  // Las capas se registran una sola vez, en el material de referencia
+  const slots = [...new Set(delLote.map((f) => f.slot))].sort((a, b) => a - b)
+  const slotRef = slots.includes(1) ? 1 : slots[0]
+
+  return delLote
+    .filter((f) => f.slot === slotRef)
+    .sort((a, b) => a.fila - b.fila)
+    .map((f) => ({
+      color: f.color,
+      capas_programadas: f.capas_programadas,
+      capas_reales: f.capas_reales,
+      unidades: f.capas_reales * tallasCount,
+      comentario: f.comentario,
+      cambio: f.capas_reales !== f.capas_programadas,
+    }))
+}

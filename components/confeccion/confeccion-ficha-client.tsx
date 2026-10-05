@@ -19,6 +19,8 @@ import type { ConfeccionistaRow } from "@/lib/db/confeccionista"
 import { LoteImagenRef } from "@/components/produccion/lote-imagen-ref"
 import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
 import type { LotePrendaRow } from "@/lib/db/lote-prenda"
+import type { ColorRealLote } from "@/lib/db/corte-capas"
+import { ColoresRealesCorte } from "@/components/produccion/colores-reales-corte"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import { PersonaCombobox } from "@/components/ui/persona-combobox"
@@ -66,6 +68,8 @@ interface Props {
   confeccionistas: ConfeccionistaRow[]
   precioConfeccionOP: number | null
   prendas: LotePrendaRow[]
+  // Colores y capas que corte registro realmente para este lote
+  coloresReales: ColorRealLote[]
 }
 
 function padOP(n: number) {
@@ -119,6 +123,7 @@ export function ConfeccionFichaClient({
   confeccionistas,
   precioConfeccionOP,
   prendas,
+  coloresReales,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -339,6 +344,8 @@ export function ConfeccionFichaClient({
           </div>
         </div>
       </div>
+
+      <ColoresRealesCorte colores={coloresReales} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario confección ───────────────────────────── */}

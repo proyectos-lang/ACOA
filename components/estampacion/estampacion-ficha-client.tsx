@@ -19,6 +19,8 @@ import type { EstampadorRow } from "@/lib/db/estampador"
 import { LoteImagenUpload } from "@/components/produccion/lote-imagen-upload"
 import { PrendasConjuntoSection } from "@/components/produccion/prendas-conjunto-section"
 import type { LotePrendaRow } from "@/lib/db/lote-prenda"
+import type { ColorRealLote } from "@/lib/db/corte-capas"
+import { ColoresRealesCorte } from "@/components/produccion/colores-reales-corte"
 import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import { PersonaCombobox } from "@/components/ui/persona-combobox"
@@ -49,6 +51,8 @@ interface Props {
   estampadores: EstampadorRow[]
   precioEstampacionOP: number | null
   prendas: LotePrendaRow[]
+  // Colores y capas que corte registro realmente para este lote
+  coloresReales: ColorRealLote[]
 }
 
 function padOP(n: number) {
@@ -93,6 +97,7 @@ export function EstampacionFichaClient({
   estampadores,
   precioEstampacionOP,
   prendas,
+  coloresReales,
 }: Props) {
   const router = useRouter()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
@@ -224,6 +229,8 @@ export function EstampacionFichaClient({
           </button>
         </div>
       </div>
+
+      <ColoresRealesCorte colores={coloresReales} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ── Formulario estampación ───────────────────────── */}
@@ -525,6 +532,121 @@ export function EstampacionFichaClient({
           <p style={{ color: "#6b7280", fontSize: 10, marginBottom: 16 }}>
             Sin curva de tallas registrada para este color.
           </p>
+        )}
+
+        {/* Colores reales de corte: lo que de verdad llega a estampar */}
+        {coloresReales.length > 0 && (
+          <>
+            <h2 style={{ fontSize: 12, fontWeight: "bold", marginBottom: 6 }}>
+              Colores y cantidades reales de corte
+            </h2>
+            <table
+              style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16, fontSize: 10 }}
+            >
+              <thead>
+                <tr style={{ backgroundColor: "#f3f4f6" }}>
+                  {["Color", "Capas prog.", "Capas reales", "Unidades", "Motivo del cambio"].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        style={{
+                          border: "1px solid #d1d5db",
+                          padding: "4px 8px",
+                          textAlign: h === "Color" || h === "Motivo del cambio" ? "left" : "center",
+                        }}
+                      >
+                        {h}
+                      </th>
+                    )
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {coloresReales.map((c, i) => (
+                  <tr
+                    key={`p-${c.color}-${i}`}
+                    style={{
+                      backgroundColor:
+                        c.capas_reales === 0 ? "#fde8e8" : c.cambio ? "#fff3cd" : undefined,
+                    }}
+                  >
+                    <td
+                      style={{
+                        border: "1px solid #d1d5db",
+                        padding: "4px 8px",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {c.color}
+                      {c.capas_reales === 0 && " (NO SE CORTÓ)"}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #d1d5db",
+                        padding: "4px 8px",
+                        textAlign: "center",
+                      }}
+                    >
+                      {c.capas_programadas}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #d1d5db",
+                        padding: "4px 8px",
+                        textAlign: "center",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {c.capas_reales}
+                    </td>
+                    <td
+                      style={{
+                        border: "1px solid #d1d5db",
+                        padding: "4px 8px",
+                        textAlign: "center",
+                      }}
+                    >
+                      {c.unidades.toLocaleString("es-CO")}
+                    </td>
+                    <td style={{ border: "1px solid #d1d5db", padding: "4px 8px" }}>
+                      {c.comentario ?? ""}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ backgroundColor: "#dcefe4", fontWeight: "bold" }}>
+                  <td style={{ border: "1px solid #d1d5db", padding: "4px 8px" }}>Total</td>
+                  <td
+                    style={{
+                      border: "1px solid #d1d5db",
+                      padding: "4px 8px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {coloresReales.reduce((s, c) => s + c.capas_programadas, 0)}
+                  </td>
+                  <td
+                    style={{
+                      border: "1px solid #d1d5db",
+                      padding: "4px 8px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {coloresReales.reduce((s, c) => s + c.capas_reales, 0)}
+                  </td>
+                  <td
+                    style={{
+                      border: "1px solid #d1d5db",
+                      padding: "4px 8px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {coloresReales.reduce((s, c) => s + c.unidades, 0).toLocaleString("es-CO")}
+                  </td>
+                  <td style={{ border: "1px solid #d1d5db", padding: "4px 8px" }} />
+                </tr>
+              </tbody>
+            </table>
+          </>
         )}
 
         {/* Datos estampación */}

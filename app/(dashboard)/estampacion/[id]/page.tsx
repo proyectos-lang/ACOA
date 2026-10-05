@@ -7,6 +7,7 @@ import { getEstampacionByLote } from "@/lib/db/estampacion"
 import { listEstampadores } from "@/lib/db/estampador"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
 import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
+import { getColoresRealesDeLote } from "@/lib/db/corte-capas"
 import { getSession } from "@/lib/auth/session"
 import { EstampacionFichaClient } from "@/components/estampacion/estampacion-ficha-client"
 import { notFound } from "next/navigation"
@@ -48,6 +49,15 @@ export default async function EstampacionFichaPage({
 
   if (!orden) notFound()
 
+  // Colores y capas que corte registro realmente para este lote. Sin esto
+  // estampacion solo veia el total del lote y no se enteraba de que un
+  // color habia cambiado de cantidad o se habia dejado de cortar.
+  const coloresReales = await getColoresRealesDeLote(
+    lote.orden_id,
+    lote.descripcion ?? "",
+    curvaTallas.length
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -73,6 +83,7 @@ export default async function EstampacionFichaPage({
         estampadores={estampadores}
         precioEstampacionOP={Number(hoja?.valor_estampacion_aplique_dtf) || null}
         prendas={prendas}
+        coloresReales={coloresReales}
       />
     </div>
   )

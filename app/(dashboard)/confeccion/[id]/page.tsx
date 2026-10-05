@@ -7,6 +7,7 @@ import { getNovedadesByLote } from "@/lib/db/novedad-proceso"
 import { listConfeccionistas } from "@/lib/db/confeccionista"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
 import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
+import { getColoresRealesDeLote } from "@/lib/db/corte-capas"
 import { getSession } from "@/lib/auth/session"
 import { ConfeccionFichaClient } from "@/components/confeccion/confeccion-ficha-client"
 import { notFound } from "next/navigation"
@@ -50,6 +51,14 @@ export default async function ConfeccionFichaPage({
 
   if (!orden) notFound()
 
+  // Colores y capas que corte registro realmente: las OPs que no pasan por
+  // estampacion llegan aqui directo desde corte
+  const coloresReales = await getColoresRealesDeLote(
+    lote.orden_id,
+    lote.descripcion ?? "",
+    curvaTallas.length
+  )
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -76,6 +85,7 @@ export default async function ConfeccionFichaPage({
         confeccionistas={confeccionistas}
         precioConfeccionOP={Number(hoja?.valor_confeccion) || null}
         prendas={prendas}
+        coloresReales={coloresReales}
       />
     </div>
   )
