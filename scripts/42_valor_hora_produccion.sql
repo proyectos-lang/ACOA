@@ -8,11 +8,16 @@
 -- La configuracion vive en config_nomina_general, que ya existe.
 -- ============================================================
 
--- Valor hora de las personas de produccion que aun no lo tengan
-UPDATE vanessa.persona
-   SET valor_hora = 9000
- WHERE tipo_pago = 'produccion'
-   AND (valor_hora IS NULL OR valor_hora = 0);
+-- OJO: persona.valor_hora NO se puede actualizar. Es una columna generada
+-- (GENERATED ALWAYS AS salario / (dias_mes * horas_dia), ver script 01), y
+-- Postgres rechaza el UPDATE con:
+--   ERROR 428C9: column "valor_hora" can only be updated to DEFAULT
+-- Una version anterior de este script lo intentaba y abortaba todo lo que
+-- venia despues, dejando la columna de abajo sin crear.
+--
+-- No hace falta: el personal de produccion cobra a destajo, asi que su
+-- salario es 0 y la columna generada queda en NULL. La nomina ya resuelve
+-- ese caso usando el valor hora de la configuracion (lib/db/nomina-diaria.ts).
 
 -- Valor hora por defecto del personal de produccion
 ALTER TABLE vanessa.config_nomina_general
