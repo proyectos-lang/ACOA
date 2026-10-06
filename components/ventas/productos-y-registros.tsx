@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import {
   CheckCircle2,
@@ -218,6 +219,7 @@ export function MaestroProductos({
       </Card>
 
       <Card className="p-0">
+        <TablaInteractiva>
         <div className="max-h-[560px] overflow-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead className="sticky top-0 bg-stone-50">
@@ -272,6 +274,7 @@ export function MaestroProductos({
             </tbody>
           </table>
         </div>
+        </TablaInteractiva>
       </Card>
     </div>
   )
@@ -520,6 +523,7 @@ export function RegistroVentas({
       </Card>
 
       <Card className="p-0">
+        <TablaInteractiva>
         <div className="max-h-[620px] overflow-auto">
           <table className="w-full min-w-[900px] text-sm">
             <thead className="sticky top-0 bg-stone-50">
@@ -727,6 +731,7 @@ export function RegistroVentas({
             </tbody>
           </table>
         </div>
+        </TablaInteractiva>
       </Card>
     </div>
   )

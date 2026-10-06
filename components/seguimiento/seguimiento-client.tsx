@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import {
   Sheet,
   SheetContent,
@@ -877,6 +878,7 @@ export default function SeguimientoClient({ lotes, pipeline, verCostos }: Props)
           {filteredLotes.length === 0 ? (
             <div className="py-16 text-center text-stone-400 text-sm">No hay lotes que coincidan con los filtros.</div>
           ) : (
+            <TablaInteractiva>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -936,6 +938,7 @@ export default function SeguimientoClient({ lotes, pipeline, verCostos }: Props)
                 </tbody>
               </table>
             </div>
+            </TablaInteractiva>
           )}
         </div>
 

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
@@ -668,6 +669,7 @@ export function EstampacionListaClient({
       })()}
 
       <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+        <TablaInteractiva>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -816,6 +818,7 @@ export function EstampacionListaClient({
             </tbody>
           </table>
         </div>
+        </TablaInteractiva>
       </div>
     </div>
   )

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import Link from "next/link"
 import { FileText, PackageCheck, History, Unlock, CheckCircle2, AlertTriangle } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -207,6 +208,7 @@ export function EmpaqueListaClient({
         </div>
       ) : (
         <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -331,6 +333,7 @@ export function EmpaqueListaClient({
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </div>
       )}
     </div>

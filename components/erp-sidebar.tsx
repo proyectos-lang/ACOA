@@ -3,40 +3,14 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { ChevronDown } from "lucide-react"
 import { useSession } from "@/lib/contexts/session-context"
-import type { PermisoRow } from "@/lib/db/permiso"
-import {
-  LayoutDashboard,
-  Users,
-  UserCheck,
-  Clock,
-  Calculator,
-  ClipboardList,
-  Palette,
-  Scissors,
-  Printer,
-  Layers,
-  Hash,
-  Package,
-  Settings,
-  Database,
-  BarChart3,
-  Stamp,
-  Shirt,
-  Wallet,
-  History,
-  Radar,
-  ClipboardCheck,
-  Boxes,
-  ShoppingCart,
-  PackageMinus,
-} from "lucide-react"
+import { NAV_GRUPOS, grupoDeRuta, itemsVisibles, esRutaActiva } from "@/lib/nav"
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -48,58 +22,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { ChevronDown } from "lucide-react"
 
-type NavItem = {
-  nombre: string
-  href: string
-  icon: React.ElementType
-  permisoKey: keyof PermisoRow | null
-}
-
-type NavGroup = {
-  label: string
-  items: NavItem[]
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  {
-    label: "Administrativo",
-    items: [
-      { nombre: "Dashboard",     href: "/",              icon: LayoutDashboard, permisoKey: null               },
-      { nombre: "Ventas",        href: "/ventas",        icon: ShoppingCart,    permisoKey: "mod_ventas"       },
-      { nombre: "Productos",     href: "/productos",     icon: Package,         permisoKey: "mod_ventas"       },
-      { nombre: "Usuarios",      href: "/usuarios",      icon: Users,           permisoKey: "mod_usuarios"     },
-      { nombre: "Personal",      href: "/personal",      icon: UserCheck,       permisoKey: "mod_personal"     },
-      { nombre: "Asistencia",    href: "/asistencia",    icon: Clock,           permisoKey: "mod_asistencia"   },
-      { nombre: "Nómina",        href: "/nomina",        icon: Calculator,      permisoKey: "mod_nomina"       },
-      { nombre: "Estampadores",  href: "/estampadores",  icon: Stamp,           permisoKey: "mod_personal"     },
-      { nombre: "Confeccionistas", href: "/confeccionistas", icon: Shirt,       permisoKey: "mod_personal"     },
-      { nombre: "Configuración", href: "/configuracion", icon: Settings,        permisoKey: "mod_configuracion"},
-      { nombre: "Historial",     href: "/historial",     icon: History,         permisoKey: "mod_usuarios"     },
-    ],
-  },
-  {
-    label: "Operación",
-    items: [
-      { nombre: "Trazabilidad",     href: "/trazabilidad",  icon: Radar,         permisoKey: "mod_seguimiento"      },
-      { nombre: "Seguimiento",      href: "/seguimiento",   icon: BarChart3,     permisoKey: "mod_seguimiento"      },
-      { nombre: "Orden Producción", href: "/produccion",    icon: ClipboardList, permisoKey: "mod_orden_produccion" },
-      { nombre: "Materiales",       href: "/materiales",    icon: Database,      permisoKey: "mod_orden_produccion" },
-      { nombre: "Corte",            href: "/corte",         icon: Scissors,      permisoKey: "mod_corte"            },
-      { nombre: "Estampación",      href: "/estampacion",   icon: Printer,       permisoKey: "mod_estampacion"      },
-      { nombre: "Confección",       href: "/confeccion",    icon: Layers,        permisoKey: "mod_confeccion"       },
-      { nombre: "Conteo",           href: "/conteo",        icon: Hash,          permisoKey: "mod_conteo"           },
-      { nombre: "Empaque",          href: "/empaque",       icon: Package,       permisoKey: "mod_empaque"          },
-      { nombre: "Liquidación Empaque", href: "/liquidacion-empaque", icon: ClipboardCheck, permisoKey: "mod_empaque"  },
-      { nombre: "Inventario",       href: "/inventario",    icon: Boxes,         permisoKey: "mod_empaque"          },
-      { nombre: "Órdenes de salida", href: "/inventario/ordenes-salida", icon: PackageMinus, permisoKey: "mod_empaque" },
-      { nombre: "Conteo físico",    href: "/inventario/conteo-fisico", icon: ClipboardList, permisoKey: "mod_empaque" },
-      { nombre: "Pagos",            href: "/pagos",         icon: Wallet,        permisoKey: "ver_costos"           },
-      { nombre: "Config. Costos",   href: "/configuracion-costos", icon: Calculator, permisoKey: "ver_costos"      },
-    ],
-  },
-]
+// Los grupos que la persona contrae se recuerdan en este navegador. Se
+// guardan los cerrados (no los abiertos) para que un grupo nuevo aparezca
+// abierto por defecto.
+const CLAVE_CERRADOS = "acoa.nav.cerrados"
 
 function getInitials(name: string): string {
   if (!name) return "U"
@@ -111,60 +38,124 @@ function getInitials(name: string): string {
 export function ERPSidebar() {
   const pathname = usePathname()
   const { session, permiso } = useSession()
+  const ubicacion = grupoDeRuta(pathname)
 
-  const gruposVisibles = NAV_GROUPS.map((grupo) => ({
-    ...grupo,
-    items: grupo.items.filter((item) => {
-      if (!item.permisoKey) return true
-      return permiso?.[item.permisoKey] === true
-    }),
-  })).filter((grupo) => grupo.items.length > 0)
+  const [cerrados, setCerrados] = React.useState<Set<string>>(new Set())
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CLAVE_CERRADOS)
+      if (raw) setCerrados(new Set(JSON.parse(raw) as string[]))
+    } catch {
+      // Sin almacenamiento disponible: todos los grupos quedan abiertos
+    }
+  }, [])
+
+  function alternar(key: string) {
+    setCerrados((prev) => {
+      const siguiente = new Set(prev)
+      if (siguiente.has(key)) siguiente.delete(key)
+      else siguiente.add(key)
+      try {
+        localStorage.setItem(CLAVE_CERRADOS, JSON.stringify([...siguiente]))
+      } catch {
+        // Si no se puede guardar, igual se aplica en esta sesion
+      }
+      return siguiente
+    })
+  }
+
+  // El grupo de la ruta activa siempre se ve abierto: nadie debe perder de
+  // vista donde esta parado
+  const estaAbierto = (key: string) => !cerrados.has(key) || ubicacion?.grupo.key === key
+
+  const grupos = NAV_GRUPOS.map((grupo) => ({ grupo, items: itemsVisibles(grupo, permiso) })).filter(
+    (g) => g.items.length > 0
+  )
 
   return (
     <Sidebar>
-      <SidebarHeader className="border-b border-sidebar-border px-4 py-5">
-        <Link href="/" className="flex items-center justify-center">
-          <span className="text-2xl font-bold tracking-tight" style={{ color: "#0D1821" }}>
-            ACOA
-          </span>
+      <SidebarHeader className="border-b border-sidebar-border px-4 py-4">
+        <Link href="/" className="flex items-center gap-3">
+          <div
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black tracking-tight text-white shadow-sm"
+            style={{ backgroundColor: "#344966" }}
+          >
+            A
+          </div>
+          <div className="min-w-0 leading-tight">
+            <span className="block text-lg font-bold tracking-tight" style={{ color: "#0D1821" }}>
+              ACOA
+            </span>
+            <span className="block text-[11px] text-stone-400">Sistema de gestión</span>
+          </div>
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
-        {gruposVisibles.map((grupo) => (
-          <Collapsible key={grupo.label} defaultOpen className="group/collapsible">
-            <SidebarGroup>
-              <SidebarGroupLabel asChild>
-                <CollapsibleTrigger className="flex w-full items-center justify-between">
-                  {grupo.label}
-                  <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-180" />
+      <SidebarContent className="gap-0 py-1">
+        {grupos.map(({ grupo, items }) => {
+          const abierto = estaAbierto(grupo.key)
+          const esGrupoActivo = ubicacion?.grupo.key === grupo.key
+          return (
+            <Collapsible key={grupo.key} open={abierto} onOpenChange={() => alternar(grupo.key)}>
+              <SidebarGroup className="py-1.5">
+                <CollapsibleTrigger
+                  className="group/trigger flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors hover:bg-stone-50 focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+                  title={grupo.descripcion}
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: grupo.color, boxShadow: `0 0 0 3px ${grupo.colorSuave}` }}
+                  />
+                  <span
+                    className="truncate text-[11px] font-bold uppercase tracking-wider"
+                    style={{ color: esGrupoActivo ? grupo.color : "#57534e" }}
+                  >
+                    {grupo.label}
+                  </span>
+                  <span className="ml-auto rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-stone-500">
+                    {items.length}
+                  </span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-stone-400 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
                 </CollapsibleTrigger>
-              </SidebarGroupLabel>
-              <CollapsibleContent>
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    {grupo.items.map((item) => {
-                      const Icon = item.icon
-                      const activo = item.href === "/"
-                        ? pathname === "/"
-                        : pathname.startsWith(item.href)
-                      return (
-                        <SidebarMenuItem key={item.href}>
-                          <SidebarMenuButton asChild isActive={activo}>
-                            <Link href={item.href} className="flex items-center gap-2">
-                              <Icon className="h-4 w-4" />
-                              <span>{item.nombre}</span>
-                            </Link>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      )
-                    })}
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </CollapsibleContent>
-            </SidebarGroup>
-          </Collapsible>
-        ))}
+
+                <CollapsibleContent className="data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0">
+                  <SidebarGroupContent className="pt-1">
+                    <SidebarMenu className="gap-0.5">
+                      {items.map((item) => {
+                        const Icon = item.icon
+                        const activo = esRutaActiva(item.href, pathname) && ubicacion?.item.href === item.href
+                        return (
+                          <SidebarMenuItem key={item.href}>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={activo}
+                              tooltip={item.descripcion}
+                              className="h-9 rounded-lg px-2.5 data-[active=true]:font-semibold"
+                              style={
+                                activo
+                                  ? {
+                                      backgroundColor: grupo.colorSuave,
+                                      boxShadow: `inset 3px 0 0 ${grupo.color}`,
+                                      color: "#0D1821",
+                                    }
+                                  : undefined
+                              }
+                            >
+                              <Link href={item.href} className="flex items-center gap-2.5">
+                                <Icon className="h-4 w-4 shrink-0" style={{ color: grupo.color }} />
+                                <span className="truncate">{item.nombre}</span>
+                              </Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        )
+                      })}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </CollapsibleContent>
+              </SidebarGroup>
+            </Collapsible>
+          )
+        })}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border px-4 py-3">
@@ -175,9 +166,9 @@ export function ERPSidebar() {
           >
             {getInitials(session.nombreCompleto)}
           </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-xs font-medium text-sidebar-foreground truncate">{session.nombreCompleto}</span>
-            <span className="text-xs text-muted-foreground truncate">@{session.nombreUsuario}</span>
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-xs font-medium text-sidebar-foreground">{session.nombreCompleto}</span>
+            <span className="truncate text-xs text-muted-foreground">@{session.nombreUsuario}</span>
           </div>
         </div>
       </SidebarFooter>

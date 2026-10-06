@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -339,6 +340,7 @@ export function InventarioClient({
       {/* ── Vista de saldos ─────────────────────────────────── */}
       {vista === "saldos" && (
         <Card className="overflow-hidden p-0">
+          <TablaInteractiva>
           <div className="overflow-auto max-h-[600px]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
@@ -432,12 +434,14 @@ export function InventarioClient({
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </Card>
       )}
 
       {/* ── Vista de movimientos (kardex) ───────────────────── */}
       {vista === "movimientos" && (
         <Card className="overflow-hidden p-0">
+          <TablaInteractiva>
           <div className="overflow-auto max-h-[600px]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10">
@@ -514,6 +518,7 @@ export function InventarioClient({
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </Card>
       )}
 

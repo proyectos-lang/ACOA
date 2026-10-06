@@ -2,7 +2,9 @@
 
 import * as React from "react"
 import dynamic from "next/dynamic"
-import { LogOut, Loader2 } from "lucide-react"
+import { usePathname } from "next/navigation"
+import { LogOut, Loader2, ChevronRight } from "lucide-react"
+import { grupoDeRuta } from "@/lib/nav"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import {
   DropdownMenu,
@@ -45,19 +47,38 @@ export function DashboardShell({
   permiso: PermisoRow | null
   children: React.ReactNode
 }) {
+  const pathname = usePathname()
+  // Grupo y modulo de la ruta actual, con el color del grupo: la persona
+  // sabe en que area del sistema esta sin mirar el menu
+  const ubicacion = grupoDeRuta(pathname)
+
   return (
     <SessionProvider session={session} permiso={permiso}>
       <SidebarProvider>
         <ERPSidebar />
         <SidebarInset className="bg-stone-50 min-h-screen">
-          <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-stone-200/60 bg-white/80 backdrop-blur-sm px-4 md:px-6">
+          <header className="sticky top-0 z-20 flex h-16 items-center gap-4 border-b border-stone-200/60 bg-white/80 backdrop-blur-sm px-4 md:px-6">
             <SidebarTrigger className="-ml-1 md:-ml-2 rounded-lg hover:bg-stone-100 transition-colors duration-200" />
 
-            {/* Nombre de la empresa */}
-            <div className="flex items-center gap-3">
+            {/* Marca y ubicacion */}
+            <div className="flex min-w-0 items-center gap-3">
               <span className="font-bold text-xl tracking-tight" style={{ color: "#0D1821" }}>
                 ACOA
               </span>
+              {ubicacion && ubicacion.item.href !== "/" && (
+                <nav className="hidden min-w-0 items-center gap-1.5 text-sm sm:flex" aria-label="Ubicación">
+                  <span className="text-stone-300">/</span>
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={{ backgroundColor: ubicacion.grupo.colorSuave, color: ubicacion.grupo.color }}
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: ubicacion.grupo.color }} />
+                    {ubicacion.grupo.label}
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5 text-stone-300" />
+                  <span className="truncate font-semibold text-stone-800">{ubicacion.item.nombre}</span>
+                </nav>
+              )}
             </div>
 
             {/* Usuario a la derecha */}

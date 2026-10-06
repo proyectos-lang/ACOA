@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -401,6 +402,7 @@ export function HistorialClient({
 
       {/* ── Tabla ───────────────────────────────────────────── */}
       <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+        <TablaInteractiva>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -443,6 +445,7 @@ export function HistorialClient({
             </tbody>
           </table>
         </div>
+        </TablaInteractiva>
       </div>
     </div>
   )

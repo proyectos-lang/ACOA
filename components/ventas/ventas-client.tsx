@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -1587,6 +1588,7 @@ export function VentasClient({
           </Card>
 
           <Card className="p-0">
+            <TablaInteractiva>
             <div className="max-h-[560px] overflow-auto">
               <table className="w-full min-w-[900px] text-sm">
                 <thead className="sticky top-0 bg-stone-50">
@@ -1711,6 +1713,7 @@ export function VentasClient({
                 </tbody>
               </table>
             </div>
+            </TablaInteractiva>
           </Card>
 
           {/* Abonos de la venta abierta */}
@@ -1910,6 +1913,7 @@ export function VentasClient({
           </Card>
 
           <Card className="p-0">
+            <TablaInteractiva>
             <div className="max-h-[600px] overflow-auto">
               <table className="w-full min-w-[900px] text-sm">
                 <thead className="sticky top-0 bg-stone-50">
@@ -2003,6 +2007,7 @@ export function VentasClient({
                 </tbody>
               </table>
             </div>
+            </TablaInteractiva>
 
             {/* Paginacion: el historial crece sin limite */}
             {hTotal > hPorPagina && (

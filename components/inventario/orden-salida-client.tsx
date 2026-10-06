@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -756,6 +757,7 @@ export function OrdenSalidaClient({
               </button>
             </div>
 
+            <TablaInteractiva>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
@@ -852,6 +854,7 @@ export function OrdenSalidaClient({
                 </tfoot>
               </table>
             </div>
+            </TablaInteractiva>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -1356,6 +1359,7 @@ export function OrdenSalidaClient({
           </Card>
 
           <Card className="p-0">
+            <TablaInteractiva>
             <div className="max-h-[620px] overflow-auto">
               <table className="w-full min-w-[820px] text-sm">
                 <thead className="sticky top-0 bg-stone-50">
@@ -1546,6 +1550,7 @@ export function OrdenSalidaClient({
                 </tbody>
               </table>
             </div>
+            </TablaInteractiva>
           </Card>
         </div>
       )}

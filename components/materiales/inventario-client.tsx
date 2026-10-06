@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Plus, TrendingUp, TrendingDown, History, AlertTriangle, CheckCircle2 } from "lucide-react"
@@ -331,6 +332,7 @@ export function InventarioClient({ stock }: Props) {
           {stock.length === 0 ? (
             <p className="py-12 text-center text-sm text-stone-400">Sin materiales en el maestro.</p>
           ) : (
+            <TablaInteractiva>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -403,6 +405,7 @@ export function InventarioClient({ stock }: Props) {
                 </tbody>
               </table>
             </div>
+            </TablaInteractiva>
           )}
         </div>
 

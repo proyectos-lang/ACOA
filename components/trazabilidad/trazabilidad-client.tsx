@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import {
   ChevronDown,
   ChevronRight,
@@ -294,6 +295,7 @@ function ControlSection({ filas }: { filas: FilaControl[] }) {
         </div>
       </div>
 
+      <TablaInteractiva>
       <div className="overflow-auto max-h-[480px]">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10">
@@ -350,6 +352,7 @@ function ControlSection({ filas }: { filas: FilaControl[] }) {
           </tbody>
         </table>
       </div>
+      </TablaInteractiva>
       <p className="px-5 py-2.5 text-[11px] text-stone-400 border-t border-stone-100">
         Debajo de cada valor real va su diferencia frente a lo programado en la OP. La desviación
         final compara el último dato real disponible (empacado, si no contado, y así hacia atrás).
@@ -928,6 +931,7 @@ export function TrazabilidadClient({
 
       {/* ── Tabla de órdenes ─────────────────────────────────── */}
       <Card className="overflow-hidden p-0">
+        <TablaInteractiva>
         <div className="overflow-auto max-h-[600px]">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10">
@@ -975,6 +979,7 @@ export function TrazabilidadClient({
             </tbody>
           </table>
         </div>
+        </TablaInteractiva>
       </Card>
 
       <p className="text-xs text-stone-400">

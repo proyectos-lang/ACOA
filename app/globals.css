@@ -166,6 +166,42 @@
   }
 }
 
+/* Tablas del ERP: el mismo comportamiento en las 39 tablas sin tocar cada
+   una. Va en la capa base para que las clases de Tailwind de cada tabla
+   (fondos, alineaciones) sigan ganando. */
+@layer base {
+  /* Cabecera fija: se pega arriba del contenedor que hace scroll (la
+     envoltura de la tabla si tiene alto maximo; si no, el <main>) */
+  table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: inherit;
+    /* Borde inferior como sombra: un border se pierde al pegarse */
+    box-shadow: inset 0 -1px 0 rgba(13, 24, 33, 0.08);
+  }
+  table thead tr {
+    background-color: var(--card);
+  }
+
+  /* Cebra suave y resaltado de la fila bajo el cursor. Las filas que traen
+     su propio fondo (verde al completar, ambar al cambiar) lo conservan. */
+  table tbody tr:nth-child(even) {
+    background-color: rgba(52, 73, 102, 0.025);
+  }
+  table tbody tr:hover {
+    background-color: rgba(171, 205, 224, 0.16);
+  }
+
+  /* Las envolturas de tabla con scroll horizontal pasan a tener alto maximo
+     y scroll vertical propio: sin eso la cabecera fija no tendria donde
+     pegarse en las tablas largas */
+  div.overflow-x-auto:has(> table) {
+    max-height: 72vh;
+    overflow-y: auto;
+  }
+}
+
 /* EasyCount Component Enhancements */
 @layer components {
   /* Card Elevation - Soft floating shadows */

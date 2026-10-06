@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useTransition } from "react"
 import { useRouter } from "next/navigation"
 import {
@@ -718,6 +719,7 @@ export function LiquidacionEmpaqueClient({
           <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
             Resumen del periodo por persona
           </h2>
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -763,6 +765,7 @@ export function LiquidacionEmpaqueClient({
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </Card>
       )}
     </div>

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useActionState } from "react"
 import { useRouter } from "next/navigation"
 import { Plus, Pencil, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react"
@@ -263,6 +264,7 @@ export function MaterialesClient({
         </div>
       ) : (
         <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -333,6 +335,7 @@ export function MaterialesClient({
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </div>
       )}
 

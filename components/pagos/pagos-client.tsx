@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import {
@@ -1144,6 +1145,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
       {/* ── Vista de pagos ──────────────────────────────────── */}
       {vista === "pagos" && (
         <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1174,6 +1176,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </div>
       )}
 
@@ -1188,6 +1191,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               Total pagado: {cop(totalHistorial)}
             </span>
           </div>
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -1271,6 +1275,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </div>
       )}
 
@@ -1290,6 +1295,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
               {rows.length === 0 ? (
                 <p className="text-sm text-stone-400 text-center py-3">Sin pagos registrados.</p>
               ) : (
+                <TablaInteractiva>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -1331,6 +1337,7 @@ export function PagosClient({ pagos }: { pagos: PagoConContexto[] }) {
                     </tbody>
                   </table>
                 </div>
+                </TablaInteractiva>
               )}
             </div>
           ))}

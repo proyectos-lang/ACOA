@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { TablaInteractiva } from "@/components/ui/tabla-interactiva"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import { Plus, Eye, AlertTriangle, CheckCircle2, FileText, Trash2 } from "lucide-react"
@@ -207,6 +208,7 @@ export function OrdenesClient({ ordenes }: Props) {
         </div>
       ) : (
         <div className="rounded-2xl border border-stone-200 bg-white overflow-hidden">
+          <TablaInteractiva>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -270,6 +272,7 @@ export function OrdenesClient({ ordenes }: Props) {
               </tbody>
             </table>
           </div>
+          </TablaInteractiva>
         </div>
       )}
 
