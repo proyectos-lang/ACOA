@@ -3,10 +3,19 @@
 import { revalidatePath } from "next/cache"
 import { getSession } from "@/lib/auth/session"
 import { getConfeccionByLote, upsertConfeccionParcial } from "@/lib/db/confeccion"
-import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
+import {
+  getLoteById,
+  getLotesByOrden,
+  updateLoteEstado,
+  sincronizarEstadoOrdenDesdeLotes,
+} from "@/lib/db/lote"
 import { getHojaCostos } from "@/lib/db/hoja-costos"
 import { cambiarEstado, getOrdenById } from "@/lib/db/orden-produccion"
-import { listPrendasByLote, updatePrenda } from "@/lib/db/lote-prenda"
+import {
+  listPrendasByLote,
+  updatePrenda,
+  sincronizarEstadoLoteDesdePrendas,
+} from "@/lib/db/lote-prenda"
 
 type ActionResult = { error?: string; success?: boolean; procesados?: number }
 
@@ -143,47 +152,66 @@ export async function marcarFechaEstimadaConfeccionMasivaAction(
   }
 }
 
-// Recepción masiva: fecha de retorno (hoy) y pase a Conteo; la OP avanza
-// cuando todos sus lotes ya salieron de confección
+// Igual que la fecha: las unidades recibidas se escriben solo en las
+// piezas que aun no las tienen. Devuelve true si el lote tiene piezas.
+async function aplicarCantidadPorPrenda(loteId: number, cantidad: number): Promise<boolean> {
+  const prendas = await listPrendasByLote(loteId)
+  if (prendas.length === 0) return false
+  for (const p of prendas) {
+    if (p.conf_cantidad_recibida != null) continue
+    await updatePrenda(p.id, { conf_cantidad_recibida: cantidad })
+  }
+  return true
+}
+
+// Recepción masiva: fecha de retorno (hoy) y unidades recibidas por lote, y
+// pase a Conteo. La cantidad la confirma el usuario lote por lote (viene
+// precargada con lo enviado); en los conjuntos se escribe en cada pieza que
+// aun no la tenga y las piezas avanzan junto con el lote.
 export async function recepcionConfeccionMasivaAction(
-  loteIds: number[]
+  items: Array<{ loteId: number; cantidad: number }>
 ): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
-  if (loteIds.length === 0) return { error: "Selecciona al menos un lote" }
+  if (items.length === 0) return { error: "Selecciona al menos un lote" }
+  if (items.some((i) => !Number.isFinite(i.cantidad) || i.cantidad < 0)) {
+    return { error: "Las unidades recibidas deben ser un número mayor o igual a 0" }
+  }
 
   try {
     const ordenesAfectadas = new Set<number>()
     let procesados = 0
+    const hoy = hoyBogota()
 
-    for (const loteId of loteIds) {
+    for (const { loteId, cantidad } of items) {
       const lote = await getLoteById(loteId)
       if (!lote || lote.estado !== "confeccion") continue
 
-      await aplicarFechaPorPrenda(loteId, "conf_fecha_retorno", hoyBogota(), true)
-      const actual = await getConfeccionByLote(loteId)
-      await upsertConfeccionParcial(
-        loteId,
-        actual?.fecha_retorno_lote ? {} : { fecha_retorno_lote: hoyBogota() },
-        session.userId
-      )
-      await updateLoteEstado(loteId, "conteo")
+      const esConjunto = await aplicarFechaPorPrenda(loteId, "conf_fecha_retorno", hoy, true)
+      if (esConjunto) {
+        await aplicarCantidadPorPrenda(loteId, cantidad)
+        const prendas = await listPrendasByLote(loteId)
+        for (const p of prendas.filter((p) => p.estado === "confeccion")) {
+          await updatePrenda(p.id, { estado: "conteo" })
+        }
+        await sincronizarEstadoLoteDesdePrendas(loteId)
+      } else {
+        const actual = await getConfeccionByLote(loteId)
+        await upsertConfeccionParcial(
+          loteId,
+          {
+            ...(actual?.fecha_retorno_lote ? {} : { fecha_retorno_lote: hoy }),
+            ...(actual?.cantidad_reconfirmada != null ? {} : { cantidad_reconfirmada: cantidad }),
+          },
+          session.userId
+        )
+        await updateLoteEstado(loteId, "conteo")
+      }
       ordenesAfectadas.add(lote.orden_id)
       procesados++
     }
 
-    for (const ordenId of ordenesAfectadas) {
-      const todos = await getLotesByOrden(ordenId)
-      const activos = todos.filter((l) => l.estado !== "finalizado" && l.estado !== "completado")
-      if (
-        activos.length > 0 &&
-        activos.every(
-          (l) => l.estado !== "confeccion" && l.estado !== "estampacion" && l.estado !== "cortado"
-        )
-      ) {
-        await cambiarEstado(ordenId, "conteo")
-      }
-    }
+    for (const ordenId of ordenesAfectadas) await sincronizarEstadoOrdenDesdeLotes(ordenId)
 
     revalidatePath("/confeccion")
     revalidatePath("/conteo")

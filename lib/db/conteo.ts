@@ -15,6 +15,9 @@ export interface ConteoRow {
 export interface ConteoDetalleRow {
   id: number
   conteo_id: number
+  // Pieza del conjunto a la que pertenece la fila; null en OPs de una
+  // prenda y en los conteos anteriores al registro por pieza
+  prenda_id: number | null
   color: string
   talla: string
   cantidad_contada: number
@@ -24,7 +27,7 @@ export interface ConteoDetalleRow {
 const SELECT_COLS_CONTEO =
   "id, lote_id, fecha_conteo, total_contado, validado, observacion, justificacion_diferencia"
 const SELECT_COLS_DETALLE =
-  "id, conteo_id, color, talla, cantidad_contada, imperfectos"
+  "id, conteo_id, prenda_id, color, talla, cantidad_contada, imperfectos"
 
 export async function getConteoByLote(loteId: number): Promise<ConteoRow | null> {
   const db = createVanessaClient()
@@ -85,9 +88,21 @@ export async function upsertConteo(input: {
   }
 }
 
+export interface ConteoDetalleInput {
+  prenda_id?: number | null
+  color: string
+  talla: string
+  cantidad_contada: number
+  imperfectos?: number
+}
+
+// Reemplaza el detalle del conteo. En los conjuntos cada fila lleva su
+// pieza, y lo contado de cada pieza se copia a lote_prenda.cantidad_contada
+// (es lo que usa el pago al confeccionista por pieza y la trazabilidad).
+// total_contado del conteo es la suma de todas las filas.
 export async function replaceConteoDetalle(
   conteoId: number,
-  filas: Array<{ color: string; talla: string; cantidad_contada: number; imperfectos?: number }>,
+  filas: ConteoDetalleInput[],
   creadoPor: number
 ): Promise<number> {
   const db = createVanessaClient()
@@ -97,22 +112,24 @@ export async function replaceConteoDetalle(
     .eq("conteo_id", conteoId)
   if (delErr) throw new Error(delErr.message)
 
-  // Agrupar filas repetidas (misma talla y color) sumando cantidades:
-  // conteo_detalle tiene unicidad por (conteo_id, color, talla)
+  // Agrupar filas repetidas (misma pieza, talla y color) sumando cantidades:
+  // conteo_detalle tiene unicidad por (conteo_id, pieza, color, talla)
   const agrupadas = new Map<
     string,
-    { color: string; talla: string; cantidad_contada: number; imperfectos: number }
+    { prenda_id: number | null; color: string; talla: string; cantidad_contada: number; imperfectos: number }
   >()
   for (const f of filas) {
+    const prendaId = f.prenda_id ?? null
     const color = f.color.trim()
     const talla = f.talla.trim()
-    const key = `${color.toLowerCase()}|${talla.toLowerCase()}`
+    const key = `${prendaId ?? 0}|${color.toLowerCase()}|${talla.toLowerCase()}`
     const prev = agrupadas.get(key)
     if (prev) {
       prev.cantidad_contada += f.cantidad_contada || 0
       prev.imperfectos += f.imperfectos || 0
     } else {
       agrupadas.set(key, {
+        prenda_id: prendaId,
         color,
         talla,
         cantidad_contada: f.cantidad_contada || 0,
@@ -127,6 +144,7 @@ export async function replaceConteoDetalle(
   if (filasUnicas.length > 0) {
     const rows = filasUnicas.map((f) => ({
       conteo_id: conteoId,
+      prenda_id: f.prenda_id,
       color: f.color,
       talla: f.talla,
       cantidad_contada: f.cantidad_contada,
@@ -142,6 +160,20 @@ export async function replaceConteoDetalle(
     .update({ total_contado: totalContado })
     .eq("id", conteoId)
   if (updErr) throw new Error(updErr.message)
+
+  // Lo contado de cada pieza viaja a la pieza
+  const porPrenda = new Map<number, number>()
+  for (const f of filasUnicas) {
+    if (f.prenda_id == null) continue
+    porPrenda.set(f.prenda_id, (porPrenda.get(f.prenda_id) ?? 0) + f.cantidad_contada)
+  }
+  for (const [prendaId, contadas] of porPrenda) {
+    const { error } = await db
+      .from("lote_prenda")
+      .update({ cantidad_contada: contadas })
+      .eq("id", prendaId)
+    if (error) throw new Error(error.message)
+  }
 
   return totalContado
 }

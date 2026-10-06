@@ -362,6 +362,7 @@ export function ConfeccionFichaClient({
                 loteId={lote.id}
                 prendas={prendas}
                 etapa="confeccion"
+                cantidadProgramada={lote.cantidad_programada}
                 confeccionistas={confeccionistas}
                 precioDefault={precioConfeccionOP}
                 onMsg={showToast}
@@ -389,15 +390,22 @@ export function ConfeccionFichaClient({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-sm font-medium text-stone-700">Cantidad reconfirmada</label>
+                <label className="text-sm font-medium text-stone-700">
+                  Unidades recibidas de confección{esConjunto ? "" : " *"}
+                </label>
                 <input
                   type="number"
                   name="cantidad_reconfirmada"
                   min="0"
                   defaultValue={confeccion?.cantidad_reconfirmada ?? ""}
-                  className={fieldCls}
+                  className={`${fieldCls} ${hayDiff ? "border-amber-400 bg-amber-50" : ""}`}
                   placeholder={String(lote.cantidad_programada)}
                 />
+                <p className="text-xs text-stone-400">
+                  {esConjunto
+                    ? "En los conjuntos se registra por pieza, más abajo"
+                    : `Las que volvieron del confeccionista, de ${lote.cantidad_programada.toLocaleString("es-CO")} enviadas. Obligatorio para enviar a conteo.`}
+                </p>
               </div>
               {!esConjunto && (
               <div className="space-y-1">

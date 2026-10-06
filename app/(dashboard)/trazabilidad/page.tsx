@@ -13,8 +13,9 @@ export default async function TrazabilidadPage() {
       <div>
         <h1 className="text-2xl font-bold text-stone-900">Dashboard y trazabilidad</h1>
         <p className="text-sm text-stone-500">
-          Control 360 de la operación: estado de cada orden, avance por lote y prenda, línea de
-          tiempo por etapa y tiempos de proceso.
+          Control 360 de la operación: para cada orden, lote y pieza, lo programado frente a lo
+          real de cada etapa (corte, estampación, confección, conteo y empaque), línea de tiempo
+          y tiempos de proceso.
         </p>
       </div>
 

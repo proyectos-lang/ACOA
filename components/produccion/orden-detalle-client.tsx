@@ -19,6 +19,7 @@ import type { OpTelaRow } from "@/lib/db/op-tela"
 import type { OpTelaLoteRow } from "@/lib/db/op-tela-lote"
 import type { LoteRow } from "@/lib/db/lote"
 import type { CategoriaRow } from "@/lib/db/categoria"
+import type { OrdenPiezaRow } from "@/lib/db/orden-pieza"
 import { LOTE_ESTADO_LABEL, LOTE_ESTADO_COLOR } from "@/lib/db/lote"
 import {
   guardarInfoGeneralAction,
@@ -31,6 +32,7 @@ import {
   guardarMaterialesOPAction,
   enviarACorteAction,
   crearCategoriaAction,
+  guardarPiezasAction,
 } from "@/app/(dashboard)/produccion/[id]/actions"
 import type { OpMaterialBatchFila } from "@/lib/db/op-material"
 import { guardarHojaCostosAction } from "@/app/(dashboard)/produccion/[id]/costos/actions"
@@ -67,6 +69,8 @@ interface Props {
   gamasTela: Record<string, string[]>
   // Siguiente consecutivo global de lote (continuo en toda la operacion)
   siguienteLote: number
+  // Piezas del conjunto definidas en esta OP (vacio en OPs de una prenda)
+  piezas: OrdenPiezaRow[]
 }
 
 function padOP(n: number) {
@@ -2607,6 +2611,134 @@ function InstruccionesSection({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
+// ─── Piezas del conjunto ─────────────────────────────────────────────────────
+// Se definen aqui, una sola vez, y todos los lotes las heredan al entrar a
+// estampacion. Antes cada lote escribia sus piezas a mano y la base acumulo
+// 11 variantes de nombre para lo mismo. Una pieza que ya esta en algun
+// lote no se puede retirar.
+
+const PIEZAS_SUGERIDAS = ["Superior", "Inferior", "Camiseta", "Pantaloneta", "Conjunto completo"]
+
+function PiezasConjuntoSection({
+  ordenId,
+  inicial,
+  onMsg,
+}: {
+  ordenId: number
+  inicial: OrdenPiezaRow[]
+  onMsg: (m: string) => void
+}) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const nombresIniciales = React.useMemo(() => inicial.map((p) => p.nombre), [inicial])
+  const [nombres, setNombres] = React.useState<string[]>(nombresIniciales)
+  React.useEffect(() => setNombres(nombresIniciales), [nombresIniciales])
+  const [nueva, setNueva] = React.useState("")
+
+  const cambiado = JSON.stringify(nombres) !== JSON.stringify(nombresIniciales)
+
+  function agregar(nombre: string) {
+    const n = nombre.trim().replace(/\s+/g, " ")
+    if (!n) return
+    if (nombres.some((x) => x.toLowerCase() === n.toLowerCase())) {
+      onMsg(`Error: "${n}" ya está en la lista`)
+      return
+    }
+    setNombres((p) => [...p, n])
+    setNueva("")
+  }
+
+  function guardar() {
+    startTransition(async () => {
+      const res = await guardarPiezasAction(ordenId, nombres)
+      if (res.error) onMsg(`Error: ${res.error}`)
+      else {
+        onMsg(res.aviso ?? "Piezas guardadas")
+        router.refresh()
+      }
+    })
+  }
+
+  return (
+    <div className="mt-5 border-t border-stone-100 pt-5 space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-stone-700">Piezas del conjunto</h3>
+        <p className="text-xs text-stone-400 mt-0.5">
+          Cada lote de esta orden se divide en estas piezas al entrar a estampación, y cada una
+          se estampa, confecciona, cuenta y empaca por separado. Si el conjunto se trabaja sin
+          dividir, deja una sola pieza: &quot;Conjunto completo&quot;.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {nombres.length === 0 && (
+          <span className="text-xs text-stone-400 italic">Sin piezas — agrega al menos una</span>
+        )}
+        {nombres.map((n, i) => {
+          const enUso = inicial.some((p) => p.nombre.toLowerCase() === n.toLowerCase())
+          return (
+            <span
+              key={`${n}-${i}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 pl-3 pr-1.5 py-1 text-sm text-stone-700"
+            >
+              <span className="font-mono text-[10px] text-stone-400">{i + 1}</span>
+              {n}
+              <button
+                type="button"
+                onClick={() => setNombres((p) => p.filter((_, j) => j !== i))}
+                disabled={isPending}
+                title={enUso ? "Si algún lote ya la usa, no se podrá retirar" : "Quitar"}
+                className="rounded-full p-0.5 text-stone-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </span>
+          )
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          list={`piezas-sugeridas-${ordenId}`}
+          value={nueva}
+          onChange={(e) => setNueva(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              agregar(nueva)
+            }
+          }}
+          placeholder="Nombre de la pieza (ej: Camiseta)"
+          className={`${fieldCls} sm:w-72`}
+        />
+        <datalist id={`piezas-sugeridas-${ordenId}`}>
+          {PIEZAS_SUGERIDAS.filter((s) => !nombres.some((n) => n.toLowerCase() === s.toLowerCase())).map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+        <button
+          type="button"
+          onClick={() => agregar(nueva)}
+          disabled={isPending || !nueva.trim()}
+          className="flex items-center gap-1.5 rounded-xl border border-stone-200 px-3 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 disabled:opacity-50"
+        >
+          <Plus className="h-4 w-4" /> Agregar
+        </button>
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={isPending || !cambiado || nombres.length === 0}
+          className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          style={{ backgroundColor: "#344966" }}
+        >
+          <Save className="h-4 w-4" />
+          {isPending ? "Guardando…" : "Guardar piezas"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function OrdenDetalleClient({
   orden,
   opMateriales,
@@ -2621,6 +2753,7 @@ export function OrdenDetalleClient({
   categorias,
   gamasTela,
   siguienteLote,
+  piezas,
 }: Props) {
   const router = useRouter()
   const [confirmEnvio, setConfirmEnvio] = React.useState(false)
@@ -2710,6 +2843,9 @@ export function OrdenDetalleClient({
 
         <TabsContent value="info" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">
           <InfoGeneralSection orden={orden} categorias={categorias} onMsg={handleMsg} />
+          {orden.tipo_prenda === "conjunto" && (
+            <PiezasConjuntoSection ordenId={orden.id} inicial={piezas} onMsg={handleMsg} />
+          )}
         </TabsContent>
 
         <TabsContent value="curva" className="rounded-2xl border border-stone-200 bg-white p-5 mt-4">

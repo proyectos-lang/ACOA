@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
-import { Plus, Trash2, Save, ArrowRight } from "lucide-react"
+import { Save, ArrowRight, Info } from "lucide-react"
 import {
   type LotePrendaRow,
   type PrendaEstado,
@@ -13,10 +13,8 @@ import {
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 import { PersonaCombobox, type PersonaOpcion } from "@/components/ui/persona-combobox"
 import {
-  crearPrendaAction,
   actualizarPrendaAction,
   avanzarPrendaAction,
-  eliminarPrendaAction,
 } from "@/app/(dashboard)/lote-prendas-actions"
 
 const SIGUIENTE: Record<PrendaEstado, PrendaEstado | null> = {
@@ -33,20 +31,19 @@ const SIGUIENTE_LABEL: Record<PrendaEstado, string> = {
   completado: "",
 }
 
-// Tipos de prenda al dividir un lote de conjunto
-const OPCIONES_PRENDA = ["Superior", "Inferior", "Conjunto completo"]
-
 const inputCls =
   "w-full rounded-lg border border-stone-200 bg-white px-2 py-1.5 text-xs outline-none focus:ring-2 focus:ring-[#344966]"
 const lblCls = "text-[11px] font-medium text-stone-500"
 
-// Fila editable de una prenda del conjunto: cada etapa edita sus campos
-// (estampación: estampador + precio + fechas; confección: confeccionista +
-// precio + fechas; conteo: cantidad contada)
+// Fila editable de una pieza del conjunto: cada etapa edita sus campos
+// (estampación: estampador + precio + fechas + unidades recibidas;
+// confección: confeccionista + precio + fechas + unidades recibidas;
+// conteo: cantidad contada)
 function PrendaFila({
   prenda,
   loteId,
   etapa,
+  cantidadProgramada,
   estampadores,
   confeccionistas,
   precioDefault,
@@ -55,6 +52,7 @@ function PrendaFila({
   prenda: LotePrendaRow
   loteId: number
   etapa: PrendaEstado
+  cantidadProgramada: number
   estampadores: PersonaOpcion[]
   confeccionistas: PersonaOpcion[]
   precioDefault: number | null
@@ -77,6 +75,9 @@ function PrendaFila({
   )
   const [estEstimada, setEstEstimada] = React.useState(prenda.est_fecha_estimada ?? "")
   const [estRetorno, setEstRetorno] = React.useState(prenda.est_fecha_retorno ?? "")
+  const [estRecibida, setEstRecibida] = React.useState(
+    prenda.est_cantidad_recibida != null ? String(prenda.est_cantidad_recibida) : ""
+  )
   const [confeccionista, setConfeccionista] = React.useState(prenda.nombre_confeccionista ?? "")
   const [confPrecio, setConfPrecio] = React.useState(
     prenda.conf_precio != null
@@ -91,6 +92,9 @@ function PrendaFila({
   )
   const [confEstimada, setConfEstimada] = React.useState(prenda.conf_fecha_estimada ?? "")
   const [confRetorno, setConfRetorno] = React.useState(prenda.conf_fecha_retorno ?? "")
+  const [confRecibida, setConfRecibida] = React.useState(
+    prenda.conf_cantidad_recibida != null ? String(prenda.conf_cantidad_recibida) : ""
+  )
   const [cantidad, setCantidad] = React.useState(
     prenda.cantidad_contada != null ? String(prenda.cantidad_contada) : ""
   )
@@ -103,6 +107,12 @@ function PrendaFila({
   const confEstimadaCalc =
     confDiasNum > 0 ? sumarDiasSinDomingo(confEntrega || hoyBogota(), confDiasNum) : ""
 
+  // Lo que entro a la etapa: lo que volvio de la anterior, o lo programado
+  const enviadasAEstampacion = cantidadProgramada
+  const enviadasAConfeccion = prenda.est_cantidad_recibida ?? cantidadProgramada
+  const estRecibidaNum = estRecibida === "" ? null : parseInt(estRecibida, 10)
+  const confRecibidaNum = confRecibida === "" ? null : parseInt(confRecibida, 10)
+
   function guardar() {
     startTransition(async () => {
       const campos =
@@ -114,6 +124,7 @@ function PrendaFila({
               est_dias_entrega: estDiasNum > 0 ? estDiasNum : null,
               est_fecha_estimada: estEstimadaCalc || estEstimada || null,
               est_fecha_retorno: estRetorno || null,
+              est_cantidad_recibida: estRecibidaNum,
             }
           : etapa === "confeccion"
             ? {
@@ -123,12 +134,13 @@ function PrendaFila({
                 conf_dias_entrega: confDiasNum > 0 ? confDiasNum : null,
                 conf_fecha_estimada: confEstimadaCalc || confEstimada || null,
                 conf_fecha_retorno: confRetorno || null,
+                conf_cantidad_recibida: confRecibidaNum,
               }
             : { cantidad_contada: cantidad ? parseInt(cantidad, 10) : null }
       const res = await actualizarPrendaAction(prenda.id, loteId, campos)
       if (res.error) onMsg("error", res.error)
       else {
-        onMsg("ok", `Prenda "${prenda.nombre}" guardada`)
+        onMsg("ok", `Pieza "${prenda.nombre}" guardada`)
         router.refresh()
       }
     })
@@ -141,25 +153,31 @@ function PrendaFila({
       const res = await avanzarPrendaAction(prenda.id, loteId, siguiente)
       if (res.error) onMsg("error", res.error)
       else {
-        onMsg("ok", `"${prenda.nombre}" → ${PRENDA_ESTADO_LABEL[siguiente]}`)
+        onMsg("ok", res.aviso ?? `"${prenda.nombre}" → ${PRENDA_ESTADO_LABEL[siguiente]}`)
         router.refresh()
       }
     })
   }
 
-  function eliminar() {
-    startTransition(async () => {
-      const res = await eliminarPrendaAction(prenda.id, loteId)
-      if (res.error) onMsg("error", res.error)
-      else {
-        onMsg("ok", `Prenda "${prenda.nombre}" eliminada`)
-        router.refresh()
-      }
-    })
-  }
-
-  // Los campos de la etapa solo se editan cuando la prenda está en esa etapa
+  // Los campos de la etapa solo se editan cuando la pieza está en esa etapa
   const editable = prenda.estado === etapa
+
+  // Para salir de estampación o confección hay que haber registrado el
+  // retorno; el botón se deshabilita y el título explica por qué
+  const faltaParaAvanzar =
+    prenda.estado === "estampacion"
+      ? !prenda.est_fecha_retorno
+        ? "Registra y guarda la fecha de retorno primero"
+        : prenda.est_cantidad_recibida == null
+          ? "Registra y guarda las unidades recibidas primero"
+          : null
+      : prenda.estado === "confeccion"
+        ? !prenda.conf_fecha_retorno
+          ? "Registra y guarda la fecha de retorno primero"
+          : prenda.conf_cantidad_recibida == null
+            ? "Registra y guarda las unidades recibidas primero"
+            : null
+        : null
 
   const btnGuardar = (
     <button
@@ -172,6 +190,19 @@ function PrendaFila({
       <Save className="h-3 w-3" /> Guardar
     </button>
   )
+
+  // Diferencia entre lo enviado y lo recibido, para resaltarla
+  function Diferencia({ enviadas, recibidas }: { enviadas: number; recibidas: number | null }) {
+    if (recibidas == null || Number.isNaN(recibidas)) return null
+    const d = recibidas - enviadas
+    if (d === 0) return <span className="text-[10px] text-emerald-600">completo</span>
+    return (
+      <span className={`text-[10px] font-semibold ${d < 0 ? "text-red-600" : "text-amber-600"}`}>
+        {d > 0 ? "+" : ""}
+        {d.toLocaleString("es-CO")} frente a {enviadas.toLocaleString("es-CO")} enviadas
+      </span>
+    )
+  }
 
   return (
     <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2.5 space-y-2">
@@ -186,29 +217,19 @@ function PrendaFila({
             {PRENDA_ESTADO_LABEL[prenda.estado]}
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          {editable && SIGUIENTE[prenda.estado] && (
-            <button
-              type="button"
-              onClick={avanzar}
-              disabled={isPending}
-              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: "#0f766e" }}
-            >
-              <ArrowRight className="h-3 w-3" />
-              {SIGUIENTE_LABEL[prenda.estado]}
-            </button>
-          )}
+        {editable && SIGUIENTE[prenda.estado] && (
           <button
             type="button"
-            onClick={eliminar}
-            disabled={isPending}
-            className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-500 transition-colors"
-            title="Eliminar prenda"
+            onClick={avanzar}
+            disabled={isPending || !!faltaParaAvanzar}
+            title={faltaParaAvanzar ?? SIGUIENTE_LABEL[prenda.estado]}
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+            style={{ backgroundColor: "#0f766e" }}
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <ArrowRight className="h-3 w-3" />
+            {SIGUIENTE_LABEL[prenda.estado]}
           </button>
-        </div>
+        )}
       </div>
 
       {/* Resumen de lo registrado en otras etapas */}
@@ -216,14 +237,14 @@ function PrendaFila({
         {etapa !== "estampacion" && prenda.nombre_estampador && (
           <span>Estampador: <strong>{prenda.nombre_estampador}</strong></span>
         )}
-        {etapa !== "estampacion" && prenda.est_precio != null && (
-          <span>Precio est.: <strong>${Number(prenda.est_precio).toLocaleString("es-CO")}</strong></span>
+        {etapa !== "estampacion" && prenda.est_cantidad_recibida != null && (
+          <span>Volvieron de estampación: <strong>{prenda.est_cantidad_recibida.toLocaleString("es-CO")}</strong></span>
         )}
         {etapa !== "confeccion" && prenda.nombre_confeccionista && (
           <span>Confeccionista: <strong>{prenda.nombre_confeccionista}</strong></span>
         )}
-        {etapa !== "confeccion" && prenda.conf_precio != null && (
-          <span>Precio conf.: <strong>${Number(prenda.conf_precio).toLocaleString("es-CO")}</strong></span>
+        {etapa !== "confeccion" && prenda.conf_cantidad_recibida != null && (
+          <span>Volvieron de confección: <strong>{prenda.conf_cantidad_recibida.toLocaleString("es-CO")}</strong></span>
         )}
         {etapa !== "conteo" && prenda.cantidad_contada != null && (
           <span>Contadas: <strong>{prenda.cantidad_contada.toLocaleString("es-CO")}</strong></span>
@@ -231,7 +252,7 @@ function PrendaFila({
       </div>
 
       {editable && etapa === "estampacion" && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="space-y-0.5">
             <label className={lblCls}>Estampador</label>
             <PersonaCombobox
@@ -265,15 +286,27 @@ function PrendaFila({
             />
           </div>
           <div className="space-y-0.5">
-            <label className={lblCls}>F. retorno</label>
+            <label className={lblCls}>F. retorno *</label>
             <input type="date" value={estRetorno} onChange={(e) => setEstRetorno(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>Unidades recibidas *</label>
+            <input
+              type="number"
+              min="0"
+              value={estRecibida}
+              onChange={(e) => setEstRecibida(e.target.value)}
+              className={`${inputCls} ${estRecibidaNum != null && estRecibidaNum !== enviadasAEstampacion ? "border-amber-400 bg-amber-50" : ""}`}
+              placeholder={String(enviadasAEstampacion)}
+            />
+            <Diferencia enviadas={enviadasAEstampacion} recibidas={estRecibidaNum} />
           </div>
           <div className="flex items-end">{btnGuardar}</div>
         </div>
       )}
 
       {editable && etapa === "confeccion" && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="space-y-0.5">
             <label className={lblCls}>Confeccionista</label>
             <PersonaCombobox
@@ -307,8 +340,20 @@ function PrendaFila({
             />
           </div>
           <div className="space-y-0.5">
-            <label className={lblCls}>F. retorno</label>
+            <label className={lblCls}>F. retorno *</label>
             <input type="date" value={confRetorno} onChange={(e) => setConfRetorno(e.target.value)} className={inputCls} />
+          </div>
+          <div className="space-y-0.5">
+            <label className={lblCls}>Unidades recibidas *</label>
+            <input
+              type="number"
+              min="0"
+              value={confRecibida}
+              onChange={(e) => setConfRecibida(e.target.value)}
+              className={`${inputCls} ${confRecibidaNum != null && confRecibidaNum !== enviadasAConfeccion ? "border-amber-400 bg-amber-50" : ""}`}
+              placeholder={String(enviadasAConfeccion)}
+            />
+            <Diferencia enviadas={enviadasAConfeccion} recibidas={confRecibidaNum} />
           </div>
           <div className="flex items-end">{btnGuardar}</div>
         </div>
@@ -334,13 +379,16 @@ function PrendaFila({
   )
 }
 
-// Sección "Prendas del conjunto": en las fichas de estampación y confección
+// Sección "Piezas del conjunto": en las fichas de estampación y confección
 // se incrusta dentro de la tarjeta de datos (embedded), subdividiendo los
-// campos de la etapa por cada prenda; en conteo va como sección propia.
+// campos de la etapa por cada pieza; en conteo va como sección propia.
+// Las piezas vienen definidas desde la ficha de la OP: aquí no se crean
+// ni se retiran.
 export function PrendasConjuntoSection({
   loteId,
   prendas,
   etapa,
+  cantidadProgramada = 0,
   estampadores = [],
   confeccionistas = [],
   precioDefault = null,
@@ -350,74 +398,30 @@ export function PrendasConjuntoSection({
   loteId: number
   prendas: LotePrendaRow[]
   etapa: PrendaEstado
+  // Unidades programadas del lote: es lo que entra a estampación
+  cantidadProgramada?: number
   estampadores?: PersonaOpcion[]
   confeccionistas?: PersonaOpcion[]
   precioDefault?: number | null
   embedded?: boolean
   onMsg: (tipo: "ok" | "error", msg: string) => void
 }) {
-  const router = useRouter()
-  const [isPending, startTransition] = useTransition()
-  const [nuevaPrenda, setNuevaPrenda] = React.useState(OPCIONES_PRENDA[0])
-
-  function crear() {
-    const nombre = nuevaPrenda.trim()
-    if (!nombre) return
-
-    // No repetir una prenda que ya esta en el lote
-    const yaExiste = prendas.some(
-      (p) => p.nombre.trim().toLowerCase() === nombre.toLowerCase()
-    )
-    if (yaExiste) {
-      onMsg("error", `"${nombre}" ya está en este lote`)
-      return
-    }
-
-    startTransition(async () => {
-      const res = await crearPrendaAction(loteId, nombre, etapa)
-      if (res.error) onMsg("error", res.error)
-      else {
-        onMsg("ok", res.aviso ? `"${nombre}" agregada. ${res.aviso}` : `Prenda "${nombre}" agregada`)
-        router.refresh()
-      }
-    })
-  }
-
   const contenido = (
     <>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <p className={embedded ? "text-xs font-semibold text-stone-600" : "text-sm font-semibold text-stone-700"}>
-          Prendas del conjunto ({prendas.length})
+          Piezas del conjunto ({prendas.length})
         </p>
         <span className="text-[11px] text-stone-400">
-          Cada prenda con sus propios datos de la etapa
+          Cada pieza con sus propios datos de la etapa
         </span>
       </div>
 
-      <div className="flex items-center gap-2">
-        <select
-          value={nuevaPrenda}
-          onChange={(e) => setNuevaPrenda(e.target.value)}
-          className="flex-1 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#344966]"
-        >
-          {OPCIONES_PRENDA.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={crear}
-          disabled={isPending || !nuevaPrenda.trim()}
-          className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 shrink-0"
-          style={{ backgroundColor: "#344966" }}
-        >
-          <Plus className="h-3.5 w-3.5" /> Agregar prenda
-        </button>
-      </div>
-
       {prendas.length === 0 ? (
-        <p className="text-sm text-stone-400 text-center py-3">
-          Sin prendas registradas. Agrega las prendas del conjunto (Superior, Inferior o Conjunto completo).
+        <p className="flex items-start gap-1.5 text-xs text-stone-400 py-3">
+          <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          Este lote aún no tiene piezas. Se crean solas al entrar a estampación con las piezas
+          que define la ficha de la OP (pestaña General).
         </p>
       ) : (
         <div className="space-y-2">
@@ -427,6 +431,7 @@ export function PrendasConjuntoSection({
               prenda={p}
               loteId={loteId}
               etapa={etapa}
+              cantidadProgramada={cantidadProgramada}
               estampadores={estampadores}
               confeccionistas={confeccionistas}
               precioDefault={precioDefault}

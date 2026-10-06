@@ -247,6 +247,7 @@ export function EstampacionFichaClient({
                 loteId={lote.id}
                 prendas={prendas}
                 etapa="estampacion"
+                cantidadProgramada={lote.cantidad_programada}
                 estampadores={estampadores}
                 precioDefault={precioEstampacionOP}
                 onMsg={showToast}
@@ -333,13 +334,33 @@ export function EstampacionFichaClient({
                 </p>
               </div>
               <div className="space-y-1">
-                <label className="text-sm font-medium text-stone-700">Fecha retorno lote</label>
+                <label className="text-sm font-medium text-stone-700">Fecha retorno lote *</label>
                 <input
                   type="date"
                   name="fecha_retorno_lote"
                   defaultValue={estampacion?.fecha_retorno_lote ?? ""}
                   className={fieldCls}
                 />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-stone-700">Unidades recibidas *</label>
+                <input
+                  type="number"
+                  name="cantidad_recibida"
+                  min="0"
+                  defaultValue={estampacion?.cantidad_recibida ?? ""}
+                  className={`${fieldCls} ${
+                    estampacion?.cantidad_recibida != null &&
+                    estampacion.cantidad_recibida !== lote.cantidad_programada
+                      ? "border-amber-400 bg-amber-50"
+                      : ""
+                  }`}
+                  placeholder={String(lote.cantidad_programada)}
+                />
+                <p className="text-xs text-stone-400">
+                  Las que volvieron del estampador, de {lote.cantidad_programada.toLocaleString("es-CO")} enviadas.
+                  Obligatorio para enviar a confección.
+                </p>
               </div>
             </div>
               </>

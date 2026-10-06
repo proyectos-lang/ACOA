@@ -318,6 +318,51 @@ export async function updateLoteEstado(id: number, estado: string): Promise<void
   if (error) throw new Error(error.message)
 }
 
+// ── Estado de la OP derivado de sus lotes ────────────────────────────────────
+
+const RANGO_LOTE: Record<string, number> = {
+  cortado: 0,
+  estampacion: 1,
+  confeccion: 2,
+  conteo: 3,
+  empaque: 4,
+  completado: 5,
+  finalizado: 5,
+}
+
+const ESTADO_OP_POR_LOTE: Record<string, string> = {
+  cortado: "corte",
+  estampacion: "estampacion",
+  confeccion: "confeccion",
+  conteo: "conteo",
+  empaque: "empaque",
+}
+
+// La orden va donde va su lote activo mas atrasado; si todos cerraron,
+// terminada. Es lo que permite que el estado de una pieza arrastre al lote
+// y el lote a la orden. Devuelve el estado nuevo, o null si no cambio.
+// (No usa cambiarEstado() de orden-produccion.ts porque ese modulo importa
+// a este y seria una dependencia circular.)
+export async function sincronizarEstadoOrdenDesdeLotes(ordenId: number): Promise<string | null> {
+  const db = createVanessaClient()
+  const [{ data: lotes }, { data: orden }] = await Promise.all([
+    db.from("lote").select("estado").eq("orden_id", ordenId).limit(5000),
+    db.from("orden_produccion").select("estado").eq("id", ordenId).maybeSingle(),
+  ])
+  const estados = ((lotes ?? []) as Array<{ estado: string }>).map((l) => l.estado)
+  if (estados.length === 0 || !orden) return null
+
+  const activos = estados
+    .filter((e) => (RANGO_LOTE[e] ?? 0) < 5)
+    .sort((a, b) => (RANGO_LOTE[a] ?? 0) - (RANGO_LOTE[b] ?? 0))
+  const destino = activos.length === 0 ? "terminada" : ESTADO_OP_POR_LOTE[activos[0]]
+  if (!destino || destino === (orden as { estado: string }).estado) return null
+
+  const { error } = await db.from("orden_produccion").update({ estado: destino }).eq("id", ordenId)
+  if (error) throw new Error(error.message)
+  return destino
+}
+
 // Justificación registrada al finalizar el lote en empaque cuando lo
 // empacado + imperfectos quedó por debajo de lo contado
 export async function updateLoteJustificacionEmpaque(

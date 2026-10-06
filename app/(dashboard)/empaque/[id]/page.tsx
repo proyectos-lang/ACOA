@@ -6,6 +6,7 @@ import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
 import { getEmpaquePorLote } from "@/lib/db/empaque-registro"
 import { listPersonas } from "@/lib/db/persona"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 import { EmpaqueRegistroClient } from "@/components/empaque/empaque-registro-client"
 import { notFound } from "next/navigation"
 import Link from "next/link"
@@ -25,7 +26,7 @@ export default async function EmpaqueFichaPage({
 
   const conteo = await getConteoByLote(loteId)
 
-  const [orden, curvaTallas, conteoDetalle, registros, empacadoras, permiso] =
+  const [orden, curvaTallas, conteoDetalle, registros, empacadoras, permiso, prendas] =
     await Promise.all([
       getOrdenById(lote.orden_id),
       getCurvaTallas(lote.orden_id),
@@ -33,6 +34,8 @@ export default async function EmpaqueFichaPage({
       getEmpaquePorLote(loteId),
       listPersonas({ tipo_pago: "produccion", estado: "activo" }),
       getPermiso(session.userId),
+      // En los conjuntos cada pieza se empaca y paga por separado
+      listPrendasByLote(loteId),
     ])
 
   if (!orden) notFound()
@@ -61,6 +64,7 @@ export default async function EmpaqueFichaPage({
         conteoDetalle={conteoDetalle}
         registros={registros}
         empacadoras={empacadoras}
+        prendas={prendas}
         esAdmin={permiso?.mod_usuarios === true}
       />
     </div>

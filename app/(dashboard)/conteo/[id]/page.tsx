@@ -3,6 +3,7 @@ import { getLoteById } from "@/lib/db/lote"
 import { getOrdenById } from "@/lib/db/orden-produccion"
 import { getCurvaTallas } from "@/lib/db/curva-talla"
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
+import { getConfeccionByLote } from "@/lib/db/confeccion"
 import { listPrendasByLote, asegurarPrendasConjunto } from "@/lib/db/lote-prenda"
 import { getSession } from "@/lib/auth/session"
 import { ConteoFichaClient } from "@/components/conteo/conteo-ficha-client"
@@ -35,11 +36,13 @@ export default async function ConteoFichaPage({
     }
   }
 
-  const [orden, curvaTallas, conteoDetalle, prendas] = await Promise.all([
+  const [orden, curvaTallas, conteoDetalle, prendas, confeccion] = await Promise.all([
     getOrdenById(lote.orden_id),
     getCurvaTallas(lote.orden_id),
     conteo ? getConteoDetalle(conteo.id) : Promise.resolve([]),
     listPrendasByLote(loteId),
+    // Lo que volvio de confeccion es lo que entra a conteo
+    getConfeccionByLote(loteId),
   ])
 
   if (!orden) notFound()
@@ -67,6 +70,7 @@ export default async function ConteoFichaPage({
         conteo={conteo}
         conteoDetalle={conteoDetalle}
         prendas={prendas}
+        entraronLote={confeccion?.cantidad_reconfirmada ?? null}
       />
     </div>
   )

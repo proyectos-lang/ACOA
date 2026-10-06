@@ -6,6 +6,9 @@ export interface EmpaqueRegistroRow {
   id: number
   lote_id: number
   persona_id: number
+  // Pieza del conjunto empacada (null en OPs de una prenda y en registros
+  // anteriores al empaque por pieza). Cada pieza se empaca y paga aparte.
+  prenda_id: number | null
   color: string
   talla: string
   cantidad: number
@@ -26,7 +29,7 @@ export interface AcumuladoTalla {
 }
 
 const SELECT_COLS =
-  "id, lote_id, persona_id, color, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha, genera_pago"
+  "id, lote_id, persona_id, prenda_id, color, talla, cantidad, imperfectos, precio_unidad, valor_total, fecha, genera_pago"
 
 export async function getEmpaquePorLote(loteId: number): Promise<EmpaqueRegistroRow[]> {
   const db = createVanessaClient()
@@ -66,6 +69,7 @@ export async function getEmpaqueTotalPorLote(loteId: number): Promise<number> {
 export async function createEmpaqueRegistro(input: {
   lote_id: number
   persona_id: number
+  prenda_id?: number | null
   color: string
   talla: string
   cantidad: number
@@ -81,6 +85,7 @@ export async function createEmpaqueRegistro(input: {
   const { data, error } = await db.from("empaque_registro").insert({
     lote_id: input.lote_id,
     persona_id: input.persona_id,
+    prenda_id: input.prenda_id ?? null,
     color: input.color.trim(),
     talla: input.talla.trim(),
     cantidad: input.cantidad,

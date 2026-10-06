@@ -17,6 +17,7 @@ import { createLoteDesdeOP, upsertLoteDesdeGrid, deleteLoteCascada,
   type AjusteLote, getLotesByOrden,
 } from "@/lib/db/lote"
 import { createCategoria } from "@/lib/db/categoria"
+import { guardarPiezasOrden, asegurarPiezasOrden } from "@/lib/db/orden-pieza"
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
 export interface ActionResult {
@@ -89,10 +90,42 @@ export async function guardarInfoGeneralAction(
       await updateOrden(ordenId, { url_molde: url })
     }
 
+    // Una OP que pasa a conjunto arranca con sus piezas por defecto, para
+    // que la seccion de piezas no aparezca vacia
+    if (formData.get("tipo_prenda") === "conjunto") {
+      await asegurarPiezasOrden(ordenId, session.userId)
+    }
+
     revalidatePath(`/produccion/${ordenId}`)
     return { success: true }
   } catch (err: unknown) {
     return { error: err instanceof Error ? err.message : "Error guardando información" }
+  }
+}
+
+// ── Piezas del conjunto ───────────────────────────────────────────────────────
+
+// Las piezas se definen una vez en la OP y todos sus lotes las heredan al
+// entrar a estampacion. Una pieza que ya esta en algun lote no se retira.
+export async function guardarPiezasAction(
+  ordenId: number,
+  nombres: string[]
+): Promise<ActionResult> {
+  const session = await getSession()
+  if (!session) return { error: "No autorizado" }
+
+  try {
+    const r = await guardarPiezasOrden(ordenId, nombres, session.userId)
+    revalidatePath(`/produccion/${ordenId}`)
+    const partes: string[] = []
+    if (r.creadas > 0) partes.push(`${r.creadas} nueva(s)`)
+    if (r.retiradas > 0) partes.push(`${r.retiradas} retirada(s)`)
+    return {
+      success: true,
+      aviso: partes.length > 0 ? `Piezas guardadas: ${partes.join(", ")}` : "Piezas guardadas",
+    }
+  } catch (err: unknown) {
+    return { error: err instanceof Error ? err.message : "Error guardando las piezas" }
   }
 }
 

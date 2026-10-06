@@ -24,6 +24,7 @@ import { LOTE_ESTADO_COLOR, LOTE_ESTADO_LABEL } from "@/lib/db/lote"
 import type { ConteoRow, ConteoDetalleRow } from "@/lib/db/conteo"
 import type { EmpaqueRegistroRow } from "@/lib/db/empaque-registro"
 import type { PersonaRow } from "@/lib/db/persona"
+import type { LotePrendaRow } from "@/lib/db/lote-prenda"
 import {
   reabrirLoteAction,
   crearEmpaqueRegistroAction,
@@ -50,8 +51,24 @@ interface Props {
   conteoDetalle: ConteoDetalleRow[]
   registros: EmpaqueRegistroRow[]
   empacadoras: PersonaRow[]
+  // Piezas del conjunto: cada una se empaca y paga por separado
+  prendas: LotePrendaRow[]
   // Solo el administrador puede reabrir un lote finalizado
   esAdmin?: boolean
+}
+
+// Un grupo es una pieza del conjunto, o el lote entero en OPs de una prenda
+interface Grupo {
+  prenda_id: number | null
+  nombre: string
+}
+
+interface ProgresoTalla {
+  talla: string
+  contado: number
+  empacado: number
+  imperfectos: number
+  pendiente: number
 }
 
 function padOP(n: number) {
@@ -67,6 +84,8 @@ function cop(n: number) {
     minimumFractionDigits: 2,
   }).format(n)
 }
+const fmt = (n: number) => n.toLocaleString("es-CO")
+const claveGrupo = (prendaId: number | null) => (prendaId == null ? "l" : String(prendaId))
 
 function Toast({ tipo, msg }: { tipo: "ok" | "error"; msg: string }) {
   return (
@@ -95,6 +114,7 @@ export function EmpaqueRegistroClient({
   conteoDetalle,
   registros,
   empacadoras,
+  prendas,
   esAdmin = false,
 }: Props) {
   const router = useRouter()
@@ -104,10 +124,26 @@ export function EmpaqueRegistroClient({
   const [isPendingFin, startFin] = useTransition()
 
   const fechaHoyDefault = new Date().toLocaleDateString("en-CA", { timeZone: "America/Bogota" })
+  const esConjunto = orden.tipo_prenda === "conjunto"
+
+  // Grupos: una pieza por grupo en los conjuntos. Los conteos anteriores al
+  // registro por pieza (prenda_id null) se muestran aparte para no perderlos.
+  const grupos = React.useMemo<Grupo[]>(() => {
+    if (!esConjunto) return [{ prenda_id: null, nombre: lote.descripcion ?? padLote(lote.numero_lote) }]
+    const g: Grupo[] = prendas.map((p) => ({ prenda_id: p.id, nombre: p.nombre }))
+    if (conteoDetalle.some((d) => d.prenda_id == null)) {
+      g.push({ prenda_id: null, nombre: "Sin pieza (conteo anterior)" })
+    }
+    return g
+  }, [esConjunto, prendas, conteoDetalle, lote.descripcion, lote.numero_lote])
+
+  const nombrePieza = (prendaId: number | null) =>
+    grupos.find((g) => g.prenda_id === prendaId)?.nombre ?? (prendaId == null ? "—" : `pieza ${prendaId}`)
 
   const [personaId, setPersonaId] = React.useState<string>(
     empacadoras[0] ? String(empacadoras[0].id) : ""
   )
+  const [grupoSel, setGrupoSel] = React.useState<string>(claveGrupo(grupos[0]?.prenda_id ?? null))
   const [talla, setTalla] = React.useState("")
   // Segunda pulsacion para aceptar registrar mas de lo contado
   const [confirmoExceso, setConfirmoExceso] = React.useState(false)
@@ -118,17 +154,18 @@ export function EmpaqueRegistroClient({
 
   // ── Vista rápida por talla (pensada para móvil, como en conteo) ──
   const [vistaRapida, setVistaRapida] = React.useState(true)
-  // Lo que se va a registrar en esta pasada: por talla, empacado e imperfectos
+  // Lo que se va a registrar en esta pasada, por grupo|talla
   const [gridEmp, setGridEmp] = React.useState<Record<string, string>>({})
   const [gridImp, setGridImp] = React.useState<Record<string, string>>({})
   const [isPendingGrid, startGrid] = useTransition()
+  const kGrid = (prendaId: number | null, t: string) => `${claveGrupo(prendaId)}|${t}`
 
   function setGridValor(
     setter: React.Dispatch<React.SetStateAction<Record<string, string>>>,
-    talla: string,
+    key: string,
     valor: string
   ) {
-    setter((prev) => ({ ...prev, [talla]: valor }))
+    setter((prev) => ({ ...prev, [key]: valor }))
   }
 
   const totalGridEmp = Object.values(gridEmp).reduce((s, v) => s + (parseInt(v, 10) || 0), 0)
@@ -139,68 +176,83 @@ export function EmpaqueRegistroClient({
     setTimeout(() => setToast(null), 4000)
   }
 
-  // El empaque se maneja solo por talla: agrupar el conteo por talla
-  // (los conteos viejos podían tener la misma talla en varios colores).
-  // Se parte de las tallas de la curva para que ninguna quede fuera: si
-  // una no se conto, igual debe poder registrarse y quedar en evidencia.
-  const progreso = (() => {
-    const map = new Map<string, { talla: string; contado: number }>()
-    for (const t of curvaTallas) {
-      const k = t.talla.trim().toLowerCase()
-      if (!map.has(k)) map.set(k, { talla: t.talla.trim(), contado: 0 })
-    }
-    for (const d of conteoDetalle) {
-      const k = d.talla.trim().toLowerCase()
-      const prev = map.get(k)
-      if (prev) prev.contado += d.cantidad_contada
-      else map.set(k, { talla: d.talla.trim(), contado: d.cantidad_contada })
-    }
-    return [...map.values()].map((p) => {
-      const delTalla = registros.filter(
-        (r) => r.talla.trim().toLowerCase() === p.talla.toLowerCase()
-      )
-      const empacado = delTalla.reduce((s, r) => s + r.cantidad, 0)
-      const imperfectosTalla = delTalla.reduce((s, r) => s + (r.imperfectos ?? 0), 0)
-      return {
-        talla: p.talla,
-        contado: p.contado,
-        empacado,
-        imperfectos: imperfectosTalla,
-        pendiente: p.contado - empacado - imperfectosTalla,
+  // Progreso por talla de un grupo. Se parte de las tallas de la curva para
+  // que ninguna quede fuera: si una no se conto, igual queda en evidencia.
+  const progresoDe = React.useCallback(
+    (prendaId: number | null): ProgresoTalla[] => {
+      const map = new Map<string, { talla: string; contado: number }>()
+      for (const t of curvaTallas) {
+        const k = t.talla.trim().toLowerCase()
+        if (!map.has(k)) map.set(k, { talla: t.talla.trim(), contado: 0 })
       }
-    })
-  })()
+      for (const d of conteoDetalle) {
+        if ((d.prenda_id ?? null) !== prendaId) continue
+        const k = d.talla.trim().toLowerCase()
+        const prev = map.get(k)
+        if (prev) prev.contado += d.cantidad_contada
+        else map.set(k, { talla: d.talla.trim(), contado: d.cantidad_contada })
+      }
+      return [...map.values()].map((p) => {
+        const delTalla = registros.filter(
+          (r) =>
+            (r.prenda_id ?? null) === prendaId &&
+            r.talla.trim().toLowerCase() === p.talla.toLowerCase()
+        )
+        const empacado = delTalla.reduce((s, r) => s + r.cantidad, 0)
+        const imperfectosTalla = delTalla.reduce((s, r) => s + (r.imperfectos ?? 0), 0)
+        return {
+          talla: p.talla,
+          contado: p.contado,
+          empacado,
+          imperfectos: imperfectosTalla,
+          pendiente: p.contado - empacado - imperfectosTalla,
+        }
+      })
+    },
+    [curvaTallas, conteoDetalle, registros]
+  )
 
-  const tallasDisponibles = progreso.map((p) => p.talla)
-  const todoEmpacado = progreso.length > 0 && progreso.every((p) => p.pendiente <= 0)
+  const progresoPorGrupo = grupos.map((g) => ({ g, filas: progresoDe(g.prenda_id) }))
+  const hayProgreso = progresoPorGrupo.some((x) => x.filas.length > 0)
 
+  // Totales del lote
   const totalEmpacado = registros.reduce((s, r) => s + r.cantidad, 0)
   const totalImperfectos = registros.reduce((s, r) => s + (r.imperfectos ?? 0), 0)
   const totalContado = conteo?.total_contado ?? 0
   const pct = totalContado > 0 ? Math.min(100, Math.round((totalEmpacado / totalContado) * 100)) : 0
 
-  // Diferencia frente al conteo: si lo empacado + imperfectos es menor,
-  // hay que justificarla antes de finalizar el lote
-  const pendienteTotal = Math.max(0, totalContado - totalEmpacado - totalImperfectos)
+  // Pendientes por grupo (empacado + imperfectos frente a lo contado): en
+  // los conjuntos un sobrante de una pieza no tapa el faltante de otra
+  const pendientesPorGrupo = progresoPorGrupo
+    .map(({ g, filas }) => ({
+      g,
+      contado: filas.reduce((s, p) => s + p.contado, 0),
+      pendiente: Math.max(0, filas.reduce((s, p) => s + Math.max(0, p.pendiente), 0)),
+    }))
+    .filter((x) => x.contado > 0)
+  const faltantes = pendientesPorGrupo.filter((x) => x.pendiente > 0)
+  const todoEmpacado = hayProgreso && faltantes.length === 0
 
   // Una talla se pasa de lo contado cuando lo que se va a registrar
   // supera lo pendiente. No se bloquea: se avisa y se pide justificar.
-  function excedeTalla(t: string): boolean {
-    const p = progreso.find((x) => x.talla.toLowerCase() === t.trim().toLowerCase())
-    if (!p) return false
-    const emp = parseInt(gridEmp[p.talla] ?? "", 10) || 0
-    const imp = parseInt(gridImp[p.talla] ?? "", 10) || 0
+  function excedeTalla(prendaId: number | null, p: ProgresoTalla): boolean {
+    const emp = parseInt(gridEmp[kGrid(prendaId, p.talla)] ?? "", 10) || 0
+    const imp = parseInt(gridImp[kGrid(prendaId, p.talla)] ?? "", 10) || 0
     if (emp + imp === 0) return false
     return emp + imp > Math.max(0, p.pendiente)
   }
 
-  // Disponible por talla (conteo - ya empacado)
+  const grupoSelId: number | null = grupoSel === "l" ? null : parseInt(grupoSel, 10)
+  const progresoSel = progresoDe(grupoSelId)
+  const tallasDisponibles = progresoSel.map((p) => p.talla)
+
+  // Disponible por talla del grupo elegido (conteo - ya empacado)
   function disponibleParaTalla(t: string): number {
-    const p = progreso.find((x) => x.talla.toLowerCase() === t.trim().toLowerCase())
+    const p = progresoSel.find((x) => x.talla.toLowerCase() === t.trim().toLowerCase())
     return p ? Math.max(0, p.pendiente) : 0
   }
 
-  // ── Registrar empaque ──────────────────────────────────────────
+  // ── Registrar empaque (individual) ─────────────────────────────
   function handleAdd(e: React.FormEvent, generaPago = true) {
     e.preventDefault()
     const cant = parseInt(cantidad, 10) || 0
@@ -214,6 +266,7 @@ export function EmpaqueRegistroClient({
       const res = await crearEmpaqueRegistroAction({
         lote_id: lote.id,
         persona_id: parseInt(personaId, 10),
+        prenda_id: grupoSelId,
         color: "",
         talla,
         cantidad: cant,
@@ -236,18 +289,22 @@ export function EmpaqueRegistroClient({
     })
   }
 
-  // Registra de una sola vez todas las tallas con cantidades escritas
+  // Registra de una sola vez todas las piezas y tallas con cantidades escritas
   function handleGuardarGrid(generaPago: boolean) {
     if (!personaId) return showToast("error", "Seleccione la empacadora")
 
-    const filas = progreso
-      .map((p) => ({
-        talla: p.talla,
-        cantidad: parseInt(gridEmp[p.talla] ?? "", 10) || 0,
-        imperfectos: parseInt(gridImp[p.talla] ?? "", 10) || 0,
-        disponible: Math.max(0, p.pendiente),
-      }))
-      .filter((f) => f.cantidad > 0 || f.imperfectos > 0)
+    const filas = progresoPorGrupo.flatMap(({ g, filas }) =>
+      filas
+        .map((p) => ({
+          prenda_id: g.prenda_id,
+          pieza: g.nombre,
+          talla: p.talla,
+          cantidad: parseInt(gridEmp[kGrid(g.prenda_id, p.talla)] ?? "", 10) || 0,
+          imperfectos: parseInt(gridImp[kGrid(g.prenda_id, p.talla)] ?? "", 10) || 0,
+          disponible: Math.max(0, p.pendiente),
+        }))
+        .filter((f) => f.cantidad > 0 || f.imperfectos > 0)
+    )
 
     if (filas.length === 0) {
       showToast("error", "Ingresa al menos una cantidad o imperfecto")
@@ -261,7 +318,7 @@ export function EmpaqueRegistroClient({
       setConfirmoExceso(true)
       showToast(
         "error",
-        `Talla ${excedidas.map((e) => e.talla).join(", ")}: registras mas de lo contado. Vuelve a pulsar para confirmar; la diferencia se justifica al cerrar el lote.`
+        `${excedidas.map((e) => (esConjunto ? `${e.pieza} ${e.talla}` : `Talla ${e.talla}`)).join(", ")}: registras mas de lo contado. Vuelve a pulsar para confirmar; la diferencia se justifica al cerrar el lote.`
       )
       return
     }
@@ -272,6 +329,7 @@ export function EmpaqueRegistroClient({
         const res = await crearEmpaqueRegistroAction({
           lote_id: lote.id,
           persona_id: parseInt(personaId, 10),
+          prenda_id: f.prenda_id,
           color: "",
           talla: f.talla,
           cantidad: f.cantidad,
@@ -280,14 +338,14 @@ export function EmpaqueRegistroClient({
           genera_pago: generaPago,
         })
         if (res.error) {
-          showToast("error", `Talla ${f.talla}: ${res.error}`)
+          showToast("error", `${esConjunto ? `${f.pieza} ` : "Talla "}${f.talla}: ${res.error}`)
           return
         }
         ok++
       }
       showToast(
         "ok",
-        `${ok} talla${ok !== 1 ? "s" : ""} registrada${ok !== 1 ? "s" : ""}` +
+        `${ok} registro${ok !== 1 ? "s" : ""}` +
           (generaPago ? " en inventario y pago" : " solo en inventario (sin pago)")
       )
       setGridEmp({})
@@ -395,35 +453,29 @@ export function EmpaqueRegistroClient({
             <p className="font-medium text-stone-800">{orden.referencia}</p>
           </div>
           <div>
-            <p className="text-xs text-stone-500">Color</p>
-            <p className="font-medium text-stone-800">{lote.color}</p>
+            <p className="text-xs text-stone-500">Tipo</p>
+            <p className="font-medium text-stone-800">
+              {esConjunto ? `Conjunto · ${prendas.length} pieza(s)` : "Prenda"}
+            </p>
           </div>
           <div>
             <p className="text-xs text-stone-500">Total contado</p>
-            <p className="font-mono font-semibold text-stone-700">
-              {totalContado.toLocaleString("es-CO")} uds
-            </p>
+            <p className="font-mono font-semibold text-stone-700">{fmt(totalContado)} uds</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">Total empacado</p>
-            <p className="font-mono font-semibold text-teal-700">
-              {totalEmpacado.toLocaleString("es-CO")} uds
-            </p>
+            <p className="font-mono font-semibold text-teal-700">{fmt(totalEmpacado)} uds</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">Imperfectos</p>
-            <p className="font-mono font-semibold text-red-700">
-              {totalImperfectos.toLocaleString("es-CO")} uds
-            </p>
+            <p className="font-mono font-semibold text-red-700">{fmt(totalImperfectos)} uds</p>
           </div>
           <div>
             <p className="text-xs text-stone-500">Avance</p>
             <div className="flex items-center gap-2 mt-1">
               <div className="w-20 h-2 rounded-full bg-stone-100 overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    pct >= 100 ? "bg-green-500" : "bg-teal-400"
-                  }`}
+                  className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-green-500" : "bg-teal-400"}`}
                   style={{ width: `${pct}%` }}
                 />
               </div>
@@ -445,16 +497,19 @@ export function EmpaqueRegistroClient({
         {/* Precio empaque/ud */}
         <div className="mt-3 flex items-center gap-1.5 text-xs text-stone-500">
           <ShieldCheck className="h-3.5 w-3.5" />
-          Precio empaque: <strong className="text-stone-700 font-mono">{cop(Number(lote.precio_empaque_unidad))}</strong>/ud
-          (snapshot al momento del registro)
+          Precio empaque: <strong className="text-stone-700 font-mono">{cop(Number(lote.precio_empaque_unidad))}</strong>
+          /{esConjunto ? "pieza" : "ud"} (snapshot al momento del registro)
+          {esConjunto && <span className="text-stone-400">· cada pieza empacada se paga aparte</span>}
         </div>
       </div>
 
       {/* ── Vista rápida por talla: pensada para registrar desde el móvil ── */}
-      {loteActivo && conteo?.validado && progreso.length > 0 && (
+      {loteActivo && conteo?.validado && hayProgreso && (
         <div className="rounded-2xl border border-stone-200 bg-white p-4 sm:p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-100 pb-2">
-            <h2 className="text-sm font-semibold text-stone-700">Registro rápido por talla</h2>
+            <h2 className="text-sm font-semibold text-stone-700">
+              Registro rápido por {esConjunto ? "pieza y talla" : "talla"}
+            </h2>
             <button
               type="button"
               onClick={() => setVistaRapida((v) => !v)}
@@ -478,11 +533,7 @@ export function EmpaqueRegistroClient({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-stone-700">Empacadora *</label>
-                  <select
-                    value={personaId}
-                    onChange={(e) => setPersonaId(e.target.value)}
-                    className={fieldCls}
-                  >
+                  <select value={personaId} onChange={(e) => setPersonaId(e.target.value)} className={fieldCls}>
                     <option value="">Seleccionar empacadora…</option>
                     {empacadoras.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -493,93 +544,97 @@ export function EmpaqueRegistroClient({
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-stone-700">Fecha *</label>
-                  <input
-                    type="date"
-                    value={fecha}
-                    onChange={(e) => setFecha(e.target.value)}
-                    className={fieldCls}
-                  />
+                  <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={fieldCls} />
                 </div>
               </div>
 
-              {/* Detalle por talla: empacado e imperfectos, con lo pendiente */}
-              <div className="rounded-xl border border-stone-100 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-stone-50 border-b border-stone-100">
-                      <th className="px-2 py-2 text-left text-xs text-stone-500 font-medium">Talla</th>
-                      <th className="px-2 py-2 text-right text-xs text-stone-500 font-medium">Pend.</th>
-                      <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Empacado</th>
-                      <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Imperf.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {progreso.map((p) => {
-                      const disp = Math.max(0, p.pendiente)
-                      const completa = disp === 0
-                      return (
-                        <tr
-                          key={p.talla}
-                          className={`border-b border-stone-100 last:border-0 ${completa ? "bg-green-50" : ""}`}
-                        >
-                          <td className="px-2 py-2 font-semibold text-stone-800">
-                            {p.talla}
-                            <span className="block text-[11px] font-normal text-stone-400">
-                              {p.empacado.toLocaleString("es-CO")} de{" "}
-                              {p.contado.toLocaleString("es-CO")}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2 text-right">
-                            <span
-                              className={`font-mono text-sm font-semibold ${
-                                completa ? "text-green-600" : "text-stone-700"
-                              }`}
-                            >
-                              {completa ? "✓" : disp.toLocaleString("es-CO")}
-                            </span>
-                          </td>
-                          <td className="px-2 py-2">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              value={gridEmp[p.talla] ?? ""}
-                              onChange={(e) => setGridValor(setGridEmp, p.talla, e.target.value)}
-                              className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-[#344966] ${
-                                excedeTalla(p.talla) ? "border-amber-400 bg-amber-50" : "border-stone-200"
-                              }`}
-                              placeholder="0"
-                            />
-                          </td>
-                          <td className="px-2 py-2">
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              value={gridImp[p.talla] ?? ""}
-                              onChange={(e) => setGridValor(setGridImp, p.talla, e.target.value)}
-                              className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-red-300 ${
-                                excedeTalla(p.talla) ? "border-amber-400 bg-amber-50" : "border-stone-200"
-                              }`}
-                              placeholder="0"
-                            />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                    <tr className="bg-stone-50">
-                      <td colSpan={2} className="px-2 py-2 text-xs font-semibold text-stone-700">
-                        Total a registrar
-                      </td>
-                      <td className="px-2 py-2 text-center font-mono font-semibold text-teal-700 text-sm">
-                        {totalGridEmp.toLocaleString("es-CO")}
-                      </td>
-                      <td className="px-2 py-2 text-center font-mono font-semibold text-red-700 text-sm">
-                        {totalGridImp.toLocaleString("es-CO")}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              {/* Una grilla por pieza (o una sola en OPs de una prenda) */}
+              {progresoPorGrupo.map(({ g, filas }) => {
+                if (filas.length === 0) return null
+                const pend = pendientesPorGrupo.find((x) => x.g.prenda_id === g.prenda_id)
+                return (
+                  <div key={claveGrupo(g.prenda_id)} className="space-y-1.5">
+                    {esConjunto && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-stone-800">{g.nombre}</span>
+                        {pend && (
+                          <span className={`text-[11px] ${pend.pendiente === 0 ? "text-green-600" : "text-stone-500"}`}>
+                            {pend.pendiente === 0 ? "completa" : `${fmt(pend.pendiente)} pendientes`}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="rounded-xl border border-stone-100 overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-stone-50 border-b border-stone-100">
+                            <th className="px-2 py-2 text-left text-xs text-stone-500 font-medium">Talla</th>
+                            <th className="px-2 py-2 text-right text-xs text-stone-500 font-medium">Pend.</th>
+                            <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Empacado</th>
+                            <th className="px-2 py-2 text-center text-xs text-stone-500 font-medium">Imperf.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filas.map((p) => {
+                            const disp = Math.max(0, p.pendiente)
+                            const completa = disp === 0
+                            const k = kGrid(g.prenda_id, p.talla)
+                            const excede = excedeTalla(g.prenda_id, p)
+                            return (
+                              <tr key={p.talla} className={`border-b border-stone-100 last:border-0 ${completa ? "bg-green-50" : ""}`}>
+                                <td className="px-2 py-2 font-semibold text-stone-800">
+                                  {p.talla}
+                                  <span className="block text-[11px] font-normal text-stone-400">
+                                    {fmt(p.empacado)} de {fmt(p.contado)}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2 text-right">
+                                  <span className={`font-mono text-sm font-semibold ${completa ? "text-green-600" : "text-stone-700"}`}>
+                                    {completa ? "✓" : fmt(disp)}
+                                  </span>
+                                </td>
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min="0"
+                                    value={gridEmp[k] ?? ""}
+                                    onChange={(e) => setGridValor(setGridEmp, k, e.target.value)}
+                                    className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-[#344966] ${
+                                      excede ? "border-amber-400 bg-amber-50" : "border-stone-200"
+                                    }`}
+                                    placeholder="0"
+                                  />
+                                </td>
+                                <td className="px-2 py-2">
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min="0"
+                                    value={gridImp[k] ?? ""}
+                                    onChange={(e) => setGridValor(setGridImp, k, e.target.value)}
+                                    className={`w-full min-w-16 rounded-lg border px-2 py-2 text-center text-base font-mono outline-none focus:ring-2 focus:ring-red-300 ${
+                                      excede ? "border-amber-400 bg-amber-50" : "border-stone-200"
+                                    }`}
+                                    placeholder="0"
+                                  />
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })}
+
+              <div className="flex items-center justify-between rounded-xl bg-stone-50 px-3 py-2 text-xs">
+                <span className="font-semibold text-stone-700">Total a registrar</span>
+                <span className="font-mono">
+                  <strong className="text-teal-700">{fmt(totalGridEmp)}</strong> empacadas ·{" "}
+                  <strong className="text-red-700">{fmt(totalGridImp)}</strong> imperfectos
+                </span>
               </div>
 
               <div className="space-y-2">
@@ -623,12 +678,7 @@ export function EmpaqueRegistroClient({
 
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Empacadora *</label>
-                <select
-                  value={personaId}
-                  onChange={(e) => setPersonaId(e.target.value)}
-                  required
-                  className={fieldCls}
-                >
+                <select value={personaId} onChange={(e) => setPersonaId(e.target.value)} required className={fieldCls}>
                   <option value="">Seleccionar empacadora…</option>
                   {empacadoras.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -638,20 +688,35 @@ export function EmpaqueRegistroClient({
                 </select>
               </div>
 
+              {esConjunto && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-stone-700">Pieza *</label>
+                  <select
+                    value={grupoSel}
+                    onChange={(e) => {
+                      setGrupoSel(e.target.value)
+                      setTalla("")
+                    }}
+                    className={fieldCls}
+                  >
+                    {grupos.map((g) => (
+                      <option key={claveGrupo(g.prenda_id)} value={claveGrupo(g.prenda_id)}>
+                        {g.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Talla *</label>
-                <select
-                  value={talla}
-                  onChange={(e) => setTalla(e.target.value)}
-                  required
-                  className={fieldCls}
-                >
+                <select value={talla} onChange={(e) => setTalla(e.target.value)} required className={fieldCls}>
                   <option value="">Seleccionar talla…</option>
                   {tallasDisponibles.map((t) => {
                     const disp = disponibleParaTalla(t)
                     return (
                       <option key={t} value={t} disabled={disp === 0}>
-                        {t} (disp: {disp.toLocaleString("es-CO")})
+                        {t} (disp: {fmt(disp)})
                       </option>
                     )
                   })}
@@ -660,21 +725,13 @@ export function EmpaqueRegistroClient({
 
               <div className="space-y-1">
                 <label className="text-sm font-medium text-stone-700">Fecha *</label>
-                <input
-                  type="date"
-                  value={fecha}
-                  onChange={(e) => setFecha(e.target.value)}
-                  required
-                  className={fieldCls}
-                />
+                <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required className={fieldCls} />
               </div>
 
               {talla && (
                 <p className="text-xs text-stone-500">
-                  Disponible para talla <strong>{talla}</strong>:{" "}
-                  <strong className="text-teal-700">
-                    {disponibleParaTalla(talla).toLocaleString("es-CO")} uds
-                  </strong>
+                  Disponible para {esConjunto ? `${nombrePieza(grupoSelId)} ` : ""}talla <strong>{talla}</strong>:{" "}
+                  <strong className="text-teal-700">{fmt(disponibleParaTalla(talla))} uds</strong>
                 </p>
               )}
 
@@ -701,9 +758,7 @@ export function EmpaqueRegistroClient({
                     className={fieldCls}
                     placeholder="0"
                   />
-                  <p className="text-xs text-stone-400">
-                    Problemas de calidad encontrados en esta talla
-                  </p>
+                  <p className="text-xs text-stone-400">Problemas de calidad encontrados en esta talla</p>
                 </div>
               </div>
 
@@ -735,7 +790,7 @@ export function EmpaqueRegistroClient({
         )}
 
         {/* ── Finalizar lote (fuera del form) ──────────────────── */}
-        {loteActivo && conteo?.validado && progreso.length > 0 && (todoEmpacado || totalEmpacado + totalImperfectos > 0) && (
+        {loteActivo && conteo?.validado && hayProgreso && (todoEmpacado || totalEmpacado + totalImperfectos > 0) && (
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
@@ -757,17 +812,16 @@ export function EmpaqueRegistroClient({
                   marcará como <strong>Terminada</strong>. Esta acción no se puede revertir.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              {pendienteTotal > 0 && (
+              {faltantes.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
                     <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                     <span>
-                      Se registraron{" "}
-                      <strong>{(totalEmpacado + totalImperfectos).toLocaleString("es-CO")}</strong>{" "}
-                      unidades (empacadas + imperfectos) de{" "}
-                      <strong>{totalContado.toLocaleString("es-CO")}</strong> contadas. Debes
-                      justificar la diferencia de{" "}
-                      <strong>{pendienteTotal.toLocaleString("es-CO")}</strong> unidades.
+                      Quedan unidades contadas sin empacar ni reportar como imperfectas:{" "}
+                      {faltantes
+                        .map((x) => (esConjunto ? `${x.g.nombre} faltan ${fmt(x.pendiente)}` : `faltan ${fmt(x.pendiente)}`))
+                        .join("; ")}
+                      . Debes justificar la diferencia.
                     </span>
                   </div>
                   <textarea
@@ -783,7 +837,7 @@ export function EmpaqueRegistroClient({
                 <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={handleFinalizar}
-                  disabled={isPendingFin || (pendienteTotal > 0 && !justificacion.trim())}
+                  disabled={isPendingFin || (faltantes.length > 0 && !justificacion.trim())}
                   className="rounded-xl"
                   style={{ backgroundColor: "#065f46" }}
                 >
@@ -799,13 +853,13 @@ export function EmpaqueRegistroClient({
           <h2 className="text-sm font-semibold text-stone-700 border-b border-stone-100 pb-2">
             Progreso del empaque
           </h2>
-          {progreso.length === 0 ? (
+          {!hayProgreso ? (
             <p className="text-sm text-stone-400 text-center py-4">Sin detalle de conteo.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  <th className="text-left py-2 text-xs text-stone-500 font-medium">Talla</th>
+                  <th className="text-left py-2 text-xs text-stone-500 font-medium">{esConjunto ? "Pieza / talla" : "Talla"}</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Contado</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Empacado</th>
                   <th className="text-right py-2 text-xs text-stone-500 font-medium">Imperfectos</th>
@@ -813,39 +867,50 @@ export function EmpaqueRegistroClient({
                 </tr>
               </thead>
               <tbody>
-                {progreso.map((p) => (
-                  <tr
-                    key={p.talla}
-                    className={`border-b border-stone-100 last:border-0 ${p.pendiente <= 0 ? "bg-green-50" : ""}`}
-                  >
-                    <td className="py-2 font-medium text-stone-800">{p.talla}</td>
-                    <td className="py-2 text-right font-mono text-stone-600">
-                      {p.contado.toLocaleString("es-CO")}
-                    </td>
-                    <td className="py-2 text-right font-mono text-teal-700 font-semibold">
-                      {p.empacado.toLocaleString("es-CO")}
-                    </td>
-                    <td className="py-2 text-right font-mono text-red-700">
-                      {p.imperfectos.toLocaleString("es-CO")}
-                    </td>
-                    <td className={`py-2 text-right font-mono font-semibold ${p.pendiente <= 0 ? "text-green-600" : "text-stone-700"}`}>
-                      {p.pendiente <= 0 ? "✓" : p.pendiente.toLocaleString("es-CO")}
-                    </td>
-                  </tr>
-                ))}
+                {progresoPorGrupo.map(({ g, filas }) => {
+                  if (filas.length === 0) return null
+                  const sub = {
+                    contado: filas.reduce((s, p) => s + p.contado, 0),
+                    empacado: filas.reduce((s, p) => s + p.empacado, 0),
+                    imperfectos: filas.reduce((s, p) => s + p.imperfectos, 0),
+                    pendiente: Math.max(0, filas.reduce((s, p) => s + p.pendiente, 0)),
+                  }
+                  return (
+                    <React.Fragment key={claveGrupo(g.prenda_id)}>
+                      {esConjunto && (
+                        <tr className="bg-stone-50">
+                          <td className="py-1.5 text-xs font-semibold text-stone-700">{g.nombre}</td>
+                          <td className="py-1.5 text-right font-mono text-xs text-stone-600">{fmt(sub.contado)}</td>
+                          <td className="py-1.5 text-right font-mono text-xs text-teal-700">{fmt(sub.empacado)}</td>
+                          <td className="py-1.5 text-right font-mono text-xs text-red-700">{fmt(sub.imperfectos)}</td>
+                          <td className={`py-1.5 text-right font-mono text-xs font-semibold ${sub.pendiente === 0 ? "text-green-600" : "text-stone-700"}`}>
+                            {sub.pendiente === 0 ? "✓" : fmt(sub.pendiente)}
+                          </td>
+                        </tr>
+                      )}
+                      {filas.map((p) => (
+                        <tr key={p.talla} className={`border-b border-stone-100 last:border-0 ${p.pendiente <= 0 ? "bg-green-50" : ""}`}>
+                          <td className={`py-2 font-medium text-stone-800 ${esConjunto ? "pl-4 text-xs" : ""}`}>{p.talla}</td>
+                          <td className="py-2 text-right font-mono text-stone-600">{fmt(p.contado)}</td>
+                          <td className="py-2 text-right font-mono text-teal-700 font-semibold">{fmt(p.empacado)}</td>
+                          <td className="py-2 text-right font-mono text-red-700">{fmt(p.imperfectos)}</td>
+                          <td className={`py-2 text-right font-mono font-semibold ${p.pendiente <= 0 ? "text-green-600" : "text-stone-700"}`}>
+                            {p.pendiente <= 0 ? "✓" : fmt(p.pendiente)}
+                          </td>
+                        </tr>
+                      ))}
+                    </React.Fragment>
+                  )
+                })}
                 <tr className="bg-stone-50">
                   <td className="py-2 text-xs font-semibold text-stone-700">Total</td>
                   <td className="py-2 text-right font-mono font-semibold text-stone-800 text-xs">
-                    {progreso.reduce((s, p) => s + p.contado, 0).toLocaleString("es-CO")}
+                    {fmt(progresoPorGrupo.reduce((s, x) => s + x.filas.reduce((a, p) => a + p.contado, 0), 0))}
                   </td>
-                  <td className="py-2 text-right font-mono font-semibold text-teal-700 text-xs">
-                    {progreso.reduce((s, p) => s + p.empacado, 0).toLocaleString("es-CO")}
-                  </td>
-                  <td className="py-2 text-right font-mono font-semibold text-red-700 text-xs">
-                    {progreso.reduce((s, p) => s + p.imperfectos, 0).toLocaleString("es-CO")}
-                  </td>
+                  <td className="py-2 text-right font-mono font-semibold text-teal-700 text-xs">{fmt(totalEmpacado)}</td>
+                  <td className="py-2 text-right font-mono font-semibold text-red-700 text-xs">{fmt(totalImperfectos)}</td>
                   <td className="py-2 text-right font-mono font-semibold text-stone-800 text-xs">
-                    {Math.max(0, progreso.reduce((s, p) => s + p.pendiente, 0)).toLocaleString("es-CO")}
+                    {fmt(faltantes.reduce((s, x) => s + x.pendiente, 0))}
                   </td>
                 </tr>
               </tbody>
@@ -866,16 +931,21 @@ export function EmpaqueRegistroClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-stone-100">
-                  {["Fecha", "Empacadora", "Talla", "Cantidad", "Imperfectos", "Precio/ud", "Valor", ""].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-3 py-2 text-left text-xs text-stone-500 font-medium first:pl-0 last:pr-0"
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
+                  {[
+                    "Fecha",
+                    "Empacadora",
+                    ...(esConjunto ? ["Pieza"] : []),
+                    "Talla",
+                    "Cantidad",
+                    "Imperfectos",
+                    "Precio/ud",
+                    "Valor",
+                    "",
+                  ].map((h, i) => (
+                    <th key={`${h}-${i}`} className="px-3 py-2 text-left text-xs text-stone-500 font-medium first:pl-0 last:pr-0">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -884,9 +954,10 @@ export function EmpaqueRegistroClient({
                   return (
                     <tr key={r.id} className="border-b border-stone-100 last:border-0">
                       <td className="px-3 py-2 text-stone-600 text-xs first:pl-0">{r.fecha}</td>
-                      <td className="px-3 py-2 text-stone-700">
-                        {empacadora?.nombre ?? `#${r.persona_id}`}
-                      </td>
+                      <td className="px-3 py-2 text-stone-700">{empacadora?.nombre ?? `#${r.persona_id}`}</td>
+                      {esConjunto && (
+                        <td className="px-3 py-2 text-stone-700 text-xs">{nombrePieza(r.prenda_id ?? null)}</td>
+                      )}
                       <td className="px-3 py-2 font-medium text-stone-800">
                         {r.talla}
                         {r.genera_pago === false && (
@@ -895,18 +966,10 @@ export function EmpaqueRegistroClient({
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2 font-mono text-stone-700">
-                        {r.cantidad.toLocaleString("es-CO")}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-red-700">
-                        {(r.imperfectos ?? 0).toLocaleString("es-CO")}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-stone-600 text-xs">
-                        {cop(Number(r.precio_unidad))}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-stone-700 text-xs">
-                        {cop(Number(r.valor_total))}
-                      </td>
+                      <td className="px-3 py-2 font-mono text-stone-700">{fmt(r.cantidad)}</td>
+                      <td className="px-3 py-2 font-mono text-red-700">{fmt(r.imperfectos ?? 0)}</td>
+                      <td className="px-3 py-2 font-mono text-stone-600 text-xs">{cop(Number(r.precio_unidad))}</td>
+                      <td className="px-3 py-2 font-mono text-stone-700 text-xs">{cop(Number(r.valor_total))}</td>
                       <td className="px-3 py-2 last:pr-0">
                         {loteActivo && (
                           <button

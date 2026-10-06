@@ -61,6 +61,9 @@ const SELECT_COLS =
 export async function registrarEntradaPorEmpaque(input: {
   empaque_registro_id: number
   lote_id: number
+  // Pieza del conjunto empacada: el saldo se lleva por referencia + pieza +
+  // talla, asi que la camiseta y la pantaloneta quedan como stock aparte
+  prenda_id?: number | null
   talla: string
   cantidad: number
   fecha: string
@@ -69,6 +72,16 @@ export async function registrarEntradaPorEmpaque(input: {
   if (!(input.cantidad > 0)) return
 
   const db = createVanessaClient()
+
+  let prendaNombre: string | null = null
+  if (input.prenda_id != null) {
+    const { data: prenda } = await db
+      .from("lote_prenda")
+      .select("nombre")
+      .eq("id", input.prenda_id)
+      .maybeSingle()
+    prendaNombre = (prenda as { nombre: string } | null)?.nombre ?? null
+  }
 
   // Trazabilidad del lote y su orden
   const { data: lote } = await db
@@ -100,8 +113,8 @@ export async function registrarEntradaPorEmpaque(input: {
     referencia: o?.referencia ?? null,
     lote_id: l.id,
     lote_nombre: l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`,
-    prenda_id: null,
-    prenda_nombre: null,
+    prenda_id: input.prenda_id ?? null,
+    prenda_nombre: prendaNombre,
     talla: input.talla.trim(),
     color: l.color,
     cantidad: input.cantidad,
@@ -274,8 +287,12 @@ export async function sincronizarInventarioDesdeEmpaque(userId: number): Promise
   const db = createVanessaClient()
 
   const [{ data: registros }, { data: existentes }] = await Promise.all([
-    db.from("empaque_registro").select("id, lote_id, talla, cantidad, fecha").limit(20000),
-    db.from("inventrans").select("empaque_registro_id").not("empaque_registro_id", "is", null),
+    db.from("empaque_registro").select("id, lote_id, prenda_id, talla, cantidad, fecha").limit(20000),
+    db
+      .from("inventrans")
+      .select("empaque_registro_id")
+      .not("empaque_registro_id", "is", null)
+      .limit(20000),
   ])
 
   const yaRegistrados = new Set(
@@ -286,6 +303,7 @@ export async function sincronizarInventarioDesdeEmpaque(userId: number): Promise
   const pendientes = ((registros ?? []) as Array<{
     id: number
     lote_id: number
+    prenda_id: number | null
     talla: string
     cantidad: number
     fecha: string
@@ -296,6 +314,7 @@ export async function sincronizarInventarioDesdeEmpaque(userId: number): Promise
     await registrarEntradaPorEmpaque({
       empaque_registro_id: r.id,
       lote_id: r.lote_id,
+      prenda_id: r.prenda_id,
       talla: r.talla,
       cantidad: r.cantidad,
       fecha: r.fecha,

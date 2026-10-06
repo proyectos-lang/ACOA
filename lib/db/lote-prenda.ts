@@ -1,6 +1,9 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 import { upsertEstampacionParcial } from "@/lib/db/estampacion"
 import { upsertConfeccionParcial } from "@/lib/db/confeccion"
+import { asegurarPiezasOrden, PIEZA_CONJUNTO_COMPLETO } from "@/lib/db/orden-pieza"
+
+export { PIEZA_CONJUNTO_COMPLETO }
 
 // Prendas de un conjunto dentro de un lote (OPs tipo "conjunto").
 // Cada prenda avanza por estampación → confección → conteo → completado
@@ -26,6 +29,12 @@ export interface LotePrendaRow {
   conf_fecha_estimada: string | null
   conf_fecha_retorno: string | null
   cantidad_contada: number | null
+  // Pieza de la OP de la que se hereda (null en piezas antiguas sin enlazar)
+  orden_pieza_id: number | null
+  // Lo que realmente volvio de cada proceso: antes solo habia fechas y un
+  // lote podia regresar con 20 prendas menos sin que nadie lo registrara
+  est_cantidad_recibida: number | null
+  conf_cantidad_recibida: number | null
   creado_en: string
 }
 
@@ -44,7 +53,7 @@ export const PRENDA_ESTADO_COLOR: Record<PrendaEstado, string> = {
 }
 
 const SELECT_COLS =
-  "id, lote_id, nombre, estado, nombre_estampador, est_precio, est_dias_entrega, est_fecha_entrega, est_fecha_estimada, est_fecha_retorno, nombre_confeccionista, conf_precio, conf_dias_entrega, conf_fecha_entrega, conf_fecha_estimada, conf_fecha_retorno, cantidad_contada, creado_en"
+  "id, lote_id, nombre, estado, nombre_estampador, est_precio, est_dias_entrega, est_fecha_entrega, est_fecha_estimada, est_fecha_retorno, nombre_confeccionista, conf_precio, conf_dias_entrega, conf_fecha_entrega, conf_fecha_estimada, conf_fecha_retorno, cantidad_contada, orden_pieza_id, est_cantidad_recibida, conf_cantidad_recibida, creado_en"
 
 export async function listPrendasByLote(loteId: number): Promise<LotePrendaRow[]> {
   const db = createVanessaClient()
@@ -61,12 +70,19 @@ export async function createPrenda(
   loteId: number,
   nombre: string,
   estadoInicial: PrendaEstado,
-  creadoPor: number
+  creadoPor: number,
+  ordenPiezaId: number | null = null
 ): Promise<number> {
   const db = createVanessaClient()
   const { data, error } = await db
     .from("lote_prenda")
-    .insert({ lote_id: loteId, nombre: nombre.trim(), estado: estadoInicial, creado_por: creadoPor })
+    .insert({
+      lote_id: loteId,
+      nombre: nombre.trim(),
+      estado: estadoInicial,
+      orden_pieza_id: ordenPiezaId,
+      creado_por: creadoPor,
+    })
     .select("id")
     .single()
   if (error || !data) throw new Error(error?.message ?? "Error creando prenda")
@@ -91,14 +107,11 @@ export async function deletePrenda(id: number): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-// Piezas por defecto de un conjunto: al llegar a estampación el lote se
-// divide automáticamente en Superior e Inferior, y esas piezas se arrastran
-// por confección, conteo y empaque con su propia trazabilidad.
-export const PIEZAS_CONJUNTO_POR_DEFECTO = ["Superior", "Inferior"] as const
-
-// Garantiza que un lote de una OP tipo conjunto tenga sus piezas creadas.
-// Es idempotente: si ya tiene piezas (creadas a mano o antes), no toca nada.
-// Devuelve cuántas piezas creó.
+// Garantiza que un lote de una OP tipo conjunto tenga sus piezas creadas,
+// heredadas de las que define la ficha de la OP (orden_pieza). Si la OP no
+// definio ninguna se le crean las de por defecto. Es idempotente: un lote
+// que ya tiene piezas no se toca, asi los lotes antiguos (con sus piezas
+// escritas a mano) conservan lo suyo. Devuelve cuantas piezas creo.
 export async function asegurarPrendasConjunto(
   loteId: number,
   estadoInicial: PrendaEstado,
@@ -108,9 +121,15 @@ export async function asegurarPrendasConjunto(
   if (existentes.length > 0) return 0
 
   const db = createVanessaClient()
-  const filas = PIEZAS_CONJUNTO_POR_DEFECTO.map((nombre) => ({
+  const { data: lote } = await db.from("lote").select("orden_id").eq("id", loteId).maybeSingle()
+  if (!lote) return 0
+  const piezas = await asegurarPiezasOrden((lote as { orden_id: number }).orden_id, creadoPor)
+  if (piezas.length === 0) return 0
+
+  const filas = piezas.map((p) => ({
     lote_id: loteId,
-    nombre,
+    orden_pieza_id: p.id,
+    nombre: p.nombre,
     estado: estadoInicial,
     creado_por: creadoPor,
   }))
@@ -174,44 +193,51 @@ export async function sincronizarPreciosProcesoLote(
   ])
 }
 
-// Nombre de la pieza que representa el conjunto sin dividir
-export const PIEZA_CONJUNTO_COMPLETO = "Conjunto completo"
-
 export function esConjuntoCompleto(nombre: string): boolean {
   // Tolera mayusculas, espacios y las erratas que ya hay en los datos
   const n = nombre.trim().toLowerCase().replace(/\s+/g, " ")
   return n.startsWith("conjunto complet")
 }
 
-// Al elegir "Conjunto completo" el lote NO se trabaja dividido: esa pieza
-// reemplaza a Superior/Inferior en vez de sumarse a ellas. Si se dejaran
-// las tres, el precio del lote quedaria inflado (es la suma de sus piezas)
-// y la misma prenda se asignaria dos veces.
-// Devuelve cuantas piezas automaticas se retiraron.
-export async function reemplazarPorConjuntoCompleto(loteId: number): Promise<number> {
-  const prendas = await listPrendasByLote(loteId)
+// ── Estado del lote derivado de sus piezas ───────────────────────────────────
 
-  // Solo se retiran las piezas por defecto que sigan vacias: si alguien ya
-  // les cargo estampador o precio, se conservan y se avisa en la interfaz.
-  const porDefecto = new Set<string>(
-    PIEZAS_CONJUNTO_POR_DEFECTO.map((n) => n.toLowerCase())
-  )
-  const retirables = prendas.filter(
-    (p) =>
-      porDefecto.has(p.nombre.trim().toLowerCase()) &&
-      !p.nombre_estampador &&
-      !p.nombre_confeccionista &&
-      p.est_precio == null &&
-      p.conf_precio == null &&
-      p.cantidad_contada == null
-  )
-  if (retirables.length === 0) return 0
+const RANGO_PIEZA: Record<PrendaEstado, number> = {
+  estampacion: 1,
+  confeccion: 2,
+  conteo: 3,
+  completado: 4,
+}
+
+const ESTADO_LOTE_POR_PIEZA: Record<PrendaEstado, string> = {
+  estampacion: "estampacion",
+  confeccion: "confeccion",
+  conteo: "conteo",
+  // Todas las piezas contadas: el lote pasa a empaque
+  completado: "empaque",
+}
+
+// El lote va donde va su pieza mas atrasada. Antes avanzar la pieza y
+// avanzar el lote eran dos botones que no se hablaban, y la base acumulo
+// 34 piezas con un estado distinto al de su lote. Devuelve el estado nuevo
+// del lote, o null si no hubo que moverlo.
+export async function sincronizarEstadoLoteDesdePrendas(loteId: number): Promise<string | null> {
+  const prendas = await listPrendasByLote(loteId)
+  if (prendas.length === 0) return null
 
   const db = createVanessaClient()
-  const { error } = await db
-    .from("lote_prenda")
-    .delete()
-    .in("id", retirables.map((p) => p.id))
+  const { data: lote } = await db.from("lote").select("estado").eq("id", loteId).maybeSingle()
+  if (!lote) return null
+  const actual = (lote as { estado: string }).estado
+
+  const masAtrasada = prendas.reduce((m, p) =>
+    RANGO_PIEZA[p.estado] < RANGO_PIEZA[m.estado] ? p : m
+  )
+  const destino = ESTADO_LOTE_POR_PIEZA[masAtrasada.estado]
+
+  // Un lote que empaque ya cerro no se reabre porque sus piezas esten completas
+  if (actual === destino || (actual === "finalizado" && destino === "empaque")) return null
+
+  const { error } = await db.from("lote").update({ estado: destino }).eq("id", loteId)
   if (error) throw new Error(error.message)
-  return retirables.length
+  return destino
 }

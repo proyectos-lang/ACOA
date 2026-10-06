@@ -14,11 +14,12 @@ import {
 import { getConteoByLote, getConteoDetalle } from "@/lib/db/conteo"
 import {
   getLoteById,
-  getLotesByOrden,
   updateLoteEstado,
   updateLoteJustificacionEmpaque,
+  sincronizarEstadoOrdenDesdeLotes,
 } from "@/lib/db/lote"
 import { cambiarEstado, getOrdenById } from "@/lib/db/orden-produccion"
+import { listPrendasByLote } from "@/lib/db/lote-prenda"
 import { getPermiso } from "@/lib/db/permiso"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -26,6 +27,9 @@ type ActionResult = { error?: string; success?: boolean }
 export async function crearEmpaqueRegistroAction(input: {
   lote_id: number
   persona_id: number
+  // Pieza del conjunto que se empaca (null en OPs de una prenda). Cada
+  // pieza se controla contra su propio conteo y se paga por separado.
+  prenda_id?: number | null
   color: string
   talla: string
   cantidad: number
@@ -52,24 +56,31 @@ export async function crearEmpaqueRegistroAction(input: {
       return { error: "El conteo debe estar validado antes de registrar empaque" }
     }
 
-    // Verificar límite por talla
+    // Verificar límite por pieza y talla
     const [detalle, registros] = await Promise.all([
       getConteoDetalle(conteo.id),
       getEmpaquePorLote(input.lote_id),
     ])
 
-    // El empaque se controla solo por talla (los conteos viejos podían
+    // El empaque se controla por pieza y talla (los conteos viejos podían
     // tener la misma talla repartida en varios colores: se suman)
+    const prendaId = input.prenda_id ?? null
     const tallaKey = input.talla.trim().toLowerCase()
-    const filasTalla = detalle.filter((d) => d.talla.trim().toLowerCase() === tallaKey)
+    const filasTalla = detalle.filter(
+      (d) => (d.prenda_id ?? null) === prendaId && d.talla.trim().toLowerCase() === tallaKey
+    )
     if (filasTalla.length === 0) {
-      return { error: `No existe conteo para la talla "${input.talla}"` }
+      return {
+        error: `No existe conteo para la talla "${input.talla}"${prendaId != null ? " de esta pieza" : ""}`,
+      }
     }
     const contadoTalla = filasTalla.reduce((s, d) => s + d.cantidad_contada, 0)
 
     // Lo empacado + imperfectos encontrados no puede exceder lo contado
     const yaRegistrado = registros
-      .filter((r) => r.talla.trim().toLowerCase() === tallaKey)
+      .filter(
+        (r) => (r.prenda_id ?? null) === prendaId && r.talla.trim().toLowerCase() === tallaKey
+      )
       .reduce((s, r) => s + r.cantidad + (r.imperfectos ?? 0), 0)
 
     if (yaRegistrado + input.cantidad + imperfectos > contadoTalla) {
@@ -88,6 +99,7 @@ export async function crearEmpaqueRegistroAction(input: {
     const registroId = await createEmpaqueRegistro({
       lote_id: input.lote_id,
       persona_id: input.persona_id,
+      prenda_id: prendaId,
       color: input.color,
       talla: input.talla,
       cantidad: input.cantidad,
@@ -99,11 +111,12 @@ export async function crearEmpaqueRegistroAction(input: {
     })
 
     // El empaque carga el inventario de producto terminado con toda su
-    // trazabilidad (OP, referencia, lote, talla)
+    // trazabilidad (OP, referencia, lote, pieza, talla)
     if (input.cantidad > 0) {
       await registrarEntradaPorEmpaque({
         empaque_registro_id: registroId,
         lote_id: input.lote_id,
+        prenda_id: prendaId,
         talla: input.talla,
         cantidad: input.cantidad,
         fecha: input.fecha || fechaHoy,
@@ -196,16 +209,33 @@ export async function finalizarLoteAction(
     if (!conteo || !conteo.validado) return { error: "El conteo no está validado" }
 
     // Si lo empacado + imperfectos es menor a lo contado, la diferencia
-    // debe justificarse antes de finalizar
-    const totalRegistrado = registros.reduce(
-      (s, r) => s + r.cantidad + (r.imperfectos ?? 0),
-      0
-    )
-    if (totalRegistrado < conteo.total_contado) {
-      const falta = conteo.total_contado - totalRegistrado
+    // debe justificarse antes de finalizar. En los conjuntos se revisa
+    // pieza por pieza: un sobrante de pantalonetas no tapa un faltante de
+    // camisetas.
+    const detalle = await getConteoDetalle(conteo.id)
+    const orden = await getOrdenById(lote.orden_id)
+    const prendas = orden?.tipo_prenda === "conjunto" ? await listPrendasByLote(loteId) : []
+    const nombrePieza = new Map(prendas.map((p) => [p.id, p.nombre]))
+    const grupos = [...new Set(detalle.map((d) => d.prenda_id ?? null))]
+    const faltantes: string[] = []
+    for (const g of grupos) {
+      const contado = detalle
+        .filter((d) => (d.prenda_id ?? null) === g)
+        .reduce((s, d) => s + d.cantidad_contada, 0)
+      const registrado = registros
+        .filter((r) => (r.prenda_id ?? null) === g)
+        .reduce((s, r) => s + r.cantidad + (r.imperfectos ?? 0), 0)
+      if (registrado < contado) {
+        const nombre = g == null ? (prendas.length ? "Sin pieza" : "el lote") : (nombrePieza.get(g) ?? `pieza ${g}`)
+        faltantes.push(
+          `${nombre}: ${registrado.toLocaleString("es-CO")} de ${contado.toLocaleString("es-CO")} contadas`
+        )
+      }
+    }
+    if (faltantes.length > 0) {
       if (!justificacion?.trim()) {
         return {
-          error: `Se registraron ${totalRegistrado.toLocaleString("es-CO")} unidades (empacadas + imperfectos) de ${conteo.total_contado.toLocaleString("es-CO")} contadas. Debes justificar la diferencia de ${falta.toLocaleString("es-CO")} unidades antes de finalizar.`,
+          error: `Se registraron menos unidades (empacadas + imperfectos) de las contadas — ${faltantes.join("; ")}. Debes justificar la diferencia antes de finalizar.`,
         }
       }
       await updateLoteJustificacionEmpaque(loteId, justificacion)
@@ -213,12 +243,8 @@ export async function finalizarLoteAction(
 
     await updateLoteEstado(loteId, "finalizado")
 
-    // Si todos los lotes de la OP están finalizados → OP terminada
-    const lotesOP = await getLotesByOrden(lote.orden_id)
-    const todosFinalizados = lotesOP.every((l) => l.id === loteId || l.estado === "finalizado")
-    if (todosFinalizados) {
-      await cambiarEstado(lote.orden_id, "terminada")
-    }
+    // La OP se cierra sola cuando cierra su ultimo lote
+    await sincronizarEstadoOrdenDesdeLotes(lote.orden_id)
 
     revalidatePath(`/empaque/${loteId}`)
     revalidatePath("/empaque")

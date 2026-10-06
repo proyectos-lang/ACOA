@@ -182,6 +182,8 @@ export function EstampacionListaClient({
   const [isPending, startTransition] = useTransition()
   const [toast, setToast] = React.useState<{ tipo: "ok" | "error"; msg: string } | null>(null)
   const [seleccion, setSeleccion] = React.useState<Set<number>>(new Set())
+  // Unidades recibidas por lote en la recepcion masiva (vacio = lo enviado)
+  const [recibidas, setRecibidas] = React.useState<Record<number, string>>({})
   const [estampadorSel, setEstampadorSel] = React.useState("")
   const [fechaEntregaSel, setFechaEntregaSel] = React.useState("")
   const [fechaEstimadaSel, setFechaEstimadaSel] = React.useState("")
@@ -314,12 +316,20 @@ export function EstampacionListaClient({
   }
 
   function handleRecepcion() {
+    // Cada lote va con sus unidades recibidas; vacio = lo enviado
+    const items = lotes
+      .filter((l) => seleccion.has(l.id))
+      .map((l) => {
+        const v = recibidas[l.id] ?? ""
+        return { loteId: l.id, cantidad: v === "" ? l.cantidad_programada : parseInt(v, 10) }
+      })
     startTransition(async () => {
-      const res = await recepcionMasivaAction([...seleccion])
+      const res = await recepcionMasivaAction(items)
       if (res.error) showToast("error", res.error)
       else {
         showToast("ok", `Recepción registrada: ${res.procesados} lote(s) enviados a Costura`)
         setSeleccion(new Set())
+        setRecibidas({})
         router.refresh()
       }
     })
@@ -560,18 +570,66 @@ export function EstampacionListaClient({
                   Registrar recepción
                 </button>
               </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl">
+              <AlertDialogContent className="rounded-2xl max-w-lg">
                 <AlertDialogHeader>
-                  <AlertDialogTitle>¿Registrar recepción?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Se registrará la fecha de retorno de {seleccion.size} lote(s) y pasarán a{" "}
-                    <strong>Costura</strong>.
+                  <AlertDialogTitle>Registrar recepción</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-3 text-sm">
+                      <p>
+                        Se registrará la fecha de retorno de hoy y las unidades recibidas de{" "}
+                        {seleccion.size} lote(s), que pasarán a <strong>Costura</strong>. Confirma
+                        cuántas unidades volvieron de cada uno; viene precargado con lo enviado.
+                      </p>
+                      <div className="max-h-64 overflow-y-auto rounded-xl border border-stone-200">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-stone-50 border-b border-stone-100">
+                              <th className="px-3 py-2 text-left font-semibold text-stone-500">Lote</th>
+                              <th className="px-3 py-2 text-right font-semibold text-stone-500">Enviadas</th>
+                              <th className="px-3 py-2 text-right font-semibold text-stone-500">Recibidas</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lotes.filter((l) => seleccion.has(l.id)).map((l) => {
+                              const v = recibidas[l.id] ?? ""
+                              const n = v === "" ? l.cantidad_programada : parseInt(v, 10)
+                              const dif = Number.isFinite(n) ? n - l.cantidad_programada : 0
+                              return (
+                                <tr key={l.id} className="border-b border-stone-100 last:border-0">
+                                  <td className="px-3 py-1.5 font-medium text-stone-700">
+                                    {l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`}
+                                    <span className="text-stone-400"> · {l.orden.referencia}</span>
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right font-mono text-stone-500">
+                                    {l.cantidad_programada.toLocaleString("es-CO")}
+                                  </td>
+                                  <td className="px-3 py-1.5 text-right">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={v}
+                                      placeholder={String(l.cantidad_programada)}
+                                      onChange={(e) =>
+                                        setRecibidas((p) => ({ ...p, [l.id]: e.target.value }))
+                                      }
+                                      className={`w-24 rounded-lg border px-2 py-1 text-right font-mono text-xs outline-none focus:ring-1 focus:ring-[#344966] ${
+                                        dif !== 0 ? "border-amber-400 bg-amber-50" : "border-stone-200"
+                                      }`}
+                                    />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                   <AlertDialogAction onClick={handleRecepcion} className="rounded-xl text-white" style={{ backgroundColor: "#15803d" }}>
-                    Confirmar
+                    Confirmar recepción
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

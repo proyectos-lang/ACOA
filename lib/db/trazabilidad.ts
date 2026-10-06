@@ -1,7 +1,8 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
 // Trazabilidad 360 de las órdenes de producción: estado actual, avance por
-// lote y prenda, línea de tiempo por etapa y tiempos de proceso (lead time).
+// lote y prenda, línea de tiempo por etapa, tiempos de proceso (lead time)
+// y, etapa por etapa, lo programado frente a lo real.
 
 // Diseño salio del flujo (la OP va de programada a corte), pero la etapa
 // se conserva aqui: las ordenes que ya pasaron por ahi tienen su fecha de
@@ -29,6 +30,31 @@ export interface HitoEtapa {
   completada: boolean
 }
 
+// Programado vs real de un lote o de una pieza, etapa por etapa. Es lo que
+// la gerencia necesita ver de un vistazo: cuanto se programo en la OP,
+// cuanto se corto, cuanto volvio de estampacion y de confeccion, cuanto se
+// conto y cuanto se empaco. null = esa etapa aun no registro nada.
+export interface RealEtapas {
+  programado: number
+  cortado: number | null
+  est_recibido: number | null
+  conf_recibido: number | null
+  contado: number | null
+  imperfectos_conteo: number
+  empacado: number | null
+  imperfectos_empaque: number
+}
+
+// Ultimo dato real disponible en la cadena, para la desviacion global
+export function ultimoReal(r: RealEtapas): { etapa: EtapaKey; valor: number } | null {
+  if (r.empacado != null) return { etapa: "empaque", valor: r.empacado }
+  if (r.contado != null) return { etapa: "conteo", valor: r.contado }
+  if (r.conf_recibido != null) return { etapa: "confeccion", valor: r.conf_recibido }
+  if (r.est_recibido != null) return { etapa: "estampacion", valor: r.est_recibido }
+  if (r.cortado != null) return { etapa: "corte", valor: r.cortado }
+  return null
+}
+
 // Peso de cada estado de pieza para su avance individual
 const PESO_PRENDA: Record<string, number> = {
   estampacion: 33,
@@ -54,6 +80,7 @@ export interface PrendaTraza {
   conf_retorno: string | null
   conf_dias: number | null
   dias_total: number | null
+  real: RealEtapas
 }
 
 export interface LoteTraza {
@@ -74,6 +101,7 @@ export interface LoteTraza {
   est_dias: number | null
   conf_dias: number | null
   dias_total: number | null
+  real: RealEtapas
   prendas: PrendaTraza[]
 }
 
@@ -126,6 +154,51 @@ function maxFecha(fechas: Array<string | null>): string | null {
   return v[v.length - 1] ?? null
 }
 
+// Supabase corta cada consulta en 1000 filas: las tablas de detalle
+// (capas reales, conteo, empaque) se traen por paginas.
+async function todas<T>(
+  pagina: (desde: number, hasta: number) => PromiseLike<{
+    data: unknown
+    error: { message: string } | null
+  }>
+): Promise<T[]> {
+  const out: T[] = []
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await pagina(desde, desde + 999)
+    if (error) throw new Error(error.message)
+    const filas = (data ?? []) as T[]
+    out.push(...filas)
+    if (filas.length < 1000) break
+  }
+  return out
+}
+
+type EstConf = {
+  lote_id: number
+  fecha_entrega_lote: string | null
+  fecha_retorno_lote: string | null
+  cantidad: number | null
+}
+type ConteoRow = { id: number; lote_id: number; fecha_conteo: string | null; total_contado: number }
+type DetalleRow = { conteo_id: number; prenda_id: number | null; cantidad_contada: number; imperfectos: number | null }
+type EmpaqueRow = { lote_id: number; prenda_id: number | null; cantidad: number; imperfectos: number | null; fecha: string }
+type CapaRow = { orden_id: number; lote_nombre: string; slot: number; capas_programadas: number; capas_reales: number }
+type PrendaRow = {
+  id: number
+  lote_id: number
+  nombre: string
+  estado: string
+  nombre_estampador: string | null
+  nombre_confeccionista: string | null
+  cantidad_contada: number | null
+  est_fecha_entrega: string | null
+  est_fecha_retorno: string | null
+  conf_fecha_entrega: string | null
+  conf_fecha_retorno: string | null
+  est_cantidad_recibida: number | null
+  conf_cantidad_recibida: number | null
+}
+
 // Carga la trazabilidad completa de todas las órdenes (o de una sola)
 export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
   const db = createVanessaClient()
@@ -153,11 +226,7 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
   const ordenIds = ordenesRows.map((o) => o.id)
 
   // Lotes de todas las órdenes
-  const { data: lotes } = await db
-    .from("lote")
-    .select("id, orden_id, numero_lote, descripcion, color, cantidad_programada, estado")
-    .in("orden_id", ordenIds)
-  const lotesRows = (lotes ?? []) as Array<{
+  const lotesRows = await todas<{
     id: number
     orden_id: number
     numero_lote: number
@@ -165,107 +234,164 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
     color: string | null
     cantidad_programada: number
     estado: string
-  }>
+  }>((d, h) =>
+    db
+      .from("lote")
+      .select("id, orden_id, numero_lote, descripcion, color, cantidad_programada, estado")
+      .in("orden_id", ordenIds)
+      .order("id")
+      .range(d, h)
+  )
   const loteIds = lotesRows.map((l) => l.id)
 
   // Datos de cada proceso, en paralelo
-  const vacio = { data: [] as never[] }
+  const vacio = { data: [] as never[], error: null }
   const [
     { data: disenos },
     { data: cortes },
     { data: estampaciones },
     { data: confecciones },
     { data: conteos },
-    { data: empaques },
-    { data: prendas },
+    empaques,
+    prendas,
+    curvas,
+    capas,
   ] = await Promise.all([
     db.from("diseno").select("orden_id, aprobado, fecha_aprobacion").in("orden_id", ordenIds),
     db.from("corte").select("orden_id, fecha_programacion, fecha_corte").in("orden_id", ordenIds),
     loteIds.length
       ? db
           .from("estampacion")
-          .select("lote_id, fecha_entrega_lote, fecha_retorno_lote")
+          .select("lote_id, fecha_entrega_lote, fecha_retorno_lote, cantidad:cantidad_recibida")
           .in("lote_id", loteIds)
+          .limit(5000)
       : Promise.resolve(vacio),
     loteIds.length
       ? db
           .from("confeccion")
-          .select("lote_id, fecha_entrega_lote, fecha_retorno_lote")
+          .select("lote_id, fecha_entrega_lote, fecha_retorno_lote, cantidad:cantidad_reconfirmada")
           .in("lote_id", loteIds)
-      : Promise.resolve(vacio),
-    loteIds.length
-      ? db.from("conteo").select("lote_id, fecha_conteo, total_contado").in("lote_id", loteIds)
-      : Promise.resolve(vacio),
-    loteIds.length
-      ? db.from("empaque_registro").select("lote_id, cantidad, fecha").in("lote_id", loteIds)
+          .limit(5000)
       : Promise.resolve(vacio),
     loteIds.length
       ? db
-          .from("lote_prenda")
-          .select(
-            "id, lote_id, nombre, estado, nombre_estampador, nombre_confeccionista, cantidad_contada, est_fecha_entrega, est_fecha_retorno, conf_fecha_entrega, conf_fecha_retorno"
-          )
+          .from("conteo")
+          .select("id, lote_id, fecha_conteo, total_contado")
           .in("lote_id", loteIds)
+          .limit(5000)
       : Promise.resolve(vacio),
+    loteIds.length
+      ? todas<EmpaqueRow>((d, h) =>
+          db
+            .from("empaque_registro")
+            .select("lote_id, prenda_id, cantidad, imperfectos, fecha")
+            .in("lote_id", loteIds)
+            .order("id")
+            .range(d, h)
+        )
+      : Promise.resolve([] as EmpaqueRow[]),
+    loteIds.length
+      ? todas<PrendaRow>((d, h) =>
+          db
+            .from("lote_prenda")
+            .select(
+              "id, lote_id, nombre, estado, nombre_estampador, nombre_confeccionista, cantidad_contada, est_fecha_entrega, est_fecha_retorno, conf_fecha_entrega, conf_fecha_retorno, est_cantidad_recibida, conf_cantidad_recibida"
+            )
+            .in("lote_id", loteIds)
+            .order("id")
+            .range(d, h)
+        )
+      : Promise.resolve([] as PrendaRow[]),
+    todas<{ orden_id: number }>((d, h) =>
+      db.from("curva_talla").select("orden_id").in("orden_id", ordenIds).order("id").range(d, h)
+    ),
+    todas<CapaRow>((d, h) =>
+      db
+        .from("corte_capa_real")
+        .select("orden_id, lote_nombre, slot, capas_programadas, capas_reales")
+        .in("orden_id", ordenIds)
+        .order("id")
+        .range(d, h)
+    ),
   ])
 
-  type EstConf = { lote_id: number; fecha_entrega_lote: string | null; fecha_retorno_lote: string | null }
+  // El detalle del conteo cuelga del conteo, no del lote
+  const conteosRows = (conteos ?? []) as ConteoRow[]
+  const conteoIds = conteosRows.map((c) => c.id)
+  const detalles = conteoIds.length
+    ? await todas<DetalleRow>((d, h) =>
+        db
+          .from("conteo_detalle")
+          .select("conteo_id, prenda_id, cantidad_contada, imperfectos")
+          .in("conteo_id", conteoIds)
+          .order("id")
+          .range(d, h)
+      )
+    : []
+
+  // ── Indices ────────────────────────────────────────────────────
   const estMap = new Map<number, EstConf>()
   for (const e of (estampaciones ?? []) as EstConf[]) estMap.set(e.lote_id, e)
   const confMap = new Map<number, EstConf>()
   for (const c of (confecciones ?? []) as EstConf[]) confMap.set(c.lote_id, c)
 
-  const conteoMap = new Map<number, { fecha_conteo: string | null; total_contado: number }>()
-  for (const c of (conteos ?? []) as Array<{
-    lote_id: number
-    fecha_conteo: string | null
-    total_contado: number
-  }>) {
-    conteoMap.set(c.lote_id, { fecha_conteo: c.fecha_conteo, total_contado: c.total_contado })
+  const conteoMap = new Map<number, ConteoRow>()
+  for (const c of conteosRows) conteoMap.set(c.lote_id, c)
+
+  const detallePorConteo = new Map<number, DetalleRow[]>()
+  for (const d of detalles) {
+    const arr = detallePorConteo.get(d.conteo_id) ?? []
+    arr.push(d)
+    detallePorConteo.set(d.conteo_id, arr)
   }
 
-  const empMap = new Map<number, { total: number; fechas: string[] }>()
-  for (const e of (empaques ?? []) as Array<{ lote_id: number; cantidad: number; fecha: string }>) {
-    const acc = empMap.get(e.lote_id) ?? { total: 0, fechas: [] }
+  type AcumEmp = { total: number; imperfectos: number; fechas: string[]; registros: number }
+  const empMap = new Map<number, AcumEmp>()
+  const empPorPrenda = new Map<number, AcumEmp>()
+  for (const e of empaques) {
+    const acc = empMap.get(e.lote_id) ?? { total: 0, imperfectos: 0, fechas: [], registros: 0 }
     acc.total += e.cantidad
+    acc.imperfectos += e.imperfectos ?? 0
+    acc.registros++
     if (e.fecha) acc.fechas.push(e.fecha)
     empMap.set(e.lote_id, acc)
+    if (e.prenda_id != null) {
+      const ap = empPorPrenda.get(e.prenda_id) ?? { total: 0, imperfectos: 0, fechas: [], registros: 0 }
+      ap.total += e.cantidad
+      ap.imperfectos += e.imperfectos ?? 0
+      ap.registros++
+      empPorPrenda.set(e.prenda_id, ap)
+    }
   }
 
-  const prendasMap = new Map<number, PrendaTraza[]>()
-  for (const p of (prendas ?? []) as Array<{
-    id: number
-    lote_id: number
-    nombre: string
-    estado: string
-    nombre_estampador: string | null
-    nombre_confeccionista: string | null
-    cantidad_contada: number | null
-    est_fecha_entrega: string | null
-    est_fecha_retorno: string | null
-    conf_fecha_entrega: string | null
-    conf_fecha_retorno: string | null
-  }>) {
-    const arr = prendasMap.get(p.lote_id) ?? []
-    const inicio = minFecha([p.est_fecha_entrega, p.conf_fecha_entrega])
-    const fin = maxFecha([p.est_fecha_retorno, p.conf_fecha_retorno])
-    arr.push({
-      id: p.id,
-      nombre: p.nombre,
-      estado: p.estado,
-      avance: PESO_PRENDA[p.estado] ?? 0,
-      estampador: p.nombre_estampador,
-      confeccionista: p.nombre_confeccionista,
-      contadas: p.cantidad_contada,
-      est_entrega: p.est_fecha_entrega,
-      est_retorno: p.est_fecha_retorno,
-      est_dias: diasEntre(p.est_fecha_entrega, p.est_fecha_retorno),
-      conf_entrega: p.conf_fecha_entrega,
-      conf_retorno: p.conf_fecha_retorno,
-      conf_dias: diasEntre(p.conf_fecha_entrega, p.conf_fecha_retorno),
-      dias_total: diasEntre(inicio, fin),
-    })
-    prendasMap.set(p.lote_id, arr)
+  // Tallas por orden: cada capa cortada rinde una prenda por talla
+  const tallasPorOrden = new Map<number, number>()
+  for (const c of curvas) tallasPorOrden.set(c.orden_id, (tallasPorOrden.get(c.orden_id) ?? 0) + 1)
+
+  // Capas programadas y reales por lote. Las capas se registran una sola vez
+  // en el material de referencia (slot 1, o el menor que exista).
+  const capasPorLote = new Map<string, Map<number, { prog: number; real: number }>>()
+  for (const c of capas) {
+    const key = `${c.orden_id}|${c.lote_nombre}`
+    const porSlot = capasPorLote.get(key) ?? new Map<number, { prog: number; real: number }>()
+    const acc = porSlot.get(c.slot) ?? { prog: 0, real: 0 }
+    acc.prog += c.capas_programadas
+    acc.real += c.capas_reales
+    porSlot.set(c.slot, acc)
+    capasPorLote.set(key, porSlot)
+  }
+  function capasDe(ordenIdLote: number, loteNombre: string | null) {
+    const porSlot = capasPorLote.get(`${ordenIdLote}|${loteNombre ?? ""}`)
+    if (!porSlot) return null
+    const slotRef = porSlot.has(1) ? 1 : Math.min(...porSlot.keys())
+    return porSlot.get(slotRef) ?? null
+  }
+
+  const prendasPorLote = new Map<number, PrendaRow[]>()
+  for (const p of prendas) {
+    const arr = prendasPorLote.get(p.lote_id) ?? []
+    arr.push(p)
+    prendasPorLote.set(p.lote_id, arr)
   }
 
   const disenoMap = new Map<number, { aprobado: boolean; fecha_aprobacion: string | null }>()
@@ -292,12 +418,75 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
 
   return ordenesRows.map((o) => {
     const misLotes = lotesRows.filter((l) => l.orden_id === o.id)
+    const tallas = tallasPorOrden.get(o.id) ?? 0
 
     const lotesTraza: LoteTraza[] = misLotes.map((l) => {
       const est = estMap.get(l.id)
       const conf = confMap.get(l.id)
       const cnt = conteoMap.get(l.id)
       const emp = empMap.get(l.id)
+      const det = cnt ? (detallePorConteo.get(cnt.id) ?? []) : []
+
+      // Programado: lo de la OP (capas programadas x tallas). Antes de que
+      // corte registre, lote.cantidad_programada ES lo programado; despues
+      // pasa a ser lo cortado, por eso lo programado se toma de las capas.
+      const cap = capasDe(o.id, l.descripcion)
+      const programado = cap && tallas > 0 ? cap.prog * tallas : l.cantidad_programada
+      const cortado = cap && tallas > 0 ? cap.real * tallas : null
+
+      const contadoLote = cnt
+        ? det.length > 0
+          ? det.reduce((s, d) => s + d.cantidad_contada, 0)
+          : cnt.total_contado
+        : null
+      const realLote: RealEtapas = {
+        programado,
+        cortado,
+        est_recibido: est?.cantidad ?? null,
+        conf_recibido: conf?.cantidad ?? null,
+        contado: contadoLote,
+        imperfectos_conteo: det.reduce((s, d) => s + (d.imperfectos ?? 0), 0),
+        empacado: emp && emp.registros > 0 ? emp.total : null,
+        imperfectos_empaque: emp?.imperfectos ?? 0,
+      }
+
+      const prendasTraza: PrendaTraza[] = (prendasPorLote.get(l.id) ?? []).map((p) => {
+        const inicio = minFecha([p.est_fecha_entrega, p.conf_fecha_entrega])
+        const fin = maxFecha([p.est_fecha_retorno, p.conf_fecha_retorno])
+        const detPieza = det.filter((d) => d.prenda_id === p.id)
+        const empPieza = empPorPrenda.get(p.id)
+        return {
+          id: p.id,
+          nombre: p.nombre,
+          estado: p.estado,
+          avance: PESO_PRENDA[p.estado] ?? 0,
+          estampador: p.nombre_estampador,
+          confeccionista: p.nombre_confeccionista,
+          contadas: p.cantidad_contada,
+          est_entrega: p.est_fecha_entrega,
+          est_retorno: p.est_fecha_retorno,
+          est_dias: diasEntre(p.est_fecha_entrega, p.est_fecha_retorno),
+          conf_entrega: p.conf_fecha_entrega,
+          conf_retorno: p.conf_fecha_retorno,
+          conf_dias: diasEntre(p.conf_fecha_entrega, p.conf_fecha_retorno),
+          dias_total: diasEntre(inicio, fin),
+          real: {
+            // Cada pieza del conjunto lleva las mismas unidades que el lote
+            programado,
+            cortado,
+            est_recibido: p.est_cantidad_recibida,
+            conf_recibido: p.conf_cantidad_recibida,
+            contado:
+              detPieza.length > 0
+                ? detPieza.reduce((s, d) => s + d.cantidad_contada, 0)
+                : p.cantidad_contada,
+            imperfectos_conteo: detPieza.reduce((s, d) => s + (d.imperfectos ?? 0), 0),
+            empacado: empPieza && empPieza.registros > 0 ? empPieza.total : null,
+            imperfectos_empaque: empPieza?.imperfectos ?? 0,
+          },
+        }
+      })
+
       return {
         id: l.id,
         nombre: l.descripcion ?? `LOTE-${String(l.numero_lote).padStart(4, "0")}`,
@@ -322,7 +511,8 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
             ...(emp?.fechas ?? []),
           ])
         ),
-        prendas: prendasMap.get(l.id) ?? [],
+        real: realLote,
+        prendas: prendasTraza,
       }
     })
 
@@ -392,7 +582,7 @@ export async function getTrazabilidad(ordenId?: number): Promise<OrdenTraza[]> {
       avance,
       etapa_actual: o.estado,
       total_lotes: lotesTraza.length,
-      total_unidades: lotesTraza.reduce((s, l) => s + l.cantidad_programada, 0),
+      total_unidades: lotesTraza.reduce((s, l) => s + l.real.programado, 0),
       lead_time_dias: lead,
       cerrada,
       lotes: lotesTraza,
@@ -420,4 +610,63 @@ export function promediosPorEtapa(ordenes: OrdenTraza[]): Array<{
         : 0
     return { etapa: e.key, label: e.label, color: e.color, dias, muestras: valores.length }
   })
+}
+
+// ── Filas planas de programado vs real (una por lote, o por pieza en los
+// conjuntos): es la tabla de control de la gerencia y lo que se exporta.
+export interface FilaControl {
+  orden_id: number
+  numero_op: number
+  referencia: string
+  tipo_prenda: string
+  estado_op: string
+  lote_id: number
+  lote: string
+  pieza: string | null
+  estado: string
+  real: RealEtapas
+  // Desviacion del ultimo real disponible frente a lo programado
+  ultimo: { etapa: EtapaKey; valor: number } | null
+  desviacion: number | null
+}
+
+export function filasControl(ordenes: OrdenTraza[]): FilaControl[] {
+  const out: FilaControl[] = []
+  for (const o of ordenes) {
+    for (const l of o.lotes) {
+      const base = {
+        orden_id: o.id,
+        numero_op: o.numero_op,
+        referencia: o.referencia,
+        tipo_prenda: o.tipo_prenda,
+        estado_op: o.estado,
+        lote_id: l.id,
+        lote: l.nombre,
+      }
+      if (o.tipo_prenda === "conjunto" && l.prendas.length > 0) {
+        for (const p of l.prendas) {
+          const ultimo = ultimoReal(p.real)
+          out.push({
+            ...base,
+            pieza: p.nombre,
+            estado: p.estado,
+            real: p.real,
+            ultimo,
+            desviacion: ultimo ? ultimo.valor - p.real.programado : null,
+          })
+        }
+      } else {
+        const ultimo = ultimoReal(l.real)
+        out.push({
+          ...base,
+          pieza: null,
+          estado: l.estado,
+          real: l.real,
+          ultimo,
+          desviacion: ultimo ? ultimo.valor - l.real.programado : null,
+        })
+      }
+    }
+  }
+  return out
 }

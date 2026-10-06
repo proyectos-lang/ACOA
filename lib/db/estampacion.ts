@@ -9,11 +9,15 @@ export interface EstampacionRow {
   dias_entrega: number | null
   fecha_estimada_entrega: string | null
   fecha_retorno_lote: string | null
+  // Unidades que realmente volvieron del estampador. Antes solo habia
+  // fechas y un lote podia regresar con menos prendas sin que nadie lo
+  // registrara hasta conteo.
+  cantidad_recibida: number | null
   observaciones_estampado: string | null
 }
 
 const SELECT_COLS =
-  "id, lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, dias_entrega, fecha_estimada_entrega, fecha_retorno_lote, observaciones_estampado"
+  "id, lote_id, nombre_estampador, precio_estampacion, fecha_entrega_lote, dias_entrega, fecha_estimada_entrega, fecha_retorno_lote, cantidad_recibida, observaciones_estampado"
 
 export async function getEstampacionByLote(loteId: number): Promise<EstampacionRow | null> {
   const db = createVanessaClient()
@@ -37,6 +41,7 @@ export async function upsertEstampacionParcial(
       | "dias_entrega"
       | "fecha_estimada_entrega"
       | "fecha_retorno_lote"
+      | "cantidad_recibida"
       | "observaciones_estampado"
     >
   >,
@@ -64,6 +69,7 @@ export async function guardarEstampacion(input: {
   dias_entrega?: number | null
   fecha_estimada_entrega?: string | null
   fecha_retorno_lote?: string | null
+  cantidad_recibida?: number | null
   observaciones_estampado?: string | null
   creado_por: number
 }): Promise<void> {
@@ -77,6 +83,7 @@ export async function guardarEstampacion(input: {
     fecha_entrega_lote: input.fecha_entrega_lote ?? null,
     fecha_estimada_entrega: input.fecha_estimada_entrega ?? null,
     fecha_retorno_lote: input.fecha_retorno_lote ?? null,
+    cantidad_recibida: input.cantidad_recibida ?? null,
     observaciones_estampado: input.observaciones_estampado ?? null,
   }
 

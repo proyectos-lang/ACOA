@@ -4,9 +4,13 @@ import { revalidatePath } from "next/cache"
 import { getSession } from "@/lib/auth/session"
 import { guardarConfeccion, uploadImagenConfeccion, replaceInsumos, getConfeccionByLote } from "@/lib/db/confeccion"
 import { createNovedadProceso, deleteNovedadProceso } from "@/lib/db/novedad-proceso"
-import { getLoteById, getLotesByOrden, updateLoteEstado } from "@/lib/db/lote"
-import { cambiarEstado } from "@/lib/db/orden-produccion"
-import { listPrendasByLote } from "@/lib/db/lote-prenda"
+import { getLoteById, updateLoteEstado, sincronizarEstadoOrdenDesdeLotes } from "@/lib/db/lote"
+import { getOrdenById } from "@/lib/db/orden-produccion"
+import {
+  listPrendasByLote,
+  updatePrenda,
+  sincronizarEstadoLoteDesdePrendas,
+} from "@/lib/db/lote-prenda"
 import { sumarDiasSinDomingo, hoyBogota } from "@/lib/fechas-habiles"
 
 type ActionResult = { error?: string; success?: boolean }
@@ -124,30 +128,56 @@ export async function eliminarNovedadConfeccionAction(
   }
 }
 
+// Enviar a conteo exige el registro real de la etapa: fecha de retorno y
+// cuantas unidades volvieron del confeccionista (cantidad_reconfirmada).
+// Antes bastaba con que la fila de confeccion existiera. En los conjuntos
+// se exige por pieza y el envio avanza las piezas que sigan en confeccion.
 export async function enviarAConteoAction(loteId: number): Promise<ActionResult> {
   const session = await getSession()
   if (!session) return { error: "No autorizado" }
 
   try {
-    const [lote, confeccion] = await Promise.all([
-      getLoteById(loteId),
-      getConfeccionByLote(loteId),
-    ])
+    const lote = await getLoteById(loteId)
     if (!lote) return { error: "Lote no encontrado" }
-    if (!confeccion) {
-      return { error: "Registre la información de confección antes de enviar a conteo." }
+    const orden = await getOrdenById(lote.orden_id)
+
+    if (orden?.tipo_prenda === "conjunto") {
+      const prendas = await listPrendasByLote(loteId)
+      if (prendas.length === 0) return { error: "El lote no tiene piezas registradas" }
+      const pendientes = prendas.filter((p) => p.estado === "confeccion")
+      for (const p of pendientes) {
+        if (!p.conf_fecha_retorno) {
+          return { error: `Falta la fecha de retorno de la pieza "${p.nombre}"` }
+        }
+        if (p.conf_cantidad_recibida == null) {
+          return {
+            error: `Falta registrar cuántas unidades de "${p.nombre}" volvieron de confección`,
+          }
+        }
+      }
+      for (const p of pendientes) await updatePrenda(p.id, { estado: "conteo" })
+      await sincronizarEstadoLoteDesdePrendas(loteId)
+    } else {
+      const confeccion = await getConfeccionByLote(loteId)
+      if (!confeccion) {
+        return { error: "Registre la información de confección antes de enviar a conteo." }
+      }
+      if (!confeccion.fecha_retorno_lote) {
+        return { error: "Registra la fecha de retorno del lote antes de enviarlo a conteo" }
+      }
+      if (confeccion.cantidad_reconfirmada == null) {
+        return {
+          error: "Registra cuántas unidades volvieron de confección antes de enviar el lote",
+        }
+      }
+      await updateLoteEstado(loteId, "conteo")
     }
 
-    await updateLoteEstado(loteId, "conteo")
-
-    // Si todos los lotes de la OP están en conteo, avanzar la OP
-    const todos = await getLotesByOrden(lote.orden_id)
-    if (todos.every((l) => l.id === loteId || l.estado === "conteo")) {
-      await cambiarEstado(lote.orden_id, "conteo")
-    }
+    await sincronizarEstadoOrdenDesdeLotes(lote.orden_id)
 
     revalidatePath(`/confeccion/${loteId}`)
     revalidatePath("/confeccion")
+    revalidatePath("/conteo")
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Error enviando a conteo" }
