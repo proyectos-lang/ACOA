@@ -1,33 +1,5 @@
 import { createVanessaClient } from "@/lib/supabase/vanessa"
 
-export interface VSeguimientoOP {
-  orden_id: number
-  numero_op: number
-  referencia: string
-  descripcion: string | null
-  fecha_programacion: string | null
-  estado: string
-  total_unidades: number
-  total_colores: number
-  total_tallas: number
-  costo_unitario: number
-  precio_venta: number | null
-  margen: number
-  valor_total_venta: number
-  costo_total_orden: number
-  diseno_aprobado: boolean
-  consecutivo_corte: number | null
-  total_lotes: number
-  lotes_en_estampacion: number
-  lotes_en_confeccion: number
-  lotes_en_conteo: number
-  lotes_en_empaque: number
-  lotes_finalizados: number
-  unidades_empacadas: number
-  porcentaje_avance: number
-  dias_en_proceso: number
-}
-
 export interface VPipelineProduccion {
   estado: string
   cantidad_ordenes: number
@@ -51,21 +23,52 @@ export interface VLotesActivos {
   unidades_empacadas: number
 }
 
-export async function getSeguimientoOPs(): Promise<VSeguimientoOP[]> {
-  const db = createVanessaClient()
-  const { data, error } = await db
-    .from("v_seguimiento_op")
-    .select("*")
-    .order("fecha_programacion", { ascending: true })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as VSeguimientoOP[]
-}
-
+// Antes leia la vista v_pipeline_produccion, que nunca existio en la base
+// (no esta en ningun script ni en el commit inicial): la consulta fallaba,
+// /seguimiento devolvia HTTP 500 y la gerente no podia abrir el modulo.
+// Se calcula aqui para no depender de una vista que hay que crear a mano.
 export async function getPipelineProduccion(): Promise<VPipelineProduccion[]> {
   const db = createVanessaClient()
-  const { data, error } = await db.from("v_pipeline_produccion").select("*")
-  if (error) throw new Error(error.message)
-  return (data ?? []) as VPipelineProduccion[]
+  const [
+    { data: ordenes, error: errOrdenes },
+    { data: lotes, error: errLotes },
+    { data: hojas, error: errHojas },
+  ] = await Promise.all([
+    db.from("orden_produccion").select("id, estado").limit(10000),
+    db.from("lote").select("orden_id, cantidad_programada").limit(20000),
+    db.from("hoja_costos").select("orden_id, precio_venta").limit(10000),
+  ])
+  if (errOrdenes) throw new Error(errOrdenes.message)
+  if (errLotes) throw new Error(errLotes.message)
+  if (errHojas) throw new Error(errHojas.message)
+
+  const unidadesPorOrden = new Map<number, number>()
+  for (const l of (lotes ?? []) as Array<{ orden_id: number; cantidad_programada: number }>) {
+    unidadesPorOrden.set(
+      l.orden_id,
+      (unidadesPorOrden.get(l.orden_id) ?? 0) + (Number(l.cantidad_programada) || 0)
+    )
+  }
+  const precioPorOrden = new Map<number, number>()
+  for (const h of (hojas ?? []) as Array<{ orden_id: number; precio_venta: number | null }>) {
+    precioPorOrden.set(h.orden_id, Number(h.precio_venta) || 0)
+  }
+
+  const porEstado = new Map<string, VPipelineProduccion>()
+  for (const o of (ordenes ?? []) as Array<{ id: number; estado: string }>) {
+    const acc = porEstado.get(o.estado) ?? {
+      estado: o.estado,
+      cantidad_ordenes: 0,
+      total_unidades: 0,
+      valor_total: 0,
+    }
+    const unidades = unidadesPorOrden.get(o.id) ?? 0
+    acc.cantidad_ordenes += 1
+    acc.total_unidades += unidades
+    acc.valor_total += unidades * (precioPorOrden.get(o.id) ?? 0)
+    porEstado.set(o.estado, acc)
+  }
+  return [...porEstado.values()]
 }
 
 export async function getLotesActivos(): Promise<VLotesActivos[]> {
